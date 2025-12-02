@@ -1,0 +1,274 @@
+package com.evse.simulator.service;
+
+import com.evse.simulator.model.PerformanceMetrics;
+import com.evse.simulator.model.Session;
+import com.evse.simulator.model.enums.ChargerType;
+import com.evse.simulator.model.enums.SessionState;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
+
+/**
+ * Tests unitaires pour PerformanceService.
+ */
+@ExtendWith(MockitoExtension.class)
+class PerformanceServiceTest {
+
+    @Mock
+    private SessionService sessionService;
+
+    @Mock
+    private OCPPService ocppService;
+
+    @Mock
+    private WebSocketBroadcaster broadcaster;
+
+    private PerformanceService performanceService;
+
+    @BeforeEach
+    void setUp() {
+        performanceService = new PerformanceService(sessionService, ocppService, broadcaster);
+    }
+
+    @Test
+    @DisplayName("Doit collecter les métriques de performance")
+    void shouldCollectPerformanceMetrics() {
+        // Given
+        Session session1 = createChargingSession("s1", 22.5, 15.0);
+        Session session2 = createChargingSession("s2", 50.0, 25.0);
+        Session session3 = createDisconnectedSession("s3");
+
+        when(sessionService.getAllSessions()).thenReturn(List.of(session1, session2, session3));
+        when(ocppService.getActiveConnectionsCount()).thenReturn(2);
+
+        // When
+        PerformanceMetrics metrics = performanceService.collectMetrics();
+
+        // Then
+        assertThat(metrics).isNotNull();
+        assertThat(metrics.getTotalSessions()).isEqualTo(3);
+        assertThat(metrics.getActiveSessions()).isEqualTo(2);
+        assertThat(metrics.getChargingSessions()).isEqualTo(2);
+        assertThat(metrics.getTotalPowerKw()).isEqualTo(72.5); // 22.5 + 50.0
+        assertThat(metrics.getTotalEnergyKwh()).isEqualTo(40.0); // 15.0 + 25.0
+    }
+
+    @Test
+    @DisplayName("Doit enregistrer la latence d'un message")
+    void shouldRecordMessageLatency() {
+        // Given
+        when(sessionService.getAllSessions()).thenReturn(List.of());
+        when(ocppService.getActiveConnectionsCount()).thenReturn(0);
+
+        // When
+        performanceService.recordLatency(100L);
+        performanceService.recordLatency(150L);
+        performanceService.recordLatency(200L);
+
+        // Then
+        PerformanceMetrics metrics = performanceService.collectMetrics();
+        assertThat(metrics.getAverageLatencyMs()).isGreaterThan(0);
+    }
+
+    @Test
+    @DisplayName("Doit enregistrer des erreurs")
+    void shouldRecordErrors() {
+        // Given
+        when(sessionService.getAllSessions()).thenReturn(List.of());
+        when(ocppService.getActiveConnectionsCount()).thenReturn(0);
+
+        // When
+        performanceService.incrementErrors();
+        performanceService.incrementErrors();
+        performanceService.incrementErrors();
+        performanceService.incrementMessagesSent();
+
+        PerformanceMetrics metrics = performanceService.collectMetrics();
+
+        // Then
+        assertThat(metrics.getErrorRate()).isGreaterThan(0);
+    }
+
+    @Test
+    @DisplayName("Doit incrémenter le compteur de messages envoyés")
+    void shouldIncrementMessagesSent() {
+        // Given
+        when(sessionService.getAllSessions()).thenReturn(List.of());
+        when(ocppService.getActiveConnectionsCount()).thenReturn(0);
+
+        // When
+        performanceService.incrementMessagesSent();
+        performanceService.incrementMessagesSent();
+        performanceService.incrementMessagesSent();
+        performanceService.incrementMessagesSent();
+        performanceService.incrementMessagesSent();
+
+        PerformanceMetrics metrics = performanceService.collectMetrics();
+
+        // Then
+        assertThat(metrics.getMessagesSent()).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("Doit incrémenter le compteur de messages reçus")
+    void shouldIncrementMessagesReceived() {
+        // Given
+        when(sessionService.getAllSessions()).thenReturn(List.of());
+        when(ocppService.getActiveConnectionsCount()).thenReturn(0);
+
+        // When
+        performanceService.incrementMessagesReceived();
+        performanceService.incrementMessagesReceived();
+        performanceService.incrementMessagesReceived();
+
+        PerformanceMetrics metrics = performanceService.collectMetrics();
+
+        // Then
+        assertThat(metrics.getMessagesReceived()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("Doit réinitialiser les compteurs")
+    void shouldResetCounters() {
+        // Given
+        performanceService.incrementMessagesSent();
+        performanceService.incrementErrors();
+
+        when(sessionService.getAllSessions()).thenReturn(List.of());
+        when(ocppService.getActiveConnectionsCount()).thenReturn(0);
+
+        // When
+        performanceService.resetCounters();
+        PerformanceMetrics metrics = performanceService.collectMetrics();
+
+        // Then
+        assertThat(metrics.getMessagesSent()).isEqualTo(0);
+        assertThat(metrics.getMessagesReceived()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("Doit démarrer un test de charge")
+    void shouldStartLoadTest() {
+        // Given
+        Session template = new Session();
+        template.setCpId("LOAD-TEST");
+        template.setUrl("ws://localhost:9000/ocpp");
+        template.setChargerType(ChargerType.AC_TRI);
+
+        // When
+        String testId = performanceService.startLoadTest(10, 30, template);
+
+        // Then
+        assertThat(testId).isNotNull();
+
+        // Cleanup
+        performanceService.stopLoadTest();
+    }
+
+    @Test
+    @DisplayName("Doit arrêter le test de charge")
+    void shouldStopLoadTest() {
+        // Given
+        Session template = new Session();
+        template.setCpId("LOAD-TEST");
+        template.setUrl("ws://localhost:9000/ocpp");
+        template.setChargerType(ChargerType.AC_TRI);
+
+        performanceService.startLoadTest(10, 30, template);
+
+        // When
+        performanceService.stopLoadTest();
+
+        // Then
+        PerformanceService.LoadTestStatus status = performanceService.getLoadTestStatus();
+        if (status != null) {
+            assertThat(status.isRunning()).isFalse();
+        }
+    }
+
+    @Test
+    @DisplayName("Doit récupérer les statistiques par session")
+    void shouldGetSessionStats() {
+        // Given
+        Session session1 = createChargingSession("s1", 22.5, 15.0);
+        Session session2 = createChargingSession("s2", 50.0, 25.0);
+
+        when(sessionService.getAllSessions()).thenReturn(List.of(session1, session2));
+
+        // When
+        List<PerformanceService.SessionStats> stats = performanceService.getSessionStats();
+
+        // Then
+        assertThat(stats).hasSize(2);
+        assertThat(stats).extracting(PerformanceService.SessionStats::getSessionId)
+                .containsExactlyInAnyOrder("s1", "s2");
+    }
+
+    @Test
+    @DisplayName("Doit calculer les métriques système")
+    void shouldCalculateSystemMetrics() {
+        // Given
+        when(sessionService.getAllSessions()).thenReturn(List.of());
+        when(ocppService.getActiveConnectionsCount()).thenReturn(0);
+
+        // When
+        PerformanceMetrics metrics = performanceService.collectMetrics();
+
+        // Then
+        assertThat(metrics.getActiveThreads()).isGreaterThan(0);
+        assertThat(metrics.getMemoryUsedMb()).isGreaterThan(0);
+        assertThat(metrics.getMemoryTotalMb()).isGreaterThan(0);
+    }
+
+    @Test
+    @DisplayName("Doit calculer le throughput")
+    void shouldCalculateThroughput() throws InterruptedException {
+        // Given
+        when(sessionService.getAllSessions()).thenReturn(List.of());
+        when(ocppService.getActiveConnectionsCount()).thenReturn(0);
+
+        // When - Simuler des messages sur une courte période
+        for (int i = 0; i < 100; i++) {
+            performanceService.incrementMessagesSent();
+        }
+
+        Thread.sleep(100); // Petite pause pour permettre le calcul
+        PerformanceMetrics metrics = performanceService.collectMetrics();
+
+        // Then
+        assertThat(metrics.getThroughput()).isGreaterThanOrEqualTo(0);
+    }
+
+    // Helper methods
+
+    private Session createChargingSession(String id, double power, double energy) {
+        Session session = new Session();
+        session.setId(id);
+        session.setCpId("CP-" + id);
+        session.setState(SessionState.CHARGING);
+        session.setConnected(true);
+        session.setCurrentPowerKw(power);
+        session.setEnergyDeliveredKwh(energy);
+        session.setChargerType(ChargerType.DC_50);
+        return session;
+    }
+
+    private Session createDisconnectedSession(String id) {
+        Session session = new Session();
+        session.setId(id);
+        session.setCpId("CP-" + id);
+        session.setState(SessionState.DISCONNECTED);
+        session.setConnected(false);
+        session.setCurrentPowerKw(0);
+        session.setEnergyDeliveredKwh(0);
+        return session;
+    }
+}

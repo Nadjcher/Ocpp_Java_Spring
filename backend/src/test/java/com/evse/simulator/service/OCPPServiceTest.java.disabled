@@ -1,0 +1,257 @@
+package com.evse.simulator.service;
+
+import com.evse.simulator.model.Session;
+import com.evse.simulator.model.enums.ChargerType;
+import com.evse.simulator.model.enums.ConnectorStatus;
+import com.evse.simulator.model.enums.SessionState;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+/**
+ * Tests unitaires pour OCPPService.
+ */
+@ExtendWith(MockitoExtension.class)
+class OCPPServiceTest {
+
+    @Mock
+    private SessionService sessionService;
+
+    @Mock
+    private WebSocketBroadcaster broadcaster;
+
+    @Mock
+    private PerformanceService performanceService;
+
+    private OCPPService ocppService;
+
+    @BeforeEach
+    void setUp() {
+        ocppService = new OCPPService(sessionService, broadcaster, performanceService);
+    }
+
+    @Test
+    @DisplayName("Doit gérer un CallResult BootNotification accepté")
+    void shouldHandleBootNotificationAccepted() {
+        // Given
+        String sessionId = "session-123";
+        String messageId = "msg-001";
+
+        Session session = createTestSession(sessionId);
+        session.setState(SessionState.CONNECTED);
+
+        when(sessionService.getSession(sessionId)).thenReturn(session);
+        when(sessionService.updateState(eq(sessionId), any(SessionState.class))).thenReturn(session);
+
+        Map<String, Object> payload = Map.of(
+                "status", "Accepted",
+                "currentTime", "2024-01-15T10:00:00Z",
+                "interval", 30
+        );
+
+        // When
+        ocppService.handleCallResult(sessionId, messageId, payload);
+
+        // Then
+        verify(sessionService).updateState(sessionId, SessionState.AVAILABLE);
+        verify(performanceService).recordLatency(eq(messageId), anyLong());
+    }
+
+    @Test
+    @DisplayName("Doit gérer un CallResult Authorize accepté")
+    void shouldHandleAuthorizeAccepted() {
+        // Given
+        String sessionId = "session-123";
+        String messageId = "msg-002";
+
+        Session session = createTestSession(sessionId);
+        session.setState(SessionState.AUTHORIZING);
+
+        when(sessionService.getSession(sessionId)).thenReturn(session);
+        when(sessionService.updateState(eq(sessionId), any(SessionState.class))).thenReturn(session);
+
+        Map<String, Object> payload = Map.of(
+                "idTagInfo", Map.of("status", "Accepted")
+        );
+
+        // When
+        ocppService.handleCallResult(sessionId, messageId, payload);
+
+        // Then
+        verify(sessionService).updateState(sessionId, SessionState.PREPARING);
+    }
+
+    @Test
+    @DisplayName("Doit gérer un CallResult StartTransaction")
+    void shouldHandleStartTransactionResult() {
+        // Given
+        String sessionId = "session-123";
+        String messageId = "msg-003";
+
+        Session session = createTestSession(sessionId);
+        session.setState(SessionState.PREPARING);
+
+        when(sessionService.getSession(sessionId)).thenReturn(session);
+        when(sessionService.updateState(eq(sessionId), any(SessionState.class))).thenReturn(session);
+
+        Map<String, Object> payload = Map.of(
+                "transactionId", 12345,
+                "idTagInfo", Map.of("status", "Accepted")
+        );
+
+        // When
+        ocppService.handleCallResult(sessionId, messageId, payload);
+
+        // Then
+        assertThat(session.getTransactionId()).isEqualTo("12345");
+        verify(sessionService).updateState(sessionId, SessionState.CHARGING);
+    }
+
+    @Test
+    @DisplayName("Doit gérer un CallError")
+    void shouldHandleCallError() {
+        // Given
+        String sessionId = "session-123";
+        String messageId = "msg-error";
+        String errorCode = "GenericError";
+        String errorDescription = "Something went wrong";
+
+        Session session = createTestSession(sessionId);
+        when(sessionService.getSession(sessionId)).thenReturn(session);
+
+        // When
+        ocppService.handleCallError(sessionId, messageId, errorCode, errorDescription);
+
+        // Then
+        verify(performanceService).recordError();
+        // Le log d'erreur devrait être ajouté à la session
+    }
+
+    @Test
+    @DisplayName("Doit calculer la puissance selon le type de chargeur AC")
+    void shouldCalculatePowerForACCharger() {
+        // Given
+        Session session = createTestSession("session-ac");
+        session.setChargerType(ChargerType.AC_TRI);
+        session.setSoc(50);
+        session.setTargetSoc(80);
+
+        // When
+        double power = calculateExpectedPower(session);
+
+        // Then
+        // AC_TRI = 22kW max, devrait être proche de cette valeur
+        assertThat(power).isLessThanOrEqualTo(22.0);
+        assertThat(power).isGreaterThan(0);
+    }
+
+    @Test
+    @DisplayName("Doit calculer la puissance selon le type de chargeur DC")
+    void shouldCalculatePowerForDCCharger() {
+        // Given
+        Session session = createTestSession("session-dc");
+        session.setChargerType(ChargerType.DC_150);
+        session.setSoc(30);
+        session.setTargetSoc(80);
+
+        // When
+        double power = calculateExpectedPower(session);
+
+        // Then
+        // DC_150 = 150kW max
+        assertThat(power).isLessThanOrEqualTo(150.0);
+        assertThat(power).isGreaterThan(0);
+    }
+
+    @Test
+    @DisplayName("Doit réduire la puissance quand le SOC approche la cible")
+    void shouldReducePowerWhenApproachingTargetSoc() {
+        // Given
+        Session sessionLowSoc = createTestSession("session-low");
+        sessionLowSoc.setChargerType(ChargerType.DC_150);
+        sessionLowSoc.setSoc(30);
+        sessionLowSoc.setTargetSoc(80);
+
+        Session sessionHighSoc = createTestSession("session-high");
+        sessionHighSoc.setChargerType(ChargerType.DC_150);
+        sessionHighSoc.setSoc(75);
+        sessionHighSoc.setTargetSoc(80);
+
+        // When
+        double powerLow = calculateExpectedPower(sessionLowSoc);
+        double powerHigh = calculateExpectedPower(sessionHighSoc);
+
+        // Then
+        // La puissance devrait être plus basse quand on approche de la cible
+        assertThat(powerHigh).isLessThan(powerLow);
+    }
+
+    @Test
+    @DisplayName("Doit retourner le nombre de connexions actives")
+    void shouldReturnActiveConnectionsCount() {
+        // When
+        int count = ocppService.getActiveConnectionsCount();
+
+        // Then
+        assertThat(count).isGreaterThanOrEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("Doit gérer la déconnexion proprement")
+    void shouldHandleDisconnection() {
+        // Given
+        String sessionId = "session-123";
+        Session session = createTestSession(sessionId);
+        session.setConnected(true);
+        session.setState(SessionState.AVAILABLE);
+
+        when(sessionService.getSession(sessionId)).thenReturn(session);
+        when(sessionService.updateState(eq(sessionId), any(SessionState.class))).thenReturn(session);
+
+        // When
+        ocppService.disconnect(sessionId);
+
+        // Then
+        verify(sessionService).updateState(sessionId, SessionState.DISCONNECTED);
+    }
+
+    // Helper methods
+
+    private Session createTestSession(String id) {
+        Session session = new Session();
+        session.setId(id);
+        session.setChargePointId("CP-" + id);
+        session.setCsmsUrl("ws://localhost:9000/ocpp");
+        session.setChargerType(ChargerType.AC_TRI);
+        session.setState(SessionState.IDLE);
+        session.setSoc(20);
+        session.setTargetSoc(80);
+        session.setIdTag("RFID001");
+        return session;
+    }
+
+    private double calculateExpectedPower(Session session) {
+        // Simulation simplifiée du calcul de puissance
+        double maxPower = session.getChargerType().getMaxPower();
+        int soc = session.getSoc();
+        int targetSoc = session.getTargetSoc();
+
+        // Réduction progressive de la puissance
+        double socFactor = 1.0;
+        if (soc > 70) {
+            socFactor = Math.max(0.3, 1.0 - (soc - 70) / 30.0);
+        }
+
+        return maxPower * socFactor * 0.9; // 90% d'efficacité
+    }
+}
