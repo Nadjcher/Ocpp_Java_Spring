@@ -10,7 +10,7 @@ export function SimuEVSE() {
     const [sessionFilter, setSessionFilter] = useState<Record<string, boolean>>({});
 
     const visibleSessions = sessions.filter(s => !s.hidden);
-    const activeSessions = visibleSessions.filter(s => s.state === 'CHARGING');
+    const activeSessions = visibleSessions.filter(s => s.status === 'charging');
 
     const handleCreateSession = async () => {
         const sessionNumber = sessions.length + 1;
@@ -22,13 +22,13 @@ export function SimuEVSE() {
         ? activeSessions.reduce((sum, s) => sum + (s.soc || 0), 0) / activeSessions.length
         : 0;
     const avgOffered = activeSessions.length > 0
-        ? activeSessions.reduce((sum, s) => sum + (s.offeredPowerW || 0), 0) / activeSessions.length
+        ? activeSessions.reduce((sum, s) => sum + (s.offeredPower || 0), 0) / activeSessions.length
         : 0;
     const avgActive = activeSessions.length > 0
-        ? activeSessions.reduce((sum, s) => sum + (s.activePowerW || 0), 0) / activeSessions.length
+        ? activeSessions.reduce((sum, s) => sum + (s.activePower || 0), 0) / activeSessions.length
         : 0;
     const avgSetPoint = activeSessions.length > 0
-        ? activeSessions.reduce((sum, s) => sum + (s.appliedLimitW || 0), 0) / activeSessions.length
+        ? activeSessions.reduce((sum, s) => sum + (s.metrics?.backendKwMax || 0), 0) / activeSessions.length
         : 0;
 
     return (
@@ -45,7 +45,7 @@ export function SimuEVSE() {
                         >
                             {sessions.map(session => (
                                 <option key={session.id} value={session.id}>
-                                    {session.title}
+                                    {session.cpId}
                                 </option>
                             ))}
                         </select>
@@ -94,7 +94,7 @@ export function SimuEVSE() {
                                         [session.id]: e.target.checked
                                     }))}
                                 />
-                                <span className="text-xs">{session.title}</span>
+                                <span className="text-xs">{session.cpId}</span>
                             </label>
                         ))}
                     </div>
@@ -109,9 +109,9 @@ export function SimuEVSE() {
                     sessions={activeSessions}
                 />
 
-                {activeSessionId && (
+                {activeSessionId && sessions.find(s => s.id === activeSessionId) && (
                     <div className="flex-1">
-                        <SessionPanel sessionId={activeSessionId} />
+                        <SessionPanel session={sessions.find(s => s.id === activeSessionId)} />
                     </div>
                 )}
             </div>

@@ -1,5 +1,6 @@
 // frontend/src/tabs/MLAnalysisTab.tsx
 import React, { useEffect, useState, useRef, useMemo } from "react";
+import { config } from "@/config/env";
 
 /* ========================================================================== */
 /* Types et interfaces                                                        */
@@ -69,10 +70,19 @@ interface MLModelStatus {
 /* Configuration API                                                          */
 /* ========================================================================== */
 
-// Utilisation d'une URL par défaut si API_BASE n'est pas disponible
-const API_BASE = typeof window !== 'undefined'
-    ? window.localStorage.getItem("runner_api") || "http://localhost:8877"
-    : "http://localhost:8877";
+// Utilisation du proxy Vite en développement pour éviter les problèmes CORS
+const API_BASE = (() => {
+    const isDev = typeof import.meta !== "undefined" && import.meta.env?.DEV;
+    if (isDev) {
+        return ""; // Utiliser le proxy Vite
+    }
+    // En production, permettre l'override via localStorage
+    if (typeof window !== 'undefined') {
+        const stored = window.localStorage.getItem("runner_api");
+        if (stored) return stored;
+    }
+    return config.apiUrl || "http://localhost:8887";
+})();
 
 /* ========================================================================== */
 /* Helpers et utilitaires                                                    */
@@ -313,8 +323,14 @@ export default function MLAnalysisTab() {
     const [analysisInterval, setAnalysisInterval] = useState(10); // secondes
     const [anomalyThreshold, setAnomalyThreshold] = useState(0.05);
 
-    const intervalRef = useRef<NodeJS.Timeout>()
+    // WebSocket connection state
+    const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'failed'>('disconnected');
+    const wsRetryCount = useRef(0);
+    const MAX_WS_RETRIES = 3;
+
+    const intervalRef = useRef<NodeJS.Timeout>();
     const wsRef = useRef<WebSocket | null>(null);
+    const wsRetryTimeoutRef = useRef<NodeJS.Timeout>();
 
     /* ======== Fonctions API ======== */
 
@@ -399,8 +415,12 @@ export default function MLAnalysisTab() {
                 }
             });
 
-            // Mise à jour des états (garder les 50 dernières anomalies)
-            setAnomalies(prev => [...newAnomalies, ...prev].slice(0, 50));
+            // Mise à jour des états (garder les 50 dernières anomalies, dédupliquées)
+            setAnomalies(prev => {
+                const existingIds = new Set(prev.map(a => a.id));
+                const uniqueNewAnomalies = newAnomalies.filter(a => !existingIds.has(a.id));
+                return [...uniqueNewAnomalies, ...prev].slice(0, 50);
+            });
             setPredictions(newPredictions);
 
             // Notifications pour anomalies critiques
@@ -437,17 +457,51 @@ export default function MLAnalysisTab() {
             Notification.requestPermission();
         }
 
+        // Track if component is mounted to prevent reconnection after unmount
+        let isMounted = true;
+
         // Délai pour laisser le serveur démarrer complètement
         const connectWebSocket = () => {
+            // Don't reconnect if unmounted or already connecting/connected
+            if (!isMounted) return;
+            if (wsRef.current && (wsRef.current.readyState === WebSocket.CONNECTING || wsRef.current.readyState === WebSocket.OPEN)) {
+                return;
+            }
+
+            // Clear any pending retry timeout
+            if (wsRetryTimeoutRef.current) {
+                clearTimeout(wsRetryTimeoutRef.current);
+                wsRetryTimeoutRef.current = undefined;
+            }
+
             try {
-                const ws = new WebSocket('ws://localhost:8877');
+                // Construire l'URL WebSocket pour ML
+                let wsUrl: string;
+                if (config.apiUrl) {
+                    // Production: utiliser l'URL de l'API
+                    wsUrl = config.apiUrl.replace(/^http/, 'ws') + '/ws-ml';
+                } else {
+                    // Dev mode: utiliser le même host que la page (Vite proxy)
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    wsUrl = `${protocol}//${window.location.host}/ws-ml`;
+                }
+
+                setWsStatus('connecting');
+                const ws = new WebSocket(wsUrl);
                 wsRef.current = ws;
 
                 ws.onopen = () => {
+                    if (!isMounted) {
+                        ws.close();
+                        return;
+                    }
                     console.log('✅ Connected to ML WebSocket');
+                    setWsStatus('connected');
+                    wsRetryCount.current = 0; // Reset retry count on successful connection
                 };
 
                 ws.onmessage = (event) => {
+                    if (!isMounted) return;
                     try {
                         const data = JSON.parse(event.data);
 
@@ -456,8 +510,14 @@ export default function MLAnalysisTab() {
                         } else if (data.type === 'ML_ANOMALY') {
                             console.log('🔔 Nouvelle anomalie reçue:', data.data);
 
-                            // Ajouter l'anomalie à la liste
-                            setAnomalies(prev => [data.data, ...prev].slice(0, 50));
+                            // Ajouter l'anomalie à la liste (dédupliquée par ID)
+                            setAnomalies(prev => {
+                                // Éviter les doublons
+                                if (prev.some(a => a.id === data.data.id)) {
+                                    return prev;
+                                }
+                                return [data.data, ...prev].slice(0, 50);
+                            });
 
                             // Notification si critique
                             if ((data.data.severity === 'CRITICAL' || data.data.severity === 'HIGH') &&
@@ -475,20 +535,32 @@ export default function MLAnalysisTab() {
                 };
 
                 ws.onerror = (error) => {
+                    if (!isMounted) return;
                     console.error('❌ WebSocket error:', error);
-                    // Réessayer la connexion après 5 secondes
-                    setTimeout(connectWebSocket, 5000);
+                    setWsStatus('failed');
                 };
 
                 ws.onclose = () => {
+                    if (!isMounted) return;
                     console.log('🔌 WebSocket disconnected');
-                    // Réessayer la connexion après 3 secondes
-                    setTimeout(connectWebSocket, 3000);
+                    setWsStatus('disconnected');
+                    wsRef.current = null;
+
+                    // Retry with exponential backoff, max 3 retries
+                    if (wsRetryCount.current < MAX_WS_RETRIES) {
+                        wsRetryCount.current++;
+                        const delay = Math.min(3000 * Math.pow(2, wsRetryCount.current - 1), 30000);
+                        console.log(`[ML WebSocket] Reconnecting in ${delay}ms (attempt ${wsRetryCount.current}/${MAX_WS_RETRIES})`);
+                        wsRetryTimeoutRef.current = setTimeout(connectWebSocket, delay);
+                    } else {
+                        console.log('[ML WebSocket] Max retries reached, giving up');
+                        setWsStatus('failed');
+                    }
                 };
             } catch (error) {
+                if (!isMounted) return;
                 console.error('Failed to create WebSocket:', error);
-                // Réessayer après 5 secondes
-                setTimeout(connectWebSocket, 5000);
+                setWsStatus('failed');
             }
         };
 
@@ -497,8 +569,13 @@ export default function MLAnalysisTab() {
 
         // Cleanup
         return () => {
+            isMounted = false;
             clearTimeout(timeoutId);
-            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            if (wsRetryTimeoutRef.current) {
+                clearTimeout(wsRetryTimeoutRef.current);
+                wsRetryTimeoutRef.current = undefined;
+            }
+            if (wsRef.current) {
                 wsRef.current.close();
                 wsRef.current = null;
             }

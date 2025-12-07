@@ -1,5 +1,6 @@
 // frontend/src/tabs/OCPPMessagesTab.tsx
 import React, { useMemo, useRef, useState } from "react";
+import { config } from "@/config/env";
 
 /** UI helpers */
 const nowIsoLocal = () => new Date().toISOString().slice(0, 19); // yyyy-MM-ddTHH:mm:ss
@@ -31,8 +32,8 @@ type MVRow = { measurand: string; value: string; unit: string; location: string;
 
 export default function OCPPMessagesTab() {
     /** Connexion */
-    const [urlBase, setUrlBase] = useState("wss://evse-test.total-ev-charge.com/ocpp/WebSocket");
-    const [cpId, setCpId] = useState("CP-DEMO-001");
+    const [urlBase, setUrlBase] = useState(config.ocppUrls.test);
+    const [cpId, setCpId] = useState(config.defaults.cpId);
     const wsRef = useRef<WebSocket | null>(null);
     const [connected, setConnected] = useState(false);
     const [status, setStatus] = useState("Déconnecté");

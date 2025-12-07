@@ -9,7 +9,7 @@ type Props = {
 };
 
 export default function ChargingProfilesPanel({ manager, connectorId, onClear }: Props) {
-  const { profiles, effectiveLimit, history } = manager.getConnectorState(connectorId);
+  const { profiles, effectiveLimit } = manager.getConnectorState(connectorId);
 
   return (
     <div className="rounded border p-3 bg-white">
@@ -52,17 +52,6 @@ export default function ChargingProfilesPanel({ manager, connectorId, onClear }:
                 {(p.chargingSchedule.chargingSchedulePeriod?.[0]?.limit ?? 0)} {p.chargingSchedule.chargingRateUnit}
               </span>
               {p.transactionId != null && <span className="ml-2 text-slate-500 text-xs">txId {p.transactionId}</span>}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-3">
-        <div className="text-xs text-slate-500 mb-1">Historique</div>
-        <div className="max-h-32 overflow-y-auto text-xs font-mono bg-slate-50 border rounded p-2">
-          {history.slice(-10).map((e, i) => (
-            <div key={i}>
-              [{new Date(e.timestamp).toLocaleTimeString()}] {e.type} → {((e.newLimit ?? 0) / 1000).toFixed(1)} kW &nbsp;{e.reason}
             </div>
           ))}
         </div>

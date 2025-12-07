@@ -174,7 +174,7 @@ export function OCPPMessages() {
                                 <option value="">-- Sélectionner --</option>
                                 {sessions.map(session => (
                                     <option key={session.id} value={session.id}>
-                                        {session.title} ({session.cpId})
+                                        {session.cpId}
                                     </option>
                                 ))}
                             </select>

@@ -4,196 +4,251 @@ import com.fasterxml.jackson.annotation.JsonValue;
 
 /**
  * États possibles d'une session de charge EVSE.
- * <p>
- * Correspond aux états du protocole OCPP 1.6 avec extensions pour le simulateur.
- * </p>
+ * Correspond aux états du protocole OCPP 1.6 avec validation des transitions.
  */
 public enum SessionState {
 
-    /**
-     * Session inactive, aucune connexion WebSocket.
-     */
-    DISCONNECTED("disconnected"),
+    // =========================================================================
+    // États de connexion (pas de StatusNotification)
+    // =========================================================================
 
-    /**
-     * Connexion WebSocket en cours d'établissement.
-     */
-    CONNECTING("connecting"),
+    DISCONNECTED("disconnected", null),
+    CONNECTING("connecting", null),
+    CONNECTED("connected", null),
+    DISCONNECTING("disconnecting", null),
 
-    /**
-     * Connecté au CSMS, en attente de BootNotification.
-     */
-    CONNECTED("connected"),
+    // =========================================================================
+    // États opérationnels (avec StatusNotification OCPP)
+    // =========================================================================
 
-    /**
-     * BootNotification accepté, StatusNotification:Available envoyé.
-     */
-    BOOT_ACCEPTED("booted"),
+    /** BootNotification accepté */
+    BOOT_ACCEPTED("booted", "Available"),
 
-    /**
-     * Véhicule garé/configuré (profil sélectionné).
-     */
-    PARKED("parked"),
+    /** Prêt pour nouvelle session */
+    AVAILABLE("available", "Available"),
 
-    /**
-     * Câble branché, StatusNotification:Preparing envoyé.
-     */
-    PLUGGED("plugged"),
+    /** Véhicule garé/configuré (profil sélectionné) - optionnel */
+    PARKED("parked", "Available"),
 
-    /**
-     * Authorize envoyé, en attente de réponse.
-     */
-    AUTHORIZING("authorizing"),
+    /** Câble branché */
+    PLUGGED("plugged", "Preparing"),
 
-    /**
-     * Authorize accepté, prêt à démarrer la transaction.
-     */
-    AUTHORIZED("authorized"),
+    /** Authorize en cours */
+    AUTHORIZING("authorizing", "Preparing"),
 
-    /**
-     * StartTransaction envoyé, en attente de réponse.
-     */
-    STARTING("starting"),
+    /** Authorize accepté */
+    AUTHORIZED("authorized", "Preparing"),
 
-    /**
-     * Transaction active, charge en cours.
-     */
-    CHARGING("started"),
+    /** StartTransaction en cours */
+    STARTING("starting", "Preparing"),
 
-    /**
-     * Charge suspendue par l'EVSE.
-     */
-    SUSPENDED_EVSE("suspended_evse"),
+    /** Transaction active, charge en cours */
+    CHARGING("started", "Charging"),
 
-    /**
-     * Charge suspendue par le véhicule.
-     */
-    SUSPENDED_EV("suspended_ev"),
+    /** Charge suspendue par l'EVSE */
+    SUSPENDED_EVSE("suspended_evse", "SuspendedEVSE"),
 
-    /**
-     * StopTransaction envoyé, en attente de réponse.
-     */
-    STOPPING("stopping"),
+    /** Charge suspendue par le véhicule */
+    SUSPENDED_EV("suspended_ev", "SuspendedEV"),
 
-    /**
-     * Transaction terminée, StatusNotification:Finishing envoyé.
-     */
-    FINISHING("stopped"),
+    /** StopTransaction en cours */
+    STOPPING("stopping", "Charging"),
 
-    /**
-     * Prêt pour nouvelle session (état legacy).
-     */
-    AVAILABLE("available"),
+    /** Transaction terminée, véhicule encore branché */
+    FINISHING("stopped", "Finishing"),
 
-    /**
-     * Préparation (état legacy).
-     */
-    PREPARING("preparing"),
+    // =========================================================================
+    // États spéciaux
+    // =========================================================================
 
-    /**
-     * Charge terminée (état legacy).
-     */
-    FINISHED("finished"),
+    /** Réservé pour un utilisateur */
+    RESERVED("reserved", "Reserved"),
 
-    /**
-     * Session inactive (état legacy).
-     */
-    IDLE("closed"),
+    /** Indisponible */
+    UNAVAILABLE("unavailable", "Unavailable"),
 
-    /**
-     * Réservé pour un utilisateur spécifique.
-     */
-    RESERVED("reserved"),
+    /** En erreur */
+    FAULTED("error", "Faulted"),
 
-    /**
-     * Indisponible (maintenance, erreur).
-     */
-    UNAVAILABLE("unavailable"),
+    // =========================================================================
+    // États legacy (pour compatibilité)
+    // =========================================================================
 
-    /**
-     * En erreur (panne, défaut).
-     */
-    FAULTED("error"),
-
-    /**
-     * Déconnexion en cours.
-     */
-    DISCONNECTING("disconnecting");
+    PREPARING("preparing", "Preparing"),
+    FINISHED("finished", "Finishing"),
+    IDLE("closed", null);
 
     private final String value;
+    private final String ocppStatus;
 
-    SessionState(String value) {
+    SessionState(String value, String ocppStatus) {
         this.value = value;
+        this.ocppStatus = ocppStatus;
     }
 
-    /**
-     * Retourne la valeur JSON de l'état.
-     */
     @JsonValue
     public String getValue() {
         return value;
     }
 
     /**
-     * Vérifie si la session peut démarrer une charge.
+     * Retourne le statut OCPP pour StatusNotification.
      */
+    public String getOcppStatus() {
+        return ocppStatus;
+    }
+
+    /**
+     * Vérifie si cet état nécessite l'envoi d'un StatusNotification.
+     */
+    public boolean requiresStatusNotification() {
+        return ocppStatus != null;
+    }
+
+    // =========================================================================
+    // Validation des transitions
+    // =========================================================================
+
+    /**
+     * Vérifie si une transition vers l'état cible est valide.
+     */
+    public boolean canTransitionTo(SessionState target) {
+        if (target == null) return false;
+
+        return switch (this) {
+            case DISCONNECTED -> target == CONNECTING || target == CONNECTED;
+            case CONNECTING -> target == CONNECTED || target == DISCONNECTED;
+            case CONNECTED -> target == BOOT_ACCEPTED || target == DISCONNECTED || target == DISCONNECTING;
+
+            case BOOT_ACCEPTED -> target == AVAILABLE || target == PARKED || target == PLUGGED
+                               || target == DISCONNECTED || target == DISCONNECTING || target == FAULTED;
+
+            case AVAILABLE -> target == PARKED || target == PLUGGED || target == RESERVED
+                           || target == UNAVAILABLE || target == FAULTED
+                           || target == DISCONNECTED || target == DISCONNECTING;
+
+            case PARKED -> target == PLUGGED || target == AVAILABLE || target == FAULTED
+                        || target == DISCONNECTED || target == DISCONNECTING;
+
+            case PLUGGED -> target == AUTHORIZING || target == AVAILABLE || target == PARKED
+                         || target == FAULTED || target == DISCONNECTING;
+
+            case AUTHORIZING -> target == AUTHORIZED || target == PLUGGED || target == FAULTED;
+
+            case AUTHORIZED -> target == STARTING || target == PLUGGED || target == FAULTED;
+
+            case STARTING -> target == CHARGING || target == AUTHORIZED || target == PLUGGED || target == FAULTED;
+
+            case CHARGING -> target == STOPPING || target == SUSPENDED_EVSE || target == SUSPENDED_EV
+                          || target == FAULTED;
+
+            case SUSPENDED_EVSE -> target == CHARGING || target == STOPPING || target == FAULTED;
+            case SUSPENDED_EV -> target == CHARGING || target == STOPPING || target == FAULTED;
+
+            case STOPPING -> target == FINISHING || target == FAULTED;
+
+            case FINISHING -> target == AVAILABLE || target == PLUGGED || target == PARKED
+                           || target == DISCONNECTING;
+
+            case FAULTED -> target == AVAILABLE || target == UNAVAILABLE || target == DISCONNECTED;
+            case UNAVAILABLE -> target == AVAILABLE || target == FAULTED;
+            case RESERVED -> target == AVAILABLE || target == PLUGGED;
+
+            case DISCONNECTING -> target == DISCONNECTED;
+
+            // États legacy - transitions permissives
+            case PREPARING -> target == CHARGING || target == AUTHORIZED || target == PLUGGED;
+            case FINISHED -> target == AVAILABLE || target == PLUGGED;
+            case IDLE -> target == DISCONNECTED || target == CONNECTING || target == CONNECTED;
+        };
+    }
+
+    /**
+     * Retourne les transitions valides depuis cet état.
+     */
+    public SessionState[] getValidTransitions() {
+        return switch (this) {
+            case DISCONNECTED -> new SessionState[]{CONNECTING, CONNECTED};
+            case CONNECTING -> new SessionState[]{CONNECTED, DISCONNECTED};
+            case CONNECTED -> new SessionState[]{BOOT_ACCEPTED, DISCONNECTED, DISCONNECTING};
+
+            case BOOT_ACCEPTED -> new SessionState[]{AVAILABLE, PARKED, PLUGGED, DISCONNECTED, DISCONNECTING, FAULTED};
+            case AVAILABLE -> new SessionState[]{PARKED, PLUGGED, RESERVED, UNAVAILABLE, FAULTED, DISCONNECTED, DISCONNECTING};
+            case PARKED -> new SessionState[]{PLUGGED, AVAILABLE, FAULTED, DISCONNECTED, DISCONNECTING};
+
+            case PLUGGED -> new SessionState[]{AUTHORIZING, AVAILABLE, PARKED, FAULTED, DISCONNECTING};
+            case AUTHORIZING -> new SessionState[]{AUTHORIZED, PLUGGED, FAULTED};
+            case AUTHORIZED -> new SessionState[]{STARTING, PLUGGED, FAULTED};
+            case STARTING -> new SessionState[]{CHARGING, AUTHORIZED, PLUGGED, FAULTED};
+
+            case CHARGING -> new SessionState[]{STOPPING, SUSPENDED_EVSE, SUSPENDED_EV, FAULTED};
+            case SUSPENDED_EVSE -> new SessionState[]{CHARGING, STOPPING, FAULTED};
+            case SUSPENDED_EV -> new SessionState[]{CHARGING, STOPPING, FAULTED};
+            case STOPPING -> new SessionState[]{FINISHING, FAULTED};
+
+            case FINISHING -> new SessionState[]{AVAILABLE, PLUGGED, PARKED, DISCONNECTING};
+
+            case FAULTED -> new SessionState[]{AVAILABLE, UNAVAILABLE, DISCONNECTED};
+            case UNAVAILABLE -> new SessionState[]{AVAILABLE, FAULTED};
+            case RESERVED -> new SessionState[]{AVAILABLE, PLUGGED};
+
+            case DISCONNECTING -> new SessionState[]{DISCONNECTED};
+
+            // États legacy
+            case PREPARING -> new SessionState[]{CHARGING, AUTHORIZED, PLUGGED};
+            case FINISHED -> new SessionState[]{AVAILABLE, PLUGGED};
+            case IDLE -> new SessionState[]{DISCONNECTED, CONNECTING, CONNECTED};
+        };
+    }
+
+    // =========================================================================
+    // Helpers existants (conservés pour compatibilité)
+    // =========================================================================
+
     public boolean canStartCharge() {
         return this == AUTHORIZED;
     }
 
-    /**
-     * Vérifie si la session peut s'autoriser.
-     */
     public boolean canAuthorize() {
         return this == PLUGGED;
     }
 
-    /**
-     * Vérifie si la session peut brancher le câble.
-     */
     public boolean canPlug() {
-        return this == PARKED || this == BOOT_ACCEPTED;
+        return this == PARKED || this == BOOT_ACCEPTED || this == AVAILABLE;
     }
 
-    /**
-     * Vérifie si la session peut garer le véhicule.
-     */
     public boolean canPark() {
-        return this == BOOT_ACCEPTED;
+        return this == BOOT_ACCEPTED || this == AVAILABLE;
     }
 
-    /**
-     * Vérifie si la session est en cours de charge.
-     */
     public boolean isCharging() {
         return this == CHARGING || this == SUSPENDED_EVSE || this == SUSPENDED_EV;
     }
 
-    /**
-     * Vérifie si la session est connectée au CSMS.
-     */
     public boolean isConnected() {
         return this != IDLE && this != DISCONNECTED && this != CONNECTING && this != DISCONNECTING;
     }
 
-    /**
-     * Vérifie si la session est dans un état d'erreur.
-     */
     public boolean isError() {
         return this == FAULTED || this == UNAVAILABLE;
     }
 
-    /**
-     * Vérifie si c'est un état transitoire (en attente de réponse).
-     */
     public boolean isTransitional() {
-        return this == CONNECTING || this == AUTHORIZING || this == STARTING || this == STOPPING;
+        return this == CONNECTING || this == AUTHORIZING || this == STARTING
+            || this == STOPPING || this == DISCONNECTING;
     }
 
-    /**
-     * Convertit une chaîne en SessionState.
-     */
+    public boolean hasActiveTransaction() {
+        return this == CHARGING || this == SUSPENDED_EVSE || this == SUSPENDED_EV
+            || this == STOPPING;
+    }
+
+    public boolean canStopTransaction() {
+        return this == CHARGING || this == SUSPENDED_EVSE || this == SUSPENDED_EV;
+    }
+
     public static SessionState fromValue(String value) {
+        if (value == null) return IDLE;
         for (SessionState state : values()) {
             if (state.value.equalsIgnoreCase(value) || state.name().equalsIgnoreCase(value)) {
                 return state;

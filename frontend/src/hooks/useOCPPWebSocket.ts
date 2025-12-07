@@ -74,9 +74,9 @@ export interface MeterValue {
     sampledValue: SampledValue[];
 }
 
-/** Pending request avec types génériques */
-interface PendingRequest<T = unknown> {
-    resolve: (value: T) => void;
+/** Pending request */
+interface PendingRequest {
+    resolve: (value: any) => void;
     reject: (reason: Error) => void;
 }
 

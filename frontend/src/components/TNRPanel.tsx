@@ -273,7 +273,7 @@ export function TNRPanel() {
                                 <div className="space-y-1 max-h-32 overflow-y-auto">
                                     {selectedScenario.sessions?.map((session) => (
                                         <div key={session.id} className="text-sm bg-gray-700 p-2 rounded">
-                                            {session.title || 'Sans titre'} ({session.cpId}) - {session.vehicleProfile || 'Profil inconnu'}
+                                            {session.cpId} - {session.vehicleProfile || 'Profil inconnu'}
                                         </div>
                                     ))}
                                 </div>

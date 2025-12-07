@@ -65,6 +65,11 @@ public class Session {
     private SessionState state = SessionState.DISCONNECTED;
 
     /**
+     * Timestamp du dernier changement d'état.
+     */
+    private LocalDateTime lastStateChange;
+
+    /**
      * Identifiant du profil véhicule utilisé.
      */
     private String vehicleProfile;
@@ -93,6 +98,16 @@ public class Session {
      * Identifiant de la transaction active.
      */
     private String transactionId;
+
+    /**
+     * Identifiant de la réservation active.
+     */
+    private Integer reservationId;
+
+    /**
+     * Date d'expiration de la réservation.
+     */
+    private LocalDateTime reservationExpiry;
 
     // =========================================================================
     // État de charge
@@ -289,6 +304,12 @@ public class Session {
      * Raison de la dernière déconnexion.
      */
     private String disconnectReason;
+
+    /**
+     * Statut du BootNotification (Accepted, Pending, Rejected).
+     * Null si pas encore de réponse reçue.
+     */
+    private String bootStatus;
 
     // =========================================================================
     // Configuration OCPP
@@ -524,6 +545,83 @@ public class Session {
         } catch (NumberFormatException e) {
             return transactionId.hashCode();
         }
+    }
+
+    /**
+     * Alias pour isConnected (compatibilité frontend).
+     */
+    @JsonProperty("isConnected")
+    public boolean getIsConnected() {
+        return connected;
+    }
+
+    /**
+     * Alias pour isCharging (compatibilité frontend).
+     */
+    @JsonProperty("isCharging")
+    public boolean getIsCharging() {
+        return charging;
+    }
+
+    /**
+     * Retourne un objet metrics pour la compatibilité frontend SimulGPMTab.
+     * Les valeurs sont converties en W et Wh (le frontend divise par 1000).
+     */
+    @JsonProperty("metrics")
+    public java.util.Map<String, Object> getMetrics() {
+        java.util.Map<String, Object> metrics = new java.util.HashMap<>();
+        // Conversion kW -> W pour activePower
+        metrics.put("activePower", currentPowerKw * 1000);
+        // Conversion kW -> W pour offeredPower
+        metrics.put("offeredPower", maxPowerKw * 1000);
+        // SoC en %
+        metrics.put("soc", soc);
+        // Conversion kWh -> Wh pour energy
+        metrics.put("energy", energyDeliveredKwh * 1000);
+        // Tension en V
+        metrics.put("voltage", voltage);
+        // Courant en A
+        metrics.put("current", currentA);
+        return metrics;
+    }
+
+    /**
+     * Retourne le meterValue en Wh (compatibilité frontend).
+     */
+    @JsonProperty("meterWh")
+    public int getMeterWh() {
+        return meterValue;
+    }
+
+    /**
+     * Retourne la durée de charge en secondes depuis startTime (compatibilité frontend).
+     */
+    @JsonProperty("chargingDurationSec")
+    public Long getChargingDurationSec() {
+        if (startTime == null) {
+            return 0L;
+        }
+        LocalDateTime end = stopTime != null ? stopTime : LocalDateTime.now();
+        return java.time.Duration.between(startTime, end).getSeconds();
+    }
+
+    /**
+     * Retourne le timestamp de début de charge en millisecondes (compatibilité frontend).
+     */
+    @JsonProperty("chargeStartTime")
+    public Long getChargeStartTime() {
+        if (startTime == null) {
+            return null;
+        }
+        return startTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+    }
+
+    /**
+     * Retourne l'URL WebSocket pour l'affichage (compatibilité frontend).
+     */
+    @JsonProperty("wsUrl")
+    public String getWsUrl() {
+        return url;
     }
 
     /**

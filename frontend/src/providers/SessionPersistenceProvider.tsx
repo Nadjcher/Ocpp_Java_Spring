@@ -35,15 +35,17 @@ export function SessionPersistenceProvider({
             store.restorePersistedSessions();
 
             // Auto-reconnecter les sessions non volontairement déconnectées
+            // SAUF les sessions perf-* qui sont des sessions de test de charge
             if (autoReconnect) {
                 setTimeout(() => {
-                    const reconnectable = store.getReconnectableSessions();
-                    console.log('[SessionPersistenceProvider] Found', reconnectable.length, 'reconnectable sessions');
+                    const reconnectable = store.getReconnectableSessions()
+                        .filter(s => !s.id?.startsWith('perf-')); // Exclure les sessions de perf
+                    console.log('[SessionPersistenceProvider] Found', reconnectable.length, 'reconnectable sessions (excluding perf-)');
 
                     for (const session of reconnectable) {
-                        if (session.url && !session.voluntaryStop) {
+                        if (session.wsUrl && !session.voluntaryStop) {
                             console.log('[SessionPersistenceProvider] Auto-reconnecting session:', session.id);
-                            wsManager.connect(session.id, session.url);
+                            wsManager.connect(session.id, session.wsUrl);
                         }
                     }
                 }, 1000); // Petit délai pour permettre l'hydratation complète
@@ -82,7 +84,7 @@ export function SessionPersistenceProvider({
             console.log('[SessionPersistenceProvider] Visibility changed:', isHidden ? 'hidden' : 'visible');
 
             // Notifier le backend pour chaque session connectée
-            const sessions = store.sessions.filter(s => s.connected);
+            const sessions = store.sessions.filter(s => s.isConnected);
             for (const session of sessions) {
                 store.setBackgrounded(session.id, isHidden);
             }

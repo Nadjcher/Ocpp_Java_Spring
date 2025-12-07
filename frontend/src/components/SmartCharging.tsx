@@ -165,7 +165,7 @@ export function SmartCharging() {
         const profile = {
             name: prompt('Nom du profil:') || `Profile ${savedProfiles.length + 1}`,
             ...buildChargingProfile()
-        };
+        } as any;
 
         try {
             await api.saveChargingProfile(profile);
@@ -207,7 +207,7 @@ export function SmartCharging() {
                                 <option value="">-- Sélectionner --</option>
                                 {sessions.map(session => (
                                     <option key={session.id} value={session.id}>
-                                        {session.title} ({session.cpId})
+                                        {session.cpId}
                                     </option>
                                 ))}
                             </select>

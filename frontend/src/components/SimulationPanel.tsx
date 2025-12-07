@@ -51,12 +51,12 @@ export function SimulationPanel() {
         const headers = ['timestamp', 'cpId', 'sessionId', 'power', 'scp', 'messageType', 'status'];
         const rows = data.map(session => [
             new Date().toISOString(),
-            session.chargePointId,
+            session.cpId,
             session.id,
             session.activePower || 0,
-            session.scpLimit || 0,
-            session.state,
-            session.connected ? 'Connected' : 'Disconnected'
+            session.appliedLimit || 0,
+            session.status,
+            session.isConnected ? 'Connected' : 'Disconnected'
         ]);
 
         return [headers, ...rows].map(row => row.join(',')).join('\n');
@@ -163,15 +163,15 @@ export function SimulationPanel() {
                                 />
                             </td>
                             <td className="px-4 py-3 font-medium">{session.id}</td>
-                            <td className="px-4 py-3">{session.chargePointId}</td>
+                            <td className="px-4 py-3">{session.cpId}</td>
                             <td className="px-4 py-3">
                   <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                      session.state === 'CHARGING' ? 'bg-green-100 text-green-800' :
-                          session.state === 'CONNECTED' ? 'bg-blue-100 text-blue-800' :
-                              session.state === 'FAULTED' ? 'bg-red-100 text-red-800' :
+                      session.status === 'charging' ? 'bg-green-100 text-green-800' :
+                          session.status === 'connected' ? 'bg-blue-100 text-blue-800' :
+                              session.status === 'error' ? 'bg-red-100 text-red-800' :
                                   'bg-gray-100 text-gray-800'
                   }`}>
-                    {session.state}
+                    {session.status}
                   </span>
                             </td>
                             <td className="px-4 py-3">
@@ -186,8 +186,8 @@ export function SimulationPanel() {
                                 </div>
                             </td>
                             <td className="px-4 py-3">{(session.activePower || 0).toFixed(1)} kW</td>
-                            <td className="px-4 py-3">{(session.scpLimit || 0).toFixed(1)} kW</td>
-                            <td className="px-4 py-3">{session.vehicleProfile?.name || 'Non défini'}</td>
+                            <td className="px-4 py-3">{(session.metrics?.backendKwMax || 0).toFixed(1)} kW</td>
+                            <td className="px-4 py-3">{session.config?.vehicleId || 'Non défini'}</td>
                             <td className="px-4 py-3">
                                 <div className="flex items-center justify-center gap-1">
                                     <button className="p-1 hover:bg-gray-100 rounded" title="Connecter">

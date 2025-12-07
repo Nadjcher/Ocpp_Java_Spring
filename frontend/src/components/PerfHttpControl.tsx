@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { config } from "@/config/env";
 
 type Stats = {
     total: number; active: number; finished: number; errors: number;
@@ -12,12 +13,12 @@ const defaultStats: Stats = {
 
 export default function PerfHttpControl() {
     // ---- runner connection
-    const [runnerUrl, setRunnerUrl] = useState("http://localhost:8877");
+    const [runnerUrl, setRunnerUrl] = useState(config.apiUrl || "http://localhost:8887");
     const [connected, setConnected] = useState(false);
     const [health, setHealth] = useState<{ status: string; runId?: string | null } | null>(null);
 
     // ---- run params
-    const [ocppUrl, setOcppUrl] = useState("wss://evse-test.total-ev-charge.com/ocpp/WebSocket");
+    const [ocppUrl, setOcppUrl] = useState(config.ocppUrls.test);
     const [sessions, setSessions] = useState(100);
     const [concurrent, setConcurrent] = useState(20);
     const [rampMs, setRampMs] = useState(250);
@@ -47,10 +48,10 @@ export default function PerfHttpControl() {
         return res.json();
     }, []);
 
-    // ---------- connect / disconnect runner (juste du polling “health”)
+    // ---------- connect / disconnect runner (juste du polling "health")
     const connectRunner = useCallback(async () => {
         try {
-            const h = await fetchJson(`${runnerUrl}/health`);
+            const h = await fetchJson(`${runnerUrl}/api/health`);
             setHealth(h); setConnected(true);
             addLog("Connecté au runner HTTP");
 
@@ -58,7 +59,7 @@ export default function PerfHttpControl() {
             if (poller.current) clearInterval(poller.current);
             poller.current = setInterval(async () => {
                 try {
-                    const hh = await fetchJson(`${runnerUrl}/health`);
+                    const hh = await fetchJson(`${runnerUrl}/api/health`);
                     setHealth(hh);
                 } catch {
                     setConnected(false);
@@ -67,12 +68,24 @@ export default function PerfHttpControl() {
                 }
             }, 3000);
 
-            // stats poll
+            // stats poll - utilise /api/perf/status pour les stats
             if (statPoller.current) clearInterval(statPoller.current);
             statPoller.current = setInterval(async () => {
                 try {
-                    const s = await fetchJson(`${runnerUrl}/stats`);
-                    setStats(s);
+                    const s = await fetchJson(`${runnerUrl}/api/perf/status`);
+                    // Convertir le format perf/status vers le format stats attendu
+                    setStats({
+                        total: s.targetSessions || 0,
+                        active: s.connectedSessions || 0,
+                        finished: s.currentSessions || 0,
+                        errors: s.errors || 0,
+                        avgLatencyMs: 0,
+                        msgs: s.messagesSent || 0,
+                        msgsPerSec: 0,
+                        cpuPct: 0,
+                        memPct: 0,
+                        runId: s.runId || null
+                    });
                 } catch {/* ignore */}
             }, 1000);
         } catch (e:any) {
@@ -124,22 +137,33 @@ export default function PerfHttpControl() {
                 addLog("Erreur START: OCPP WebSocket URL vide");
                 return;
             }
-            const j = await fetchJson(`${runnerUrl}/start`, { method: "POST", body: JSON.stringify(body) });
-            addLog(`START envoyé (runId=${j.runId}, sessions=${body.sessions}, conc=${body.concurrent})`);
+            // Adapter le body pour le backend Spring Boot
+            const startBody = {
+                sessions: body.sessions,
+                rampUp: Math.max(1, Math.round((body.rampMs * body.sessions) / 1000)), // Convertir rampMs en rampUpSeconds
+                url: body.url,
+                holdSec: body.holdSec,
+                mvPeriodSec: body.mvPeriodSec
+            };
+            const j = await fetchJson(`${runnerUrl}/api/perf/start`, { method: "POST", body: JSON.stringify(startBody) });
+            if (j.ok) {
+                addLog(`START envoyé (runId=${j.runId}, sessions=${startBody.sessions})`);
+            } else {
+                addLog(`Erreur START: ${j.error || "Unknown error"}`);
+            }
         } catch (e:any) {
             addLog(`Erreur START: ${e.message || e}`);
-            // aide rapide : va voir /last-errors
-            try {
-                const errs = await fetchJson(`${runnerUrl}/last-errors`);
-                if (Array.isArray(errs) && errs.length) addLog(`Dernières erreurs runner: ${errs.slice(-3).map((x:any)=>x.msg).join(" | ")}`);
-            } catch {}
         }
     }, [runnerUrl, buildStartBody, fetchJson, addLog]);
 
     const stopRun = useCallback(async () => {
         try {
-            await fetchJson(`${runnerUrl}/stop`, { method: "POST", body: "{}" });
-            addLog("STOP envoyé");
+            const j = await fetchJson(`${runnerUrl}/api/perf/stop`, { method: "POST", body: "{}" });
+            if (j.ok) {
+                addLog("STOP envoyé");
+            } else {
+                addLog(`Erreur STOP: ${j.error || "Unknown error"}`);
+            }
         } catch (e:any) {
             addLog(`Erreur STOP: ${e.message || e}`);
         }

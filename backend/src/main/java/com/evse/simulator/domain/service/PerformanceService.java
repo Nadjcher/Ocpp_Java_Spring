@@ -24,6 +24,6 @@ public interface PerformanceService {
     void resetCounters();
 
     // Load Testing - use LoadTestService instead
-    String startLoadTest(int targetSessions, int rampUpSeconds, Session sessionTemplate);
+    String startLoadTest(int targetSessions, int rampUpSeconds, int holdSeconds, Session sessionTemplate);
     void stopLoadTest();
 }

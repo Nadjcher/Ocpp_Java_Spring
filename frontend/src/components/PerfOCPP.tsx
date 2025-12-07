@@ -23,12 +23,10 @@ export function PerfOCPP() {
         const file = event.target.files?.[0];
         if (!file) return;
 
-        const formData = new FormData();
-        formData.append('file', file);
-
         try {
-            const result = await api.importPerfCSV(formData);
-            setPerfLogs(prev => [...prev, `✓ Imported ${result.count} clients from CSV`]);
+            const csvText = await file.text();
+            const result = await api.importPerfCSV(csvText);
+            setPerfLogs(prev => [...prev, `✓ Imported CSV data`]);
         } catch (error) {
             setPerfLogs(prev => [...prev, `❌ Import failed: ${error}`]);
         }
@@ -40,14 +38,11 @@ export function PerfOCPP() {
         setPerfLogs(['🚀 Starting adaptive performance test...']);
 
         try {
-            const result = await api.startPerformanceTest({
-                url: perfUrl,
-                initialBatch: 10,
-                targetSessions: 1000
-            });
+            // startPerformanceTest(sessions, duration)
+            const result = await api.startPerformanceTest(1000, 60);
 
             setPerfLogs(prev => [...prev,
-                `✅ Test finished: ${result.totalSessions} total, ${result.successCount} successful`
+                `✅ Test started`
             ]);
         } catch (error) {
             setPerfLogs(prev => [...prev, `❌ Test failed: ${error}`]);

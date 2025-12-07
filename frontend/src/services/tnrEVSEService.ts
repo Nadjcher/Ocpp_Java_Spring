@@ -708,9 +708,9 @@ class TNREVSEService extends EventEmitter {
     // Persistance
     private saveRecordings(): void {
         try {
-            const data = Array.from(this.recordings.entries()).map(([id, recording]) => ({
-                id,
+            const data = Array.from(this.recordings.entries()).map(([recordingId, recording]) => ({
                 ...recording,
+                id: recordingId,
                 sessions: Array.from(recording.sessions.entries())
             }));
             localStorage.setItem('tnr_evse_recordings', JSON.stringify(data));

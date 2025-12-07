@@ -38,6 +38,11 @@ interface PerformanceOCPPPanelProps {
     wsBaseUrl: string;
 }
 
+interface PerfConnection {
+    ws: WebSocket;
+    sendOCPPMessage: (action: string, payload: any) => Promise<any>;
+}
+
 export const PerformanceOCPPPanel: React.FC<PerformanceOCPPPanelProps> = ({
                                                                               wsBaseUrl
                                                                           }) => {
@@ -64,8 +69,8 @@ export const PerformanceOCPPPanel: React.FC<PerformanceOCPPPanelProps> = ({
     });
 
     // Références pour les connexions multiples
-    const connectionsRef = useRef<Map<string, ReturnType<typeof useOCPPWebSocket>>>(new Map());
-    const schedulerRef = useRef<NodeJS.Timer | null>(null);
+    const connectionsRef = useRef<Map<string, PerfConnection>>(new Map());
+    const schedulerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     // Données pour le graphique
     const [chartData, setChartData] = useState<Array<{
@@ -168,48 +173,56 @@ export const PerformanceOCPPPanel: React.FC<PerformanceOCPPPanelProps> = ({
 
         setResults(prev => new Map(prev).set(session.cpId, result));
 
-        // Créer la connexion WebSocket
-        const wsHook = useOCPPWebSocket(
-            {
-                url: wsBaseUrl,
-                chargePointId: session.cpId,
-                heartbeatInterval: 60000
-            },
-            // onMessage
-            (message) => {
-                if (message.type === 3) { // CALLRESULT
+        // Note: useOCPPWebSocket is a hook, can't be called here directly
+        // Using a simple WebSocket connection instead
+        const wsUrl = `${wsBaseUrl}/${session.cpId}`;
+        const ws = new WebSocket(wsUrl, ['ocpp1.6']);
+
+        ws.onopen = () => {
+            updateResult(session.cpId, {
+                wsOk: true,
+                bootMs: Date.now() - result.requestTime
+            });
+            // Lancer automatiquement la séquence
+            setTimeout(() => startSessionSequence(session), 1000);
+        };
+
+        ws.onmessage = (event: MessageEvent) => {
+            try {
+                const message = JSON.parse(event.data);
+                if (message[0] === 3) { // CALLRESULT
                     handleSessionResponse(session.cpId, message);
                 }
-            },
-            // onStatusChange
-            (status) => {
-                if (status === 'connected') {
-                    updateResult(session.cpId, {
-                        wsOk: true,
-                        bootMs: Date.now() - result.requestTime
-                    });
-
-                    // Lancer automatiquement la séquence
-                    setTimeout(() => startSessionSequence(session), 1000);
-                }
+            } catch (e) {
+                console.error('Parse error:', e);
             }
-        );
+        };
 
-        connectionsRef.current.set(session.cpId, wsHook);
-        wsHook.connect();
+        connectionsRef.current.set(session.cpId, {
+            ws,
+            sendOCPPMessage: (action: string, payload: any) => {
+                return new Promise((resolve) => {
+                    const msgId = `msg-${Date.now()}`;
+                    const msg = [2, msgId, action, payload];
+                    ws.send(JSON.stringify(msg));
+                    // Simple timeout-based resolution
+                    setTimeout(() => resolve({}), 100);
+                });
+            }
+        });
     };
 
     /**
      * Séquence automatique pour une session
      */
     const startSessionSequence = async (session: PerfSession) => {
-        const wsHook = connectionsRef.current.get(session.cpId);
-        if (!wsHook) return;
+        const connection = connectionsRef.current.get(session.cpId);
+        if (!connection) return;
 
         try {
             // Authorize
             const authStart = Date.now();
-            const authResult = await wsHook.sendCall('Authorize', {
+            const authResult: any = await connection.sendOCPPMessage('Authorize', {
                 idTag: session.tagId
             });
 
@@ -220,7 +233,7 @@ export const PerformanceOCPPPanel: React.FC<PerformanceOCPPPanelProps> = ({
             if (authResult.idTagInfo?.status === 'Accepted') {
                 // StartTransaction
                 const startStart = Date.now();
-                const startResult = await wsHook.sendCall('StartTransaction', {
+                const startResult: any = await connection.sendOCPPMessage('StartTransaction', {
                     connectorId: 1,
                     idTag: session.tagId,
                     meterStart: 0,
@@ -236,7 +249,7 @@ export const PerformanceOCPPPanel: React.FC<PerformanceOCPPPanelProps> = ({
                 // Attendre un peu puis StopTransaction
                 setTimeout(async () => {
                     const stopStart = Date.now();
-                    await wsHook.sendCall('StopTransaction', {
+                    await connection.sendOCPPMessage('StopTransaction', {
                         transactionId: transactionId,
                         meterStop: Math.round(Math.random() * 10000),
                         timestamp: new Date().toISOString()
@@ -285,14 +298,16 @@ export const PerformanceOCPPPanel: React.FC<PerformanceOCPPPanelProps> = ({
         setIsRunning(false);
 
         // Déconnecter toutes les sessions
-        connectionsRef.current.forEach(wsHook => {
-            wsHook.disconnect();
+        connectionsRef.current.forEach(connection => {
+            if (connection.ws && connection.ws.readyState === WebSocket.OPEN) {
+                connection.ws.close();
+            }
         });
         connectionsRef.current.clear();
 
         // Arrêter le monitoring
         if (schedulerRef.current) {
-            clearInterval(schedulerRef.current);
+            window.clearInterval(schedulerRef.current);
             schedulerRef.current = null;
         }
 

@@ -3,6 +3,8 @@ package com.evse.simulator.controller;
 import com.evse.simulator.domain.service.LoadTestService;
 import com.evse.simulator.domain.service.MetricsService;
 import com.evse.simulator.model.PerformanceMetrics;
+import com.evse.simulator.model.Session;
+import com.evse.simulator.service.SessionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Contrôleur de compatibilité pour les endpoints /api/perf/* et /api/metrics
@@ -25,6 +28,7 @@ public class PerfCompatController {
 
     private final MetricsService metricsService;
     private final LoadTestService loadTestService;
+    private final SessionService sessionService;
 
     // =========================================================================
     // /api/metrics
@@ -44,24 +48,43 @@ public class PerfCompatController {
     @Operation(summary = "Statut du test de charge (compat /api/perf/status)")
     public ResponseEntity<Map<String, Object>> getStatus() {
         boolean running = loadTestService.isRunning();
-        return ResponseEntity.ok(Map.of(
-            "running", running,
-            "status", running ? "RUNNING" : "IDLE",
-            "runId", loadTestService.getCurrentRunId()
-        ));
+        String runId = loadTestService.getCurrentRunId();
+
+        // Map.of() ne supporte pas les valeurs null, utiliser HashMap
+        Map<String, Object> response = new java.util.HashMap<>();
+        response.put("running", running);
+        response.put("status", running ? "RUNNING" : "IDLE");
+        response.put("runId", runId != null ? runId : "");
+
+        // Toujours ajouter les stats (même après fin du test)
+        var status = loadTestService.getLoadTestStatus();
+        if (status != null) {
+            response.put("targetSessions", status.getTargetSessions());
+            response.put("currentSessions", status.getCurrentSessions());
+            response.put("connectedSessions", status.getConnectedSessions());
+            response.put("progress", status.getProgress());
+            response.put("messagesSent", status.getMessagesSent());
+            response.put("messagesReceived", status.getMessagesReceived());
+            response.put("errors", status.getErrors());
+            response.put("durationMs", status.getDurationMs());
+        }
+
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/api/perf/start")
     @Operation(summary = "Démarre un test de charge (compat /api/perf/start)")
     public ResponseEntity<Map<String, Object>> startTest(@RequestBody Map<String, Object> config) {
         try {
+            log.info("Received load test config: {}", config);
             String runId = loadTestService.startLoadTest(config);
+            log.info("Load test started with runId: {}", runId);
             return ResponseEntity.ok(Map.of(
                 "ok", true,
                 "runId", runId
             ));
         } catch (Exception e) {
-            log.error("Error starting load test", e);
+            log.error("Error starting load test: {}", e.getMessage(), e);
             return ResponseEntity.ok(Map.of(
                 "ok", false,
                 "error", e.getMessage()
@@ -190,6 +213,46 @@ public class PerfCompatController {
             ));
         } catch (Exception e) {
             log.error("Error importing CSV", e);
+            return ResponseEntity.ok(Map.of(
+                "ok", false,
+                "error", e.getMessage()
+            ));
+        }
+    }
+
+    // =========================================================================
+    // /api/perf/cleanup - Nettoyer les sessions de test de charge
+    // =========================================================================
+
+    @DeleteMapping("/api/perf/cleanup")
+    @Operation(summary = "Supprime toutes les sessions de test de charge (perf-*)")
+    public ResponseEntity<Map<String, Object>> cleanupPerfSessions() {
+        try {
+            log.info("Cleaning up all perf-* sessions...");
+
+            java.util.List<Session> allSessions = sessionService.getAllSessions();
+            int deletedCount = 0;
+
+            for (Session session : allSessions) {
+                if (session.getId() != null && session.getId().startsWith("perf-")) {
+                    try {
+                        sessionService.deleteSession(session.getId());
+                        deletedCount++;
+                        log.debug("Deleted perf session: {}", session.getId());
+                    } catch (Exception e) {
+                        log.warn("Failed to delete session {}: {}", session.getId(), e.getMessage());
+                    }
+                }
+            }
+
+            log.info("Cleanup complete: deleted {} perf sessions", deletedCount);
+
+            return ResponseEntity.ok(Map.of(
+                "ok", true,
+                "deletedCount", deletedCount
+            ));
+        } catch (Exception e) {
+            log.error("Error during cleanup", e);
             return ResponseEntity.ok(Map.of(
                 "ok", false,
                 "error", e.getMessage()

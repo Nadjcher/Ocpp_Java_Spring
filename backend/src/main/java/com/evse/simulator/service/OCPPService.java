@@ -6,6 +6,7 @@ import com.evse.simulator.exception.SessionNotFoundException;
 import com.evse.simulator.model.*;
 import com.evse.simulator.model.enums.*;
 import com.evse.simulator.ocpp.handler.*;
+import com.evse.simulator.ocpp.v16.Ocpp16MessageRouter;
 import com.evse.simulator.websocket.OCPPWebSocketClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,15 +34,18 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
     private final BroadcastService broadcaster;
     private final OcppHandlerRegistry handlerRegistry;
     private final ChargingProfileManager chargingProfileManager;
+    private final Ocpp16MessageRouter messageRouter;
 
     public OCPPService(SessionService sessionService,
                        BroadcastService broadcaster,
                        OcppHandlerRegistry handlerRegistry,
-                       ChargingProfileManager chargingProfileManager) {
+                       ChargingProfileManager chargingProfileManager,
+                       Ocpp16MessageRouter messageRouter) {
         this.sessionService = sessionService;
         this.broadcaster = broadcaster;
         this.handlerRegistry = handlerRegistry;
         this.chargingProfileManager = chargingProfileManager;
+        this.messageRouter = messageRouter;
     }
 
     @Value("${ocpp.heartbeat-interval:30000}")
@@ -104,8 +108,8 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
 
             URI uri = new URI(wsUrl);
 
-            // Créer le client WebSocket avec le gestionnaire de profils de charge
-            OCPPWebSocketClient client = new OCPPWebSocketClient(uri, session, this, chargingProfileManager);
+            // Créer le client WebSocket avec le gestionnaire de profils de charge et le routeur OCPP 1.6
+            OCPPWebSocketClient client = new OCPPWebSocketClient(uri, session, this, chargingProfileManager, messageRouter);
 
             // Ajouter le token d'authentification si présent
             if (session.getBearerToken() != null && !session.getBearerToken().isBlank()) {
@@ -196,6 +200,9 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
         return sendCall(sessionId, OCPPAction.BOOT_NOTIFICATION, payload)
                 .thenApply(response -> {
                     String status = (String) response.get("status");
+                    // Stocker le statut du boot dans la session
+                    session.setBootStatus(status);
+
                     if ("Accepted".equals(status)) {
                         Integer interval = (Integer) response.get("interval");
                         if (interval != null && interval > 0) {
@@ -205,7 +212,12 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
                         sessionService.updateState(sessionId, SessionState.BOOT_ACCEPTED);
                         startHeartbeat(sessionId);
                         sessionService.addLog(sessionId, LogEntry.success("BootNotification accepted"));
+                    } else if ("Rejected".equals(status)) {
+                        // Boot rejeté - l'OCPP ID n'est pas enregistré sur le CSMS
+                        sessionService.updateState(sessionId, SessionState.FAULTED);
+                        sessionService.addLog(sessionId, LogEntry.error("BootNotification REJECTED - OCPP ID not registered on CSMS"));
                     } else {
+                        // Pending ou autre status
                         sessionService.addLog(sessionId, LogEntry.warn("BootNotification " + status));
                     }
                     return response;
@@ -339,7 +351,8 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
 
         return sendCall(sessionId, OCPPAction.STOP_TRANSACTION, payload)
                 .thenApply(response -> {
-                    session.setTransactionId(null);
+                    // NE PAS effacer le transactionId - on en a besoin pour récupérer le prix du CSMS
+                    // session.setTransactionId(null);
                     session.setStopTime(LocalDateTime.now());
                     // État: FINISHING (stopped)
                     sessionService.updateState(sessionId, SessionState.FINISHING);
@@ -575,12 +588,26 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
     }
 
     /**
-     * Démarre l'envoi périodique des MeterValues.
+     * Démarre l'envoi périodique des MeterValues (interne).
      */
     private void startMeterValues(String sessionId) {
+        startMeterValuesWithInterval(sessionId, -1);
+    }
+
+    /**
+     * Démarre l'envoi périodique des MeterValues avec un intervalle spécifié.
+     * Cette méthode est publique pour être appelée depuis SimuCompatController.
+     *
+     * @param sessionId ID de la session
+     * @param intervalSec Intervalle en secondes (-1 pour utiliser la valeur par défaut)
+     */
+    public void startMeterValuesWithInterval(String sessionId, int intervalSec) {
+        // D'abord arrêter toute tâche existante
+        stopMeterValuesPublic(sessionId);
+
         Session session = sessionService.getSession(sessionId);
-        int interval = session.getMeterValuesInterval() > 0 ?
-                session.getMeterValuesInterval() : meterValuesInterval / 1000;
+        int interval = intervalSec > 0 ? intervalSec :
+                (session.getMeterValuesInterval() > 0 ? session.getMeterValuesInterval() : meterValuesInterval / 1000);
 
         ScheduledFuture<?> task = scheduler.scheduleAtFixedRate(
                 () -> {
@@ -593,16 +620,28 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
 
         meterValuesTasks.put(sessionId, task);
         session.setMeterValuesActive(true);
-        log.debug("Started meter values for session {} every {}s", sessionId, interval);
+        session.setMeterValuesInterval(interval);
+        log.info("Started meter values for session {} every {}s", sessionId, interval);
+    }
+
+    /**
+     * Arrête l'envoi des MeterValues (interne).
+     */
+    private void stopMeterValues(String sessionId) {
+        stopMeterValuesPublic(sessionId);
     }
 
     /**
      * Arrête l'envoi des MeterValues.
+     * Cette méthode est publique pour être appelée depuis SimuCompatController.
+     *
+     * @param sessionId ID de la session
      */
-    private void stopMeterValues(String sessionId) {
+    public void stopMeterValuesPublic(String sessionId) {
         ScheduledFuture<?> task = meterValuesTasks.remove(sessionId);
         if (task != null) {
             task.cancel(false);
+            log.info("Stopped meter values for session {}", sessionId);
         }
         sessionService.findSession(sessionId).ifPresent(s -> s.setMeterValuesActive(false));
     }

@@ -62,14 +62,16 @@ public class PerformanceController {
     public ResponseEntity<Map<String, Object>> startLoadTest(
             @RequestParam(defaultValue = "100") int targetSessions,
             @RequestParam(defaultValue = "60") int rampUpSeconds,
+            @RequestParam(defaultValue = "60") int holdSeconds,
             @RequestBody Session sessionTemplate) {
 
-        String testId = loadTestService.startLoadTest(targetSessions, rampUpSeconds, sessionTemplate);
+        String testId = loadTestService.startLoadTest(targetSessions, rampUpSeconds, holdSeconds, sessionTemplate);
 
         return ResponseEntity.ok(Map.of(
                 "testId", testId,
                 "targetSessions", targetSessions,
                 "rampUpSeconds", rampUpSeconds,
+                "holdSeconds", holdSeconds,
                 "status", "started"
         ));
     }

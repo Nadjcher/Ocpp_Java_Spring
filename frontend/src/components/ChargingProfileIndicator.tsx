@@ -1,7 +1,7 @@
 // frontend/src/components/ChargingProfileIndicator.tsx
 // Indicateur compact de la limite SCP active pour les sessions
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
     useChargingProfileStore,
     formatLimit,
@@ -9,6 +9,7 @@ import {
     getPurposeColor,
     type EffectiveLimit
 } from '@/store/chargingProfileStore';
+import { useShallow } from 'zustand/react/shallow';
 
 interface ChargingProfileIndicatorProps {
     sessionId: string;
@@ -23,8 +24,23 @@ export function ChargingProfileIndicator({
     compact = false,
     onViewProfile
 }: ChargingProfileIndicatorProps) {
-    const effectiveLimit = useChargingProfileStore(state => state.getEffectiveLimit(sessionId));
-    const profiles = useChargingProfileStore(state => state.getProfiles(sessionId));
+    // Access Maps directly with shallow comparison to avoid infinite loops
+    const { profilesMap, effectiveLimitsMap } = useChargingProfileStore(
+        useShallow((state) => ({
+            profilesMap: state.profiles,
+            effectiveLimitsMap: state.effectiveLimits
+        }))
+    );
+
+    // Derive data using useMemo
+    const effectiveLimit = useMemo(() => {
+        return effectiveLimitsMap.get(sessionId) || null;
+    }, [effectiveLimitsMap, sessionId]);
+
+    const profiles = useMemo(() => {
+        return profilesMap.get(sessionId) || [];
+    }, [profilesMap, sessionId]);
+
     const [countdown, setCountdown] = useState<number | null>(null);
 
     // Mettre à jour le countdown

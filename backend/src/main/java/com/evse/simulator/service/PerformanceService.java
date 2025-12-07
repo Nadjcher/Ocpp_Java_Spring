@@ -73,8 +73,8 @@ public class PerformanceService implements com.evse.simulator.domain.service.Per
     // =========================================================================
 
     @Override
-    public String startLoadTest(int targetSessions, int rampUpSeconds, Session sessionTemplate) {
-        return loadTestService.startLoadTest(targetSessions, rampUpSeconds, sessionTemplate);
+    public String startLoadTest(int targetSessions, int rampUpSeconds, int holdSeconds, Session sessionTemplate) {
+        return loadTestService.startLoadTest(targetSessions, rampUpSeconds, holdSeconds, sessionTemplate);
     }
 
     @Override

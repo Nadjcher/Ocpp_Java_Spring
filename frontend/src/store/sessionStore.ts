@@ -27,14 +27,12 @@ export interface SessionWithChartData extends SessionState {
 // Type pour les données persistées (minimal)
 interface PersistedSessionData {
     id: string;
-    url: string;
+    wsUrl: string | null;
     cpId: string;
-    bearerToken?: string;
     idTag: string;
-    title: string;
-    connected: boolean;
+    isConnected: boolean;
     voluntaryStop: boolean;
-    state: string;
+    status: string;
 }
 
 interface SessionStore {
@@ -210,7 +208,7 @@ export const useSessionStore = create<SessionStore>()(
                         set(state => ({
                             sessions: state.sessions.map(s =>
                                 s.id === sessionId
-                                    ? { ...s, lastKeepalive: new Date().toISOString(), connected: data.connected }
+                                    ? { ...s, lastKeepalive: new Date().toISOString(), isConnected: data.connected }
                                     : s
                             )
                         }));
@@ -223,7 +221,7 @@ export const useSessionStore = create<SessionStore>()(
 
             sendKeepaliveAll: async () => {
                 const { sessions } = get();
-                const connectedSessions = sessions.filter(s => s.connected && !s.voluntaryStop);
+                const connectedSessions = sessions.filter(s => s.isConnected && !s.voluntaryStop);
                 console.debug('[Keepalive] Sending keepalive for', connectedSessions.length, 'sessions');
                 await Promise.all(connectedSessions.map(s => get().sendKeepalive(s.id)));
             },
@@ -238,12 +236,12 @@ export const useSessionStore = create<SessionStore>()(
                         set(state => ({
                             sessions: state.sessions.map(s =>
                                 s.id === sessionId
-                                    ? { ...s, voluntaryStop: true, disconnectReason: reason, connected: false }
+                                    ? { ...s, voluntaryStop: true, disconnectReason: reason, isConnected: false }
                                     : s
                             ),
                             persistedSessions: state.persistedSessions.map(s =>
                                 s.id === sessionId
-                                    ? { ...s, voluntaryStop: true, connected: false }
+                                    ? { ...s, voluntaryStop: true, isConnected: false }
                                     : s
                             )
                         }));
@@ -298,20 +296,18 @@ export const useSessionStore = create<SessionStore>()(
 
             getReconnectableSessions: () => {
                 const { sessions } = get();
-                return sessions.filter(s => !s.connected && !s.voluntaryStop && s.reconnectAttempts < 10);
+                return sessions.filter(s => !s.isConnected && !s.voluntaryStop && s.reconnectAttempts < 10);
             },
 
             persistSession: (session: SessionWithChartData) => {
                 const persisted: PersistedSessionData = {
                     id: session.id,
-                    url: session.url,
+                    wsUrl: session.wsUrl,
                     cpId: session.cpId,
-                    bearerToken: session.bearerToken,
-                    idTag: session.idTag,
-                    title: session.title,
-                    connected: session.connected,
+                    idTag: session.config.idTag,
+                    isConnected: session.isConnected,
                     voluntaryStop: session.voluntaryStop,
-                    state: session.state
+                    status: session.status
                 };
                 set(state => ({
                     persistedSessions: [
@@ -328,7 +324,7 @@ export const useSessionStore = create<SessionStore>()(
                 // Les sessions persistées seront réconciliées avec celles du backend lors du loadSessions
                 // Cette méthode est appelée au démarrage pour identifier les sessions à reconnecter
                 for (const persisted of persistedSessions) {
-                    if (!persisted.voluntaryStop && persisted.connected) {
+                    if (!persisted.voluntaryStop && persisted.isConnected) {
                         console.log('[SessionStore] Session', persisted.id, 'should be reconnected');
                     }
                 }

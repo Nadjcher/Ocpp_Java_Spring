@@ -4,26 +4,28 @@ import React, { useState } from 'react';
 
 interface SessionPanelProps {
     session: any;
-    onUpdate: (updates: any) => void;
-    onConnect: () => void;
-    onDisconnect: () => void;
-    onPark: () => void;
-    onPlug: () => void;
-    onAuthorize: (tag: string) => void;
-    onStart: () => void;
-    onStop: () => void;
+    sessionId?: string;  // Alias pour compatibilité
+    onUpdate?: (updates: any) => void;
+    onConnect?: () => void;
+    onDisconnect?: () => void;
+    onPark?: () => void;
+    onPlug?: () => void;
+    onAuthorize?: (tag: string) => void;
+    onStart?: () => void;
+    onStop?: () => void;
 }
 
 export const SessionPanel: React.FC<SessionPanelProps> = ({
                                                               session,
-                                                              onUpdate,
-                                                              onConnect,
-                                                              onDisconnect,
-                                                              onPark,
-                                                              onPlug,
-                                                              onAuthorize,
-                                                              onStart,
-                                                              onStop
+                                                              sessionId,
+                                                              onUpdate = () => {},
+                                                              onConnect = () => {},
+                                                              onDisconnect = () => {},
+                                                              onPark = () => {},
+                                                              onPlug = () => {},
+                                                              onAuthorize = () => {},
+                                                              onStart = () => {},
+                                                              onStop = () => {}
                                                           }) => {
     const [idTag, setIdTag] = useState('TEST-TAG-001');
 
@@ -48,9 +50,9 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
     return (
         <div className="bg-gray-800 rounded-lg p-6 h-full overflow-auto border border-gray-700">
             <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-white">{session.title}</h2>
-                <span className={`font-semibold ${getStateColor(session.state)}`}>
-          {session.state}
+                <h2 className="text-xl font-bold text-white">{session.cpId}</h2>
+                <span className={`font-semibold ${getStateColor(session.status)}`}>
+          {session.status}
         </span>
             </div>
 
@@ -65,8 +67,8 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
                                 <label className="block text-sm mb-1 text-gray-300">URL WebSocket</label>
                                 <input
                                     type="text"
-                                    value={session.url}
-                                    onChange={(e) => onUpdate({ url: e.target.value })}
+                                    value={session.wsUrl}
+                                    onChange={(e) => onUpdate({ wsUrl: e.target.value })}
                                     className="w-full px-3 py-2 bg-gray-700 text-white rounded text-sm border border-gray-600"
                                 />
                             </div>

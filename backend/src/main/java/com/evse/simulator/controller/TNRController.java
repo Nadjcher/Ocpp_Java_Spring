@@ -40,6 +40,137 @@ public class TNRController {
         ));
     }
 
+    // =========================================================================
+    // Compatibility endpoints for frontend (TnrTab.tsx)
+    // =========================================================================
+
+    @GetMapping("")
+    @Operation(summary = "Liste les IDs des scénarios (compat frontend)")
+    public ResponseEntity<List<String>> listScenarioIds() {
+        List<String> ids = tnrService.getAllScenarios().stream()
+            .map(TNRScenario::getId)
+            .toList();
+        return ResponseEntity.ok(ids);
+    }
+
+    @GetMapping("/list")
+    @Operation(summary = "Liste tous les scénarios (compat frontend /api/tnr/list)")
+    public ResponseEntity<List<Map<String, Object>>> listScenarios() {
+        List<Map<String, Object>> list = tnrService.getAllScenarios().stream()
+            .map(s -> {
+                Map<String, Object> m = new java.util.HashMap<>();
+                m.put("id", s.getId());
+                m.put("name", s.getName() != null ? s.getName() : s.getId());
+                m.put("description", s.getDescription());
+                m.put("eventsCount", s.getSteps() != null ? s.getSteps().size() : 0);
+                m.put("config", Map.of("url", ""));
+                return m;
+            })
+            .toList();
+        return ResponseEntity.ok(list);
+    }
+
+    @GetMapping("/executions")
+    @Operation(summary = "Liste toutes les exécutions (compat frontend)")
+    public ResponseEntity<List<Map<String, Object>>> listExecutions() {
+        List<Map<String, Object>> execs = tnrService.getAllResults().stream()
+            .map(r -> {
+                Map<String, Object> m = new java.util.HashMap<>();
+                String execId = r.getScenarioId() + "-" + (r.getExecutedAt() != null ? r.getExecutedAt().toString() : System.currentTimeMillis());
+                m.put("executionId", execId);
+                m.put("scenarioId", r.getScenarioId());
+                m.put("timestamp", r.getExecutedAt() != null ? r.getExecutedAt().toString() : "");
+                m.put("passed", r.getStatus() == ScenarioStatus.PASSED);
+                m.put("metrics", Map.of(
+                    "differences", 0,
+                    "totalEvents", r.getStepResults() != null ? r.getStepResults().size() : 0,
+                    "durationMs", r.getDurationMs()
+                ));
+                return m;
+            })
+            .toList();
+        return ResponseEntity.ok(execs);
+    }
+
+    @GetMapping("/executions/{executionId}")
+    @Operation(summary = "Récupère les détails d'une exécution (compat frontend)")
+    public ResponseEntity<Map<String, Object>> getExecution(@PathVariable String executionId) {
+        // Try to find a matching result
+        TNRResult result = tnrService.getAllResults().stream()
+            .filter(r -> {
+                String execId = r.getScenarioId() + "-" + (r.getExecutedAt() != null ? r.getExecutedAt().toString() : "");
+                return execId.equals(executionId) || r.getScenarioId().equals(executionId);
+            })
+            .findFirst()
+            .orElse(null);
+
+        if (result == null) {
+            // Return a placeholder if not found
+            Map<String, Object> m = new java.util.HashMap<>();
+            m.put("executionId", executionId);
+            m.put("scenarioId", executionId);
+            m.put("status", "not_found");
+            m.put("startedAt", "");
+            m.put("logs", List.of());
+            m.put("events", List.of());
+            m.put("differences", List.of());
+            return ResponseEntity.ok(m);
+        }
+
+        Map<String, Object> m = new java.util.HashMap<>();
+        m.put("executionId", executionId);
+        m.put("scenarioId", result.getScenarioId());
+        m.put("status", result.getStatus() == ScenarioStatus.PASSED ? "success" : "failed");
+        m.put("startedAt", result.getExecutedAt() != null ? result.getExecutedAt().toString() : "");
+        m.put("finishedAt", ""); // TNRResult n'a pas de endTime séparé
+        m.put("metrics", Map.of(
+            "differences", 0,
+            "totalEvents", result.getStepResults() != null ? result.getStepResults().size() : 0,
+            "durationMs", result.getDurationMs()
+        ));
+        m.put("logs", result.getLogs() != null ? result.getLogs() : List.of());
+        m.put("events", List.of());
+        m.put("differences", List.of());
+        return ResponseEntity.ok(m);
+    }
+
+    @GetMapping("/executions/{executionId}/logs")
+    @Operation(summary = "Récupère les logs d'une exécution (compat frontend)")
+    public ResponseEntity<List<String>> getExecutionLogs(@PathVariable String executionId) {
+        return ResponseEntity.ok(List.of());
+    }
+
+    @GetMapping("/executions/{executionId}/events")
+    @Operation(summary = "Récupère les events d'une exécution (compat frontend)")
+    public ResponseEntity<List<Map<String, Object>>> getExecutionEvents(@PathVariable String executionId) {
+        return ResponseEntity.ok(List.of());
+    }
+
+    @PostMapping("/run/{scenarioId}")
+    @Operation(summary = "Lance un scénario TNR (compat frontend)")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> runScenarioCompat(
+            @PathVariable String scenarioId,
+            @RequestParam(required = false) String url,
+            @RequestParam(required = false, defaultValue = "fast") String mode,
+            @RequestParam(required = false, defaultValue = "1") double speed) {
+        log.info("Running TNR scenario {} with url={}, mode={}, speed={}", scenarioId, url, mode, speed);
+        String executionId = scenarioId + "-" + System.currentTimeMillis();
+        return tnrService.runScenario(scenarioId)
+            .thenApply(result -> {
+                Map<String, Object> m = new java.util.HashMap<>();
+                m.put("executionId", executionId);
+                m.put("ok", result.getStatus() == ScenarioStatus.PASSED);
+                return ResponseEntity.ok(m);
+            })
+            .exceptionally(ex -> {
+                Map<String, Object> m = new java.util.HashMap<>();
+                m.put("executionId", executionId);
+                m.put("ok", false);
+                m.put("error", ex.getMessage());
+                return ResponseEntity.ok(m);
+            });
+    }
+
     @GetMapping("/scenarios")
     @Operation(summary = "Liste tous les scénarios")
     public ResponseEntity<List<TNRScenario>> getAllScenarios() {

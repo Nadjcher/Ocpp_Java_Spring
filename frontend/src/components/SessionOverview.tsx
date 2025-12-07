@@ -5,29 +5,39 @@ import { Plus, Play, Square, Battery, Zap, WifiOff, Wifi } from 'lucide-react';
 
 interface SessionInfo {
     id: string;
-    name: string;
-    chargePointId: string;
-    status: 'Available' | 'Preparing' | 'Charging' | 'Finishing' | 'Unavailable';
-    connectorId: number;
-    soc: number;
-    meterWh: number;
-    offeredW: number;
-    activeW: number;
+    name?: string;
+    cpId?: string;
+    chargePointId?: string;
+    status?: string;
+    connectorId?: number;
+    soc?: number;
+    meterWh?: number;
+    energy?: number;
+    offeredW?: number;
+    offeredPower?: number;
+    activeW?: number;
+    activePower?: number;
     transactionId?: number;
+    txId?: number | null;
     startTime?: Date;
     tagId?: string;
+    metrics?: { backendKwMax?: number };
 }
 
 interface SessionOverviewProps {
     sessions: SessionInfo[];
-    onAddSession: () => void;
-    onSelectSession: (sessionId: string) => void;
+    metric?: 'SoC' | 'Offered' | 'Active' | 'SetPoint';
+    filter?: Record<string, boolean>;
+    onAddSession?: () => void;
+    onSelectSession?: (sessionId: string) => void;
 }
 
 export const SessionOverview: React.FC<SessionOverviewProps> = ({
                                                                     sessions,
-                                                                    onAddSession,
-                                                                    onSelectSession
+                                                                    metric = 'SoC',
+                                                                    filter = {},
+                                                                    onAddSession = () => {},
+                                                                    onSelectSession = () => {}
                                                                 }) => {
     const getStatusColor = (status: SessionInfo['status']) => {
         switch (status) {
@@ -123,7 +133,7 @@ export const SessionOverview: React.FC<SessionOverviewProps> = ({
                                 <div className="flex justify-between items-center">
                                     <span className="text-sm text-gray-600">Énergie</span>
                                     <span className="text-sm font-medium">
-                                        {(session.meterWh / 1000).toFixed(2)} kWh
+                                        {((session.meterWh ?? session.energy ?? 0) / 1000).toFixed(2)} kWh
                                     </span>
                                 </div>
 
@@ -132,7 +142,7 @@ export const SessionOverview: React.FC<SessionOverviewProps> = ({
                                         <div className="flex justify-between items-center">
                                             <span className="text-sm text-gray-600">Puissance</span>
                                             <span className="text-sm font-medium">
-                                                {(session.activeW / 1000).toFixed(1)} kW
+                                                {((session.activeW ?? session.activePower ?? 0) / 1000).toFixed(1)} kW
                                             </span>
                                         </div>
 

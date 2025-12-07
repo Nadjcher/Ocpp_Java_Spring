@@ -27,10 +27,8 @@ export function useWebSocket() {
                     case 'OCPP_MESSAGE':
                         if (data.data) {
                             addLog(data.data.sessionId, {
-                                timestamp: new Date(data.data.timestamp),
-                                message: `${data.data.direction === 'SENT' ? '→' : '←'} ${data.data.action}`,
-                                type: data.data.direction.toLowerCase(),
-                                payload: data.data.payload
+                                ts: new Date(data.data.timestamp).toISOString(),
+                                line: `[INFO] [OCPP_${data.data.direction}] ${data.data.direction === 'SENT' ? '→' : '←'} ${data.data.action}: ${JSON.stringify(data.data.payload).substring(0, 100)}`
                             });
                         }
                         break;

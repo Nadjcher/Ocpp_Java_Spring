@@ -2,6 +2,7 @@ package com.evse.simulator.controller;
 
 import com.evse.simulator.model.Session;
 import com.evse.simulator.service.SessionService;
+import com.evse.simulator.websocket.MLWebSocketHandler;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ import java.util.stream.Collectors;
 public class MLController {
 
     private final SessionService sessionService;
+    private final MLWebSocketHandler mlWebSocketHandler;
 
     // Stockage en mémoire pour les données ML
     private final Map<String, List<Map<String, Object>>> anomalyHistory = new ConcurrentHashMap<>();
@@ -96,6 +98,11 @@ public class MLController {
 
             // Stocker dans l'historique
             anomalyHistory.computeIfAbsent(sessionId, k -> new ArrayList<>()).addAll(anomalies);
+
+            // Diffuser les anomalies via WebSocket natif
+            if (!anomalies.isEmpty()) {
+                anomalies.forEach(mlWebSocketHandler::broadcastAnomaly);
+            }
 
             return ResponseEntity.ok(result);
         } catch (Exception e) {

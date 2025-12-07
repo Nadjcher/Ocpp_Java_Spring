@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { config } from "@/config/env";
 
 type Status = {
     run: { status: "RUNNING" | "IDLE"; runId: string | null };
@@ -7,7 +8,7 @@ type Status = {
 };
 
 export default function PerfRunner() {
-    const [url, setUrl] = useState("wss://evse-test.total-ev-charge.com/ocpp/WebSocket");
+    const [url, setUrl] = useState(config.ocppUrls.test);
     const [sessions, setSessions] = useState(10);
     const [concurrent, setConcurrent] = useState(5);
     const [rampMs, setRampMs] = useState(250);

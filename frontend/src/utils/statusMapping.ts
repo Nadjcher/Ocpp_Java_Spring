@@ -10,11 +10,13 @@ export type BackendStatus =
 
 /**
  * Statuts frontend pour l'affichage UI
+ * Inclut les états du backend SessionState (parked, plugged, started, etc.)
  */
 export type FrontendStatus =
   | 'disconnected' | 'connecting' | 'connected' | 'available'
   | 'preparing' | 'authorized' | 'charging' | 'finishing'
-  | 'reserved' | 'error' | 'closed';
+  | 'reserved' | 'error' | 'closed'
+  | 'booted' | 'parked' | 'plugged' | 'authorizing' | 'starting' | 'started' | 'stopping' | 'stopped';
 
 /**
  * Convertit un statut backend vers un statut frontend
@@ -78,7 +80,15 @@ export const STATUS_LABELS: Record<FrontendStatus, string> = {
   finishing: 'Fin de charge',
   reserved: 'Réservé',
   error: 'Erreur',
-  closed: 'Fermé'
+  closed: 'Fermé',
+  booted: 'Boot accepté',
+  parked: 'Véhicule garé',
+  plugged: 'Câble branché',
+  authorizing: 'Autorisation...',
+  starting: 'Démarrage...',
+  started: 'En charge',
+  stopping: 'Arrêt...',
+  stopped: 'Arrêté'
 };
 
 /**
@@ -95,7 +105,15 @@ export const STATUS_COLORS: Record<FrontendStatus, { bg: string; text: string; b
   finishing: { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-300' },
   reserved: { bg: 'bg-pink-100', text: 'text-pink-700', border: 'border-pink-300' },
   error: { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-300' },
-  closed: { bg: 'bg-gray-100', text: 'text-gray-500', border: 'border-gray-200' }
+  closed: { bg: 'bg-gray-100', text: 'text-gray-500', border: 'border-gray-200' },
+  booted: { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-300' },
+  parked: { bg: 'bg-indigo-100', text: 'text-indigo-700', border: 'border-indigo-300' },
+  plugged: { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-300' },
+  authorizing: { bg: 'bg-yellow-100', text: 'text-yellow-700', border: 'border-yellow-300' },
+  starting: { bg: 'bg-yellow-100', text: 'text-yellow-700', border: 'border-yellow-300' },
+  started: { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-300' },
+  stopping: { bg: 'bg-yellow-100', text: 'text-yellow-700', border: 'border-yellow-300' },
+  stopped: { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-300' }
 };
 
 /**
@@ -113,6 +131,14 @@ export function getStatusIcon(status: FrontendStatus, isCharging: boolean = fals
     case 'error': return '⚠️';
     case 'disconnected': return '○';
     case 'connecting': return '◐';
+    case 'booted': return '✓';
+    case 'parked': return '🅿️';
+    case 'plugged': return '🔌';
+    case 'authorizing': return '🔑';
+    case 'starting': return '▶️';
+    case 'started': return '⚡';
+    case 'stopping': return '⏸️';
+    case 'stopped': return '⏹️';
     default: return '●';
   }
 }

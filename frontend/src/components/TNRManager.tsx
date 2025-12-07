@@ -84,7 +84,7 @@ export function TNRManager() {
                                 <option value="">Sélectionner une session</option>
                                 {sessions.map(session => (
                                     <option key={session.id} value={session.id}>
-                                        {session.title}
+                                        {session.cpId}
                                     </option>
                                 ))}
                             </select>
@@ -107,7 +107,7 @@ export function TNRManager() {
                                 <span className="font-semibold">Enregistrement en cours...</span>
                             </div>
                             <p className="text-sm text-gray-400">
-                                {recordingSteps.length} actions enregistrées
+                                {recordingSteps} actions enregistrées
                             </p>
                         </div>
 

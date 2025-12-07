@@ -3,7 +3,7 @@
 # =============================================================================
 
 server:
-  port: 8887
+  port: ${SERVER_PORT:8887}
   tomcat:
     max-connections: 30000
     accept-count: 1000
@@ -59,12 +59,35 @@ ocpp:
   version: "1.6"
   heartbeat-interval: 30000
   meter-values-interval: 10000
-  default-url: ws://localhost:8887/ocpp
+  default-url: ${OCPP_DEFAULT_URL:ws://localhost:8887/ocpp}
   connection-timeout: 10000
   reconnect-delay: 5000
   max-reconnect-attempts: 5
   message:
     max-size: 65536
+  # Environnements CSMS disponibles
+  environments:
+    test:
+      name: Test
+      url: ${OCPP_TEST_URL:wss://evse-test.total-ev-charge.com/ocpp/WebSocket}
+    pp:
+      name: Pre-Production
+      url: ${OCPP_PP_URL:wss://evse-pp.total-ev-charge.com/ocpp/WebSocket}
+    prod:
+      name: Production
+      url: ${OCPP_PROD_URL:wss://evse.total-ev-charge.com/ocpp/WebSocket}
+  default-environment: ${OCPP_DEFAULT_ENV:test}
+
+# =============================================================================
+# Session Defaults
+# =============================================================================
+session:
+  defaults:
+    cp-id: ${DEFAULT_CP_ID:SIMU-CP-001}
+    id-tag: ${DEFAULT_ID_TAG:TAG-001}
+    vehicle: ${DEFAULT_VEHICLE:GENERIC}
+    connector-id: ${DEFAULT_CONNECTOR_ID:1}
+    max-power-kw: ${DEFAULT_MAX_POWER_KW:22.0}
 
 # =============================================================================
 # Metrics Configuration
@@ -82,21 +105,35 @@ loadtest:
   # Nombre maximum de sessions pour les tests de charge
   max-sessions: 25000
   # Taille du pool de threads pour les tests de charge
-  thread-pool-size: 10
+  thread-pool-size: 200
 
 # =============================================================================
-# Performance Configuration (Legacy - use metrics/loadtest instead)
+# Performance Configuration - High Capacity (25K+ connections)
 # =============================================================================
 performance:
   max-sessions: ${loadtest.max-sessions}
-  websocket-pool-size: 100
+  websocket-pool-size: 500
   metrics-interval: ${metrics.broadcast-interval}
-  batch-size: 100
+  batch-size: 500
   async:
-    core-pool-size: 50
-    max-pool-size: 200
-    queue-capacity: 10000
+    core-pool-size: 100
+    max-pool-size: 500
+    queue-capacity: 50000
     thread-name-prefix: "evse-async-"
+  # High performance settings
+  high-perf:
+    enabled: true
+    # Rate limiting: connections per second
+    rate-limit: 500
+    # Connection timeout in seconds
+    connection-timeout: 30
+    # Histogramme settings
+    latency-max-ms: 60000
+    latency-precision: 3
+    # Thread pool for connections
+    connection-pool-size: 250
+    # SSE broadcasting
+    sse-timeout: 0
 
 # =============================================================================
 # Data Storage Configuration
@@ -159,3 +196,18 @@ logging:
     name: logs/evse-simulator.log
     max-size: 10MB
     max-history: 30
+
+# =============================================================================
+# TTE API Configuration (Cognito OAuth2)
+# =============================================================================
+tte:
+  enabled: ${TTE_ENABLED:true}
+  cognito:
+    token-url: ${TTE_COGNITO_URL:https://tte-pool-prod.auth.eu-central-1.amazoncognito.com/oauth2/token}
+    client-id: ${TTE_CLIENT_ID:}
+    client-secret: ${TTE_CLIENT_SECRET:}
+    # Renouveler le token X secondes avant expiration
+    token-expiry-buffer-seconds: 300
+  api:
+    base-url: ${TTE_API_URL:https://api.total-ev-charge.com}
+    timeout-seconds: 30

@@ -65,6 +65,7 @@ export default function LogView(props: Props) {
     // Mode fetch (polling)
     useEffect(() => {
         if (!("fetchUrl" in props) || !props.fetchUrl) return;
+        const url = props.fetchUrl; // Capture pour éviter l'erreur TS
         let stop = false;
         let ctrl: AbortController | null = null;
         let lastLen = 0;
@@ -74,7 +75,7 @@ export default function LogView(props: Props) {
             try {
                 ctrl?.abort();
                 ctrl = new AbortController();
-                const res = await fetch(props.fetchUrl, { signal: ctrl.signal });
+                const res = await fetch(url, { signal: ctrl.signal });
                 if (res.ok) {
                     const arr = await res.json();
                     if (Array.isArray(arr)) {

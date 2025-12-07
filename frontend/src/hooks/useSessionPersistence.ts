@@ -44,9 +44,9 @@ export function useSessionPersistence(options: UseSessionPersistenceOptions = {}
                 console.log('[useSessionPersistence] Found', reconnectable.length, 'reconnectable sessions');
 
                 for (const session of reconnectable) {
-                    if (session.url && !session.voluntaryStop) {
+                    if (session.wsUrl && !session.voluntaryStop) {
                         console.log('[useSessionPersistence] Auto-reconnecting session:', session.id);
-                        wsManager.connect(session.id, session.url);
+                        wsManager.connect(session.id, session.wsUrl);
                     }
                 }
             }
@@ -95,7 +95,7 @@ export function useSessionPersistence(options: UseSessionPersistenceOptions = {}
             console.log('[useSessionPersistence] Visibility changed:', isHidden ? 'hidden' : 'visible');
 
             // Notifier le backend pour chaque session connectée
-            const sessions = store.sessions.filter(s => s.connected);
+            const sessions = store.sessions.filter(s => s.isConnected);
             for (const session of sessions) {
                 store.setBackgrounded(session.id, isHidden);
             }
@@ -148,17 +148,17 @@ export function useSessionPersistence(options: UseSessionPersistenceOptions = {}
         store.clearVoluntaryStop(sessionId);
 
         // Reconnecter
-        if (session.url) {
-            wsManager.connect(sessionId, session.url);
+        if (session.wsUrl) {
+            wsManager.connect(sessionId, session.wsUrl);
         }
     }, [store]);
 
     const reconnectAllSessions = useCallback(() => {
         const reconnectable = store.getReconnectableSessions();
         for (const session of reconnectable) {
-            if (session.url) {
+            if (session.wsUrl) {
                 store.clearVoluntaryStop(session.id);
-                wsManager.connect(session.id, session.url);
+                wsManager.connect(session.id, session.wsUrl);
             }
         }
     }, [store]);

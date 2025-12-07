@@ -46,4 +46,8 @@ public interface OCPPService {
     // Message Handling - CSMS to Charge Point
     void handleCallResult(String sessionId, String messageId, Map<String, Object> payload);
     void handleCallError(String sessionId, String messageId, String errorCode, String errorDescription);
+
+    // Meter Values Scheduling
+    void startMeterValuesWithInterval(String sessionId, int intervalSec);
+    void stopMeterValuesPublic(String sessionId);
 }

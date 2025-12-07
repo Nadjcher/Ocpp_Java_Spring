@@ -37,6 +37,7 @@ public class WebSocketBroadcaster implements com.evse.simulator.domain.service.B
     private static final String TOPIC_METRICS = "/topic/metrics";
     private static final String TOPIC_PERFORMANCE = "/topic/performance";
     private static final String TOPIC_ALL_SESSIONS = "/topic/sessions";
+    private static final String TOPIC_ML_ANOMALY = "/topic/ml/anomalies";
 
     // =========================================================================
     // Diffusion des sessions
@@ -154,6 +155,35 @@ public class WebSocketBroadcaster implements com.evse.simulator.domain.service.B
         } catch (Exception e) {
             log.error("Failed to broadcast performance stats: {}", e.getMessage());
         }
+    }
+
+    // =========================================================================
+    // Diffusion ML
+    // =========================================================================
+
+    /**
+     * Diffuse une anomalie ML détectée.
+     *
+     * @param anomaly données de l'anomalie
+     */
+    @Async("websocketExecutor")
+    public void broadcastMLAnomaly(Object anomaly) {
+        try {
+            messagingTemplate.convertAndSend(TOPIC_ML_ANOMALY, anomaly);
+            log.debug("Broadcast ML anomaly");
+        } catch (Exception e) {
+            log.error("Failed to broadcast ML anomaly: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Diffuse plusieurs anomalies ML.
+     *
+     * @param anomalies liste des anomalies
+     */
+    @Async("websocketExecutor")
+    public void broadcastMLAnomalies(java.util.List<?> anomalies) {
+        anomalies.forEach(this::broadcastMLAnomaly);
     }
 
     // =========================================================================

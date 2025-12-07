@@ -26,6 +26,7 @@
         <springdoc.version>2.3.0</springdoc.version>
         <commons-io.version>2.15.1</commons-io.version>
         <guava.version>32.1.3-jre</guava.version>
+        <hdrhistogram.version>2.1.12</hdrhistogram.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <maven.resources.encoding>UTF-8</maven.resources.encoding>
@@ -133,6 +134,13 @@
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
 
+        <!-- HdrHistogram for High-Precision Latency Metrics -->
+        <dependency>
+            <groupId>org.hdrhistogram</groupId>
+            <artifactId>HdrHistogram</artifactId>
+            <version>${hdrhistogram.version}</version>
+        </dependency>
+
         <!-- DevTools -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -204,9 +212,11 @@
                         </exclude>
                     </excludes>
                     <jvmArguments>
-                        -Xms512m -Xmx2g
+                        -Xms1g -Xmx4g
                         -XX:+UseG1GC
-                        -XX:MaxGCPauseMillis=200
+                        -XX:MaxGCPauseMillis=100
+                        -XX:+UseStringDeduplication
+                        -Djava.net.preferIPv4Stack=true
                     </jvmArguments>
                 </configuration>
             </plugin>
@@ -260,10 +270,12 @@
                         <artifactId>spring-boot-maven-plugin</artifactId>
                         <configuration>
                             <jvmArguments>
-                                -Xms1g -Xmx4g
+                                -Xms2g -Xmx8g
                                 -XX:+UseG1GC
-                                -XX:MaxGCPauseMillis=100
+                                -XX:MaxGCPauseMillis=50
                                 -XX:+UseStringDeduplication
+                                -Djava.net.preferIPv4Stack=true
+                                -XX:+ParallelRefProcEnabled
                             </jvmArguments>
                         </configuration>
                     </plugin>

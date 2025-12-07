@@ -1,6 +1,7 @@
 // frontend/src/components/PerfOCPPPanel.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { perf } from "../services/api";
+import { config } from "@/config/env";
 
 /* ------------------------------------------------------------------ */
 /* Types & helpers                                                     */
@@ -64,9 +65,7 @@ function ensureCsvHeader(csv: string): string {
 /* ------------------------------------------------------------------ */
 export default function PerfOCPPPanel() {
     /* ========================= Bloc 1 – Pool navigateur ========================= */
-    const [wsBase, setWsBase] = useState(
-        "wss://evse-test.total-ev-charge.com/ocpp/WebSocket"
-    );
+    const [wsBase, setWsBase] = useState(config.ocppUrls.test);
     const [maxConc, setMaxConc] = useState(20);
     const [rampMs, setRampMs] = useState(250);
     const [holdSec, setHoldSec] = useState(60);
@@ -364,13 +363,18 @@ export default function PerfOCPPPanel() {
                                     old.map((r) => (r.cpId === row.cpId ? { ...row } : r))
                                 );
 
-                                /*// Auto-authorize après boot si nécessaire
+                                // IMPORTANT: Envoyer StatusNotification Preparing après boot
+                                // Requis par le CSMS avant StartTransaction
                                 setTimeout(() => {
-                                    if (row.ws && row.ws.readyState === WebSocket.OPEN && row.status === "booted") {
-                                        t0Auth = performance.now();
-                                        sendCall(row, "Authorize", { idTag: row.idTag || "TAG" });
+                                    if (row.ws && row.ws.readyState === WebSocket.OPEN) {
+                                        sendCall(row, "StatusNotification", {
+                                            connectorId: 1,
+                                            status: "Preparing",
+                                            errorCode: "NoError",
+                                            timestamp: nowIso()
+                                        });
                                     }
-                                }, 500);*/
+                                }, 100);
                             } else {
                                 row.status = "error";
                                 row.err = `Boot rejected: ${JSON.stringify(payload)}`;
@@ -649,23 +653,27 @@ export default function PerfOCPPPanel() {
     const pollStatus = async () => {
         try {
             const s: any = await perf.status();
-            const status = s?.run?.status || s?.status || "IDLE";
+            // Le backend retourne: running (bool), status (string), targetSessions, currentSessions, connectedSessions, errors
+            const status = s?.running ? "RUNNING" : (s?.status || "IDLE");
             setRunnerStatus(status);
-            const st = s?.stats || s || {};
+
+            // Mapper les champs du backend vers le format attendu
+            const total = Number(s?.targetSessions ?? s?.stats?.total ?? 0);
+            const active = Number(s?.connectedSessions ?? s?.stats?.active ?? 0);
+            const finished = Number(s?.currentSessions ?? s?.stats?.finished ?? 0);
+            const errors = Number(s?.errors ?? s?.stats?.errors ?? 0);
+            const avgLatencyMs = Number(s?.avgLatencyMs ?? s?.stats?.avgLatencyMs ?? 0);
+
             setRStats({
-                total: Number(st.total || 0),
-                active: Number(st.active || 0),
-                finished: Number(st.finished || 0),
-                errors: Number(st.errors || 0),
-                avgLatencyMs: Number(st.avgLatencyMs || 0),
-                cpu: Number(st.cpu || 0),
+                total,
+                active,
+                finished,
+                errors,
+                avgLatencyMs,
+                cpu: Number(s?.cpu ?? s?.stats?.cpu ?? 0),
             });
             appendLog(
-                `[${new Date().toTimeString().slice(0, 8)}] status: ${status}, total=${
-                    st.total ?? 0
-                } active=${st.active ?? 0} finished=${st.finished ?? 0} errors=${
-                    st.errors ?? 0
-                }`
+                `[${new Date().toTimeString().slice(0, 8)}] status: ${status}, total=${total} active=${active} finished=${finished} errors=${errors}`
             );
         } catch (e: any) {
             setRunnerStatus("IDLE");
@@ -697,6 +705,17 @@ export default function PerfOCPPPanel() {
 
     const onStartRunner = async () => {
         try {
+            // Debug: log CSV state
+            const csvLines = runnerCsv.trim().split(/\r?\n/).filter(Boolean).length;
+            console.log("[Runner] Starting with:", {
+                url: runnerWsUrl,
+                useCsv: runnerUseCsv,
+                runnerCsvLength: runnerCsv.length,
+                runnerCsvLines: csvLines,
+                runnerCsvPreview: runnerCsv.substring(0, 100)
+            });
+            appendLog(`[runner] CSV: ${csvLines} lignes, useCsv=${runnerUseCsv}`);
+
             const body: any = {
                 url: runnerWsUrl,
                 sessions,
@@ -708,8 +727,15 @@ export default function PerfOCPPPanel() {
                 powerKW: runnerPowerKW,
                 voltageV: runnerVoltageV,
             };
-            if (runnerUseCsv && runnerCsv.trim())
+
+            if (runnerUseCsv && runnerCsv.trim()) {
                 body.csvText = ensureCsvHeader(runnerCsv);
+                appendLog(`[runner] Envoi CSV avec ${csvLines} lignes`);
+            } else if (runnerUseCsv) {
+                appendLog(`[runner] ATTENTION: useCsv=true mais runnerCsv vide!`);
+            }
+
+            console.log("[Runner] Request body:", body);
             const res = await perf.start(body);
             appendLog(`[runner] start ok: runId=${(res as any)?.runId || "?"}`);
             await pollStatus();
@@ -1102,7 +1128,7 @@ export default function PerfOCPPPanel() {
                                 checked={runnerUseCsv}
                                 onChange={(e) => setRunnerUseCsv(e.target.checked)}
                             />
-                            <span className="text-sm">Utiliser CSV (cpId,idTag)</span>
+                            <span className="text-sm">Utiliser CSV (cpId,idTag) - <b>{runnerCsv.split(/\r?\n/).filter(Boolean).length}</b> lignes</span>
                         </label>
 
                         <div className="flex items-center gap-2">
@@ -1115,15 +1141,27 @@ export default function PerfOCPPPanel() {
                                     onChange={(e) => onPickRunnerCsvFile(e.target.files?.[0] || null)}
                                 />
                             </label>
+                            {csvText.trim() && (
+                                <button
+                                    className="px-3 py-1.5 rounded-md bg-yellow-100 hover:bg-yellow-200 border border-yellow-300 text-sm"
+                                    onClick={() => {
+                                        setRunnerCsv(csvText);
+                                        appendLog(`[runner] CSV copié depuis Bloc 1: ${csvText.split(/\r?\n/).filter(Boolean).length} lignes`);
+                                    }}
+                                    title="Copier le CSV depuis le bloc Perf OCPP (navigateur)"
+                                >
+                                    Copier depuis Bloc 1
+                                </button>
+                            )}
                             <span className="text-xs text-gray-500">
                 (ou colle le CSV ci-dessous)
               </span>
                         </div>
                         <textarea
-                            className="w-full h-28 rounded-md border-gray-300"
+                            className="w-full h-28 rounded-md border-gray-300 border-2 border-indigo-200"
                             value={runnerCsv}
                             onChange={(e) => setRunnerCsv(e.target.value)}
-                            placeholder={`cp0001, TAG-0001\ncp0002, TAG-0002`}
+                            placeholder={`awsevse0500,AWSE-TAG-0500\nawsevse0501,AWSE-TAG-0501\n...`}
                         />
 
                         <div className="flex flex-wrap gap-2">

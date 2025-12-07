@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE } from "@/lib/apiBase";
 import { useTNR } from "@/contexts/TNRContext";
+import { config } from "@/config/env";
 import {
   loadVehicleProfiles,
   getAllVehicles,
@@ -982,8 +983,8 @@ export default function SimuEvseBoard() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [sessionStats, setSessionStats] = useState<Map<string, SessionStats>>(new Map());
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [wsUrl, setWsUrl] = useState("wss://evse-test.total-ev-charge.com/ocpp/WebSocket");
-  const [cpId, setCpId] = useState("POP-TEST-001");
+  const [wsUrl, setWsUrl] = useState(config.ocppUrls.test);
+  const [cpId, setCpId] = useState(config.defaults.cpId);
   const [autoIncrement, setAutoIncrement] = useState(true);
   const [cpCounter, setCpCounter] = useState(1);
   const [vehicleNames, setVehicleNames] = useState<string[]>([]);

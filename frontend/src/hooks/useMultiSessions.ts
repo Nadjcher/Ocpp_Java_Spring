@@ -5,8 +5,7 @@ import { useState, useCallback, useRef } from 'react';
 import type {
   SessionState,
   SessionConfig,
-  MultiSessionStore,
-  DEFAULT_SESSION_CONFIG
+  MultiSessionStore
 } from '@/types/multiSession.types';
 import { createSessionState } from '@/types/multiSession.types';
 

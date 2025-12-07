@@ -143,7 +143,7 @@ export function OCPPMonitor() {
                     >
                         <option value="all">Toutes les sessions</option>
                         {sessions.map(session => (
-                            <option key={session.id} value={session.id}>{session.title}</option>
+                            <option key={session.id} value={session.id}>{session.cpId}</option>
                         ))}
                     </select>
 
@@ -188,7 +188,7 @@ export function OCPPMonitor() {
                                     </div>
                                 </td>
                                 <td className="px-4 py-2 text-xs text-gray-300">
-                                    {sessions.find(s => s.id === msg.sessionId)?.title || msg.sessionId}
+                                    {sessions.find(s => s.id === msg.sessionId)?.cpId || msg.sessionId}
                                 </td>
                                 <td className="px-4 py-2">
                     <span className={`text-sm font-medium ${getMessageColor(msg.action)}`}>
@@ -236,13 +236,13 @@ export function OCPPMonitor() {
                 <div className="bg-gray-800 rounded-lg p-4">
                     <div className="text-gray-400 text-sm mb-1">Transactions actives</div>
                     <div className="text-2xl font-bold text-yellow-400">
-                        {sessions.filter(s => s.transactionId).length}
+                        {sessions.filter(s => s.status === 'charging').length}
                     </div>
                 </div>
                 <div className="bg-gray-800 rounded-lg p-4">
                     <div className="text-gray-400 text-sm mb-1">Sessions connectées</div>
                     <div className="text-2xl font-bold text-purple-400">
-                        {sessions.filter(s => s.connected).length}
+                        {sessions.filter(s => s.isConnected).length}
                     </div>
                 </div>
             </div>

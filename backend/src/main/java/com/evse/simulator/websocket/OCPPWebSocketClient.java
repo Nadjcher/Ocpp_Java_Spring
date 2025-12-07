@@ -6,6 +6,7 @@ import com.evse.simulator.model.ChargingProfile.*;
 import com.evse.simulator.model.LogEntry;
 import com.evse.simulator.model.Session;
 import com.evse.simulator.model.enums.SessionState;
+import com.evse.simulator.ocpp.v16.Ocpp16MessageRouter;
 import com.evse.simulator.service.ChargingProfileManager;
 import com.evse.simulator.service.ChargingProfileManager.EffectiveLimit;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -21,6 +22,7 @@ import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import java.net.URI;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,14 +40,21 @@ public class OCPPWebSocketClient extends WebSocketClient {
     private final OCPPService ocppService;
     private final ObjectMapper objectMapper;
     private final ChargingProfileManager chargingProfileManager;
+    private final Ocpp16MessageRouter messageRouter;
 
     public OCPPWebSocketClient(URI serverUri, Session session, OCPPService ocppService,
-                               ChargingProfileManager chargingProfileManager) {
+                               ChargingProfileManager chargingProfileManager,
+                               Ocpp16MessageRouter messageRouter) {
         super(serverUri);
         this.session = session;
         this.ocppService = ocppService;
         this.objectMapper = new ObjectMapper();
         this.chargingProfileManager = chargingProfileManager;
+        this.messageRouter = messageRouter;
+
+        // Désactiver le timeout de connexion (0 = infini, connexion maintenue jusqu'à déconnexion manuelle)
+        // Valeur en secondes: 0 = désactivé, >0 = timeout après X secondes sans ping/pong
+        setConnectionLostTimeout(0);
 
         // Configurer SSL pour les connexions wss://
         if ("wss".equalsIgnoreCase(serverUri.getScheme())) {
@@ -153,46 +162,25 @@ public class OCPPWebSocketClient extends WebSocketClient {
 
     /**
      * Traite les actions entrantes du CSMS.
+     * Utilise le routeur OCPP 1.6 si disponible, sinon fallback sur le traitement inline.
      */
     private Map<String, Object> processIncomingCall(String action, Map<String, Object> payload) {
+        // Utiliser le routeur OCPP 1.6 si disponible et si l'action est supportée
+        if (messageRouter != null && messageRouter.isActionSupported(action)) {
+            try {
+                return messageRouter.routeIncomingCall(session, action, payload);
+            } catch (Exception e) {
+                log.error("Session {} - Handler error for {}: {}", session.getId(), action, e.getMessage());
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("status", "Rejected");
+                return errorResponse;
+            }
+        }
+
+        // Fallback pour les actions non encore migrées vers les nouveaux handlers
         Map<String, Object> response = new HashMap<>();
 
         switch (action) {
-            case "RemoteStartTransaction" -> {
-                // Accepter le démarrage distant
-                String idTag = (String) payload.get("idTag");
-                session.setIdTag(idTag);
-                response.put("status", "Accepted");
-                // Déclencher le démarrage de transaction
-                new Thread(() -> {
-                    try {
-                        Thread.sleep(500);
-                        ocppService.sendStartTransaction(session.getId());
-                    } catch (Exception e) {
-                        log.error("Failed to start transaction", e);
-                    }
-                }).start();
-            }
-
-            case "RemoteStopTransaction" -> {
-                Integer transactionId = (Integer) payload.get("transactionId");
-                if (session.getTransactionId() != null &&
-                        session.getTransactionId().equals(String.valueOf(transactionId))) {
-                    response.put("status", "Accepted");
-                    // Déclencher l'arrêt de transaction
-                    new Thread(() -> {
-                        try {
-                            Thread.sleep(500);
-                            ocppService.sendStopTransaction(session.getId());
-                        } catch (Exception e) {
-                            log.error("Failed to stop transaction", e);
-                        }
-                    }).start();
-                } else {
-                    response.put("status", "Rejected");
-                }
-            }
-
             case "SetChargingProfile" -> {
                 response = handleSetChargingProfile(payload);
             }
@@ -203,65 +191,6 @@ public class OCPPWebSocketClient extends WebSocketClient {
 
             case "GetCompositeSchedule" -> {
                 response = handleGetCompositeSchedule(payload);
-            }
-
-            case "GetConfiguration" -> {
-                List<String> keys = (List<String>) payload.get("key");
-                response.put("configurationKey", getConfiguration(keys));
-                response.put("unknownKey", new java.util.ArrayList<>());
-            }
-
-            case "ChangeConfiguration" -> {
-                String key = (String) payload.get("key");
-                String value = (String) payload.get("value");
-                response.put("status", setConfiguration(key, value));
-            }
-
-            case "ChangeAvailability" -> {
-                Integer connectorId = (Integer) payload.get("connectorId");
-                String type = (String) payload.get("type");
-
-                if ("Inoperative".equals(type)) {
-                    session.setState(SessionState.UNAVAILABLE);
-                } else {
-                    session.setState(SessionState.AVAILABLE);
-                }
-                response.put("status", "Accepted");
-            }
-
-            case "Reset" -> {
-                String type = (String) payload.get("type");
-                response.put("status", "Accepted");
-
-                // Simuler le reset
-                new Thread(() -> {
-                    try {
-                        Thread.sleep(1000);
-                        if ("Hard".equals(type)) {
-                            ocppService.disconnect(session.getId());
-                            Thread.sleep(2000);
-                            ocppService.connect(session.getId());
-                        } else {
-                            ocppService.sendBootNotification(session.getId());
-                        }
-                    } catch (Exception e) {
-                        log.error("Reset failed", e);
-                    }
-                }).start();
-            }
-
-            case "UnlockConnector" -> {
-                response.put("status", "Unlocked");
-            }
-
-            case "TriggerMessage" -> {
-                String requestedMessage = (String) payload.get("requestedMessage");
-                response.put("status", handleTriggerMessage(requestedMessage));
-            }
-
-            case "DataTransfer" -> {
-                response.put("status", "Accepted");
-                response.put("data", "{}");
             }
 
             default -> {

@@ -1,5 +1,14 @@
+import { config } from "@/config/env";
+
 // API client pour parler au runner (Swagger)
-export const RUNNER = import.meta.env.VITE_RUNNER_URL ?? "http://localhost:8877";
+// En développement, utiliser une chaîne vide pour passer par le proxy Vite
+export const RUNNER = (() => {
+    const isDev = typeof import.meta !== "undefined" && import.meta.env?.DEV;
+    if (isDev) {
+        return ""; // Utiliser le proxy Vite
+    }
+    return import.meta.env.VITE_RUNNER_URL ?? config.apiUrl ?? "http://localhost:8887";
+})();
 
 /** Helper JSON tolérant (pas de crash si body vide) */
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
@@ -196,4 +205,46 @@ export const tnr = {
         http<{ ok: boolean; resultId: string }>("/api/tnr/replay/" + id, { method: "POST" }),
     result: (id: string) => http("/api/tnr/result/" + id),
     results: () => http<any[]>("/api/tnr/results"),
+};
+
+/* ---------- Generic API Client (axios-like interface) ---------- */
+export const apiClient = {
+    get: async <T>(url: string): Promise<{ data: T }> => {
+        const data = await http<T>(url);
+        return { data };
+    },
+    post: async <T>(url: string, body?: any, options?: { headers?: Record<string, string>; responseType?: string }): Promise<{ data: T }> => {
+        if (options?.responseType === 'blob') {
+            const res = await fetch(`${RUNNER}${url}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...options?.headers },
+                body: body ? JSON.stringify(body) : undefined,
+            });
+            const data = await res.blob();
+            return { data: data as unknown as T };
+        }
+        const data = await http<T>(url, {
+            method: 'POST',
+            body: body ? JSON.stringify(body) : undefined,
+        });
+        return { data };
+    },
+    put: async <T>(url: string, body?: any): Promise<{ data: T }> => {
+        const data = await http<T>(url, {
+            method: 'PUT',
+            body: body ? JSON.stringify(body) : undefined,
+        });
+        return { data };
+    },
+    patch: async <T>(url: string, body?: any): Promise<{ data: T }> => {
+        const data = await http<T>(url, {
+            method: 'PATCH',
+            body: body ? JSON.stringify(body) : undefined,
+        });
+        return { data };
+    },
+    delete: async <T>(url: string): Promise<{ data: T }> => {
+        const data = await http<T>(url, { method: 'DELETE' });
+        return { data };
+    },
 };

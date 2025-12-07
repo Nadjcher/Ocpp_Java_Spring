@@ -61,3 +61,16 @@ springdoc:
   swagger-ui:
     enabled: true
     try-it-out-enabled: true
+
+# =============================================================================
+# TTE API Configuration (Cognito OAuth2) - DEV
+# =============================================================================
+tte:
+  enabled: true
+  cognito:
+    client-id: 3tmbtgs4jcdf7f53uedn1eej11
+    client-secret: j8bbm7tbq50ge8ueg3ag6abvbl1n8rt7g5hbdg8hulkp803olur
+  api:
+    # URLs TTE par environnement - sélection automatique selon l'URL CSMS de la session
+    test-url: https://evplatform.evcharge-test.totalenergies.com
+    pp-url: https://evplatform.evcharge-pp.totalenergies.com

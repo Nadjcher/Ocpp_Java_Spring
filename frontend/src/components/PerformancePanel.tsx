@@ -1,6 +1,7 @@
 // frontend/src/components/PerfOCPPPanel.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { perf as runner } from "@/services/api";
+import { config } from "@/config/env";
 
 /** ---------------- Types pool navigateur ---------------- */
 type Status =
@@ -108,7 +109,7 @@ function MiniGraph({
 /** ---------------- Composant Principal ---------------- */
 export default function PerfOCPPPanel() {
     /** ------- pool navigateur ------- */
-    const [wsUrl, setWsUrl] = useState("wss://evse-test.total-ev-charge.com/ocpp/WebSocket");
+    const [wsUrl, setWsUrl] = useState(config.ocppUrls.test);
     const [maxConc, setMaxConc] = useState(40);
     const [rampMs, setRampMs] = useState(250);
     const [holdSec, setHoldSec] = useState(60);
@@ -405,7 +406,7 @@ export default function PerfOCPPPanel() {
     }
 
     /** ------- runner HTTP ------- */
-    const [runnerUrlWs, setRunnerUrlWs] = useState("wss://evse-test.total-ev-charge.com/ocpp/WebSocket");
+    const [runnerUrlWs, setRunnerUrlWs] = useState(config.ocppUrls.test);
     const [runnerCount, setRunnerCount] = useState(100);
     const [runnerConc, setRunnerConc] = useState(20);
     const [runnerRamp, setRunnerRamp] = useState(250);
@@ -426,8 +427,8 @@ export default function PerfOCPPPanel() {
             return;
         }
         try {
-            const out = await runner.importCsv(runnerCsv);
-            rLog(`Import CSV runner: ${out.count} lignes.`);
+            const out: any = await runner.importCsv(runnerCsv);
+            rLog(`Import CSV runner: ${out.count ?? 0} lignes.`);
         } catch (e: any) {
             rLog(`Import CSV: ${e?.message || e}`);
         }
@@ -435,7 +436,7 @@ export default function PerfOCPPPanel() {
 
     async function runnerStart() {
         try {
-            const out = await runner.start({
+            const out: any = await runner.start({
                 url: runnerUrlWs,
                 sessions: runnerCount,
                 concurrent: runnerConc,
@@ -444,12 +445,12 @@ export default function PerfOCPPPanel() {
                 mvEverySec: runnerMv,
                 useCsv: runnerUseCsv,
             });
-            rLog(`RUN start ok (runId=${out.runId})`);
+            rLog(`RUN start ok (runId=${out.runId ?? 'unknown'})`);
             // démarrer polling
             if (runnerTimer.current) window.clearInterval(runnerTimer.current);
             runnerTimer.current = window.setInterval(async () => {
                 try {
-                    const st = await runner.status();
+                    const st: any = await runner.status();
                     const a = st?.stats || {};
                     rLog(`status: total=${a.total ?? 0} active=${a.active ?? 0} finished=${a.finished ?? 0} errors=${a.errors ?? 0} msgs=${a.msgs ?? 0}`);
                 } catch (e: any) {

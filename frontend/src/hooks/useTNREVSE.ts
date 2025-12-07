@@ -179,9 +179,9 @@ export function useTNREVSE(): TNRHookState {
         // Convertir la Map en objet pour l'export
         const exportData = {
             ...recording,
-            sessions: Array.from(recording.sessions.entries()).map(([id, session]) => ({
-                id,
-                ...session
+            sessions: Array.from(recording.sessions.entries()).map(([sessionId, session]) => ({
+                ...session,
+                id: sessionId
             }))
         };
 

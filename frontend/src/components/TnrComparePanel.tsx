@@ -1,11 +1,19 @@
 // frontend/src/components/TnrComparePanel.tsx
 import React, { useEffect, useMemo, useState } from "react";
+import { config } from "@/config/env";
 
 /* ===================== API BASE alignée avec le projet ===================== */
-const API_BASE =
-    (typeof window !== "undefined" &&
-        (window.localStorage.getItem("runner_api") || "")) ||
-    "http://localhost:8877";
+const API_BASE = (() => {
+    const isDev = typeof import.meta !== "undefined" && import.meta.env?.DEV;
+    if (isDev) {
+        return ""; // Utiliser le proxy Vite en dev
+    }
+    if (typeof window !== "undefined") {
+        const stored = window.localStorage.getItem("runner_api");
+        if (stored) return stored;
+    }
+    return config.apiUrl || "http://localhost:8887";
+})();
 
 /** Types minimales (compatibles avec vos payloads backend) */
 type TNREvent = {

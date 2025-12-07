@@ -104,7 +104,7 @@ class WebSocketManager {
                 // Mettre à jour le store
                 useSessionStore.getState().updateSessionFromWebSocket({
                     sessionId,
-                    data: { connected: true }
+                    data: { isConnected: true }
                 });
             };
 
@@ -131,7 +131,7 @@ class WebSocketManager {
                 // Mettre à jour le store
                 useSessionStore.getState().updateSessionFromWebSocket({
                     sessionId,
-                    data: { connected: false }
+                    data: { isConnected: false }
                 });
 
                 // Tenter une reconnexion si ce n'est pas volontaire
@@ -245,11 +245,10 @@ class WebSocketManager {
 
             case 'OCPP_MESSAGE':
                 if (message.data) {
+                    const direction = message.data.direction === 'TX' ? 'OCPP_TX' : 'OCPP_RX';
                     store.addLog(sessionId, {
-                        timestamp: new Date().toISOString(),
-                        level: 'info',
-                        category: message.data.direction === 'TX' ? 'OCPP_TX' : 'OCPP_RX',
-                        message: `${message.data.action}: ${JSON.stringify(message.data.payload).substring(0, 100)}...`
+                        ts: new Date().toISOString(),
+                        line: `[INFO] [${direction}] ${message.data.action}: ${JSON.stringify(message.data.payload).substring(0, 100)}...`
                     });
                 }
                 break;

@@ -265,7 +265,11 @@ export interface PerformanceMetrics {
   messagesPerSecond: number;
   totalMessages: number;
   errors: number;
+  errorCount: number;
   averageLatency: number;
+  avgLatency: number;
+  maxLatency: number;
+  successRate: number;
   throughput: number;
   timestamp: string;
 }
@@ -288,6 +292,17 @@ export interface TNRSession {
 }
 
 /**
+ * Étape TNR
+ */
+export interface TNRStep {
+  id: string;
+  action: string;
+  timestamp: string;
+  status: 'pending' | 'running' | 'success' | 'failed';
+  data?: unknown;
+}
+
+/**
  * Scénario TNR
  */
 export interface TNRScenario {
@@ -295,9 +310,10 @@ export interface TNRScenario {
   name: string;
   description: string;
   sessions: TNRSession[];
+  steps: TNRStep[];
   createdAt: string;
   lastRun?: string;
-  status?: 'success' | 'failed' | 'running' | 'pending';
+  status: 'success' | 'failed' | 'running' | 'pending';
 }
 
 // =============================================================================

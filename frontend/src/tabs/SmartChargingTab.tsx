@@ -9,6 +9,8 @@ import {
 } from "@/store/chargingProfileStore";
 import { ChargingProfileGraph } from "@/components/ChargingProfileGraph";
 import { ChargingProfileIndicator } from "@/components/ChargingProfileIndicator";
+import { config } from "@/config/env";
+import { useShallow } from "zustand/react/shallow";
 
 const nextId = (() => {
     let i = 1;
@@ -23,25 +25,45 @@ type Period = { start: number; limit: number };
 const SMART_CHARGING_SESSION_ID = "smart-charging-tab";
 
 export default function SmartChargingTab() {
-    // Store Zustand pour Smart Charging
-    const addProfile = useChargingProfileStore(state => state.addProfile);
-    const removeProfile = useChargingProfileStore(state => state.removeProfile);
-    const clearProfiles = useChargingProfileStore(state => state.clearProfiles);
-    const updateEffectiveLimit = useChargingProfileStore(state => state.updateEffectiveLimit);
-    const updateCompositeSchedule = useChargingProfileStore(state => state.updateCompositeSchedule);
-    const profiles = useChargingProfileStore(state => state.getProfiles(SMART_CHARGING_SESSION_ID));
-    const effectiveLimit = useChargingProfileStore(state => state.getEffectiveLimit(SMART_CHARGING_SESSION_ID));
-    const convertToWatts = useChargingProfileStore(state => state.convertToWatts);
-    const convertToAmps = useChargingProfileStore(state => state.convertToAmps);
+    // Store Zustand pour Smart Charging - use shallow comparison and access Maps directly
+    const {
+        addProfile,
+        removeProfile,
+        clearProfiles,
+        updateEffectiveLimit,
+        updateCompositeSchedule,
+        profilesMap,
+        effectiveLimitsMap,
+        convertToWatts,
+        convertToAmps
+    } = useChargingProfileStore(
+        useShallow((state) => ({
+            addProfile: state.addProfile,
+            removeProfile: state.removeProfile,
+            clearProfiles: state.clearProfiles,
+            updateEffectiveLimit: state.updateEffectiveLimit,
+            updateCompositeSchedule: state.updateCompositeSchedule,
+            profilesMap: state.profiles,
+            effectiveLimitsMap: state.effectiveLimits,
+            convertToWatts: state.convertToWatts,
+            convertToAmps: state.convertToAmps
+        }))
+    );
+
+    // Derive profiles and effectiveLimit using useMemo
+    const profiles = useMemo(() => {
+        return profilesMap.get(SMART_CHARGING_SESSION_ID) || [];
+    }, [profilesMap]);
+
+    const effectiveLimit = useMemo(() => {
+        return effectiveLimitsMap.get(SMART_CHARGING_SESSION_ID) || null;
+    }, [effectiveLimitsMap]);
 
     // Connexion
     const wsRef = useRef<WsRef>({ ws: null, open: false });
-    const [urlBase, setUrlBase] = useState(
-        "wss://evse-test.total-ev-charge.com/ocpp/WebSocket"
-    );
-    const [cpId, setCpId] = useState("CP-DEMO-001");
+    const [urlBase, setUrlBase] = useState(config.ocppUrls.test);
+    const [cpId, setCpId] = useState(config.defaults.cpId);
     const [evpId, setEvpId] = useState("EVP-FLOW-001"); // info visuelle
-    const [token, setToken] = useState(""); // non utilisé OCPP
     const [status, setStatus] = useState<"Déconnecté" | "Connexion…" | "Connecté">(
         "Déconnecté"
     );
@@ -472,14 +494,6 @@ export default function SmartChargingTab() {
                     <div>
                         <label>EvP-ID :</label>
                         <input value={evpId} onChange={(e) => setEvpId(e.target.value)} />
-                    </div>
-                    <div>
-                        <label>Token :</label>
-                        <input
-                            placeholder="Bearer token (optionnel)"
-                            value={token}
-                            onChange={(e) => setToken(e.target.value)}
-                        />
                     </div>
                 </div>
                 <div className="row mt8">

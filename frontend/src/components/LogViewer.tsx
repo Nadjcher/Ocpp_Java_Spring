@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { LogEntry } from '@/types';
 import { useSessionStore } from '@/store/sessionStore';
 import {
     Filter,
@@ -13,6 +12,27 @@ import {
     CheckCircle
 } from 'lucide-react';
 
+// Type étendu pour les logs avec métadonnées d'affichage
+interface DisplayLogEntry {
+    ts: string;
+    line: string;
+    sessionId: string;
+    level: string;
+    message: string;
+}
+
+// Parse le niveau depuis la ligne de log (format: [LEVEL] [CATEGORY] message)
+function parseLogLevel(line: string): string {
+    const match = line.match(/\[(DEBUG|INFO|WARNING|ERROR|CRITICAL)\]/i);
+    return match ? match[1].toUpperCase() : 'INFO';
+}
+
+// Parse le message depuis la ligne de log
+function parseLogMessage(line: string): string {
+    // Enlever les préfixes de type [INFO] [OCPP] etc.
+    return line.replace(/^\[[^\]]+\]\s*/g, '').trim() || line;
+}
+
 export function LogViewer() {
     const sessions = useSessionStore(state => state.sessions);
     const [filter, setFilter] = useState({
@@ -24,15 +44,21 @@ export function LogViewer() {
     const logContainerRef = useRef<HTMLDivElement>(null);
 
     // Combiner tous les logs de toutes les sessions
-    const getAllLogs = (): LogEntry[] => {
-        const allLogs: LogEntry[] = [];
+    const getAllLogs = (): DisplayLogEntry[] => {
+        const allLogs: DisplayLogEntry[] = [];
         sessions.forEach(session => {
             session.logs.forEach(log => {
-                allLogs.push({ ...log, sessionId: session.id });
+                allLogs.push({
+                    ts: log.ts,
+                    line: log.line,
+                    sessionId: session.id,
+                    level: parseLogLevel(log.line),
+                    message: parseLogMessage(log.line)
+                });
             });
         });
         return allLogs.sort((a, b) =>
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            new Date(b.ts).getTime() - new Date(a.ts).getTime()
         );
     };
 
@@ -138,7 +164,7 @@ export function LogViewer() {
                             <option value="ALL">Toutes</option>
                             {sessions.map(session => (
                                 <option key={session.id} value={session.id}>
-                                    {session.title}
+                                    {session.cpId}
                                 </option>
                             ))}
                         </select>
@@ -177,13 +203,13 @@ export function LogViewer() {
                         >
                             {getLogIcon(log.level)}
                             <span className="text-gray-500">
-                {new Date(log.timestamp).toLocaleTimeString()}
+                {new Date(log.ts).toLocaleTimeString()}
               </span>
                             <span className={`font-semibold ${getLogColor(log.level)}`}>
                 [{log.level}]
               </span>
                             <span className="text-gray-400">
-                {sessions.find(s => s.id === log.sessionId)?.title || log.sessionId}:
+                {sessions.find(s => s.id === log.sessionId)?.cpId || log.sessionId}:
               </span>
                             <span className="text-gray-200 flex-1">
                 {log.message}

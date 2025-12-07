@@ -5,15 +5,15 @@ import type { Vehicle } from '@/types/evse.types';
 
 /**
  * URL de base de l'API - détecte automatiquement l'environnement
+ * En développement, utilise le proxy Vite configuré dans vite.config.ts
  */
 export const API_BASE = (() => {
   if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE) {
     return import.meta.env.VITE_API_BASE;
   }
-  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-    return "http://localhost:8887";
-  }
-  return "/api";
+  // En développement, utiliser une chaîne vide pour passer par le proxy Vite
+  // Le proxy est configuré pour /api -> http://localhost:8887
+  return "";
 })();
 
 /**

@@ -1,22 +1,14 @@
 // frontend/src/store/tnrStore.ts
 import { create } from 'zustand';
 import { api } from '../services/api';
+import type { TNRScenario } from '@/types';
 
-interface TNRScenario {
-    id: string;
-    name: string;
-    description: string;
-    createdAt: Date;
-    sessions: any[];
-    events: any[];
-    validationRules: any[];
-}
-
-interface TNRStore {
+export interface TNRStore {
     scenarios: TNRScenario[];
     isRecording: boolean;
     isReplaying: boolean;
     recordingEvents: number;
+    recordingSteps: number;
     currentRecordingId: string | null;
 
     loadScenarios: () => Promise<void>;
@@ -32,6 +24,7 @@ export const useTNRStore = create<TNRStore>((set) => ({
     isRecording: false,
     isReplaying: false,
     recordingEvents: 0,
+    recordingSteps: 0,
     currentRecordingId: null,
 
     loadScenarios: async () => {

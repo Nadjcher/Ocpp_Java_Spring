@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { config } from "@/config/env";
 
 interface PhasingConfig {
     evsePhases: number;
@@ -13,10 +14,16 @@ interface PhasingSectionProps {
     apiBase?: string;
 }
 
+// En développement, utiliser le proxy Vite (chaîne vide)
+const getDefaultApiBase = () => {
+    const isDev = typeof import.meta !== "undefined" && import.meta.env?.DEV;
+    return isDev ? "" : (config.apiUrl || "http://localhost:8887");
+};
+
 const PhasingSection: React.FC<PhasingSectionProps> = ({
                                                            sessionId,
                                                            disabled = false,
-                                                           apiBase = "http://localhost:8877"
+                                                           apiBase = getDefaultApiBase()
                                                        }) => {
     const [phasingConfig, setPhasingConfig] = useState<PhasingConfig>({
         evsePhases: 3,

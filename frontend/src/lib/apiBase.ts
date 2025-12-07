@@ -1,11 +1,20 @@
 // API client pour parler au runner (Swagger)
 
 // Fonction pour obtenir l'URL de base depuis localStorage ou valeur par défaut
+// En développement, utilise le proxy Vite configuré dans vite.config.ts
 export function getApiBase(): string {
-    if (typeof window !== "undefined") {
-        return window.localStorage.getItem("runner_api") || "http://localhost:8887";
+    // En mode développement, toujours utiliser le proxy Vite (chaîne vide)
+    // pour éviter les problèmes CORS
+    const isDev = typeof import.meta !== "undefined" && import.meta.env?.DEV;
+    if (isDev) {
+        return "";
     }
-    return "http://localhost:8887";
+    // En production, permettre l'override via localStorage
+    if (typeof window !== "undefined") {
+        const stored = window.localStorage.getItem("runner_api");
+        if (stored) return stored;
+    }
+    return "";
 }
 
 export const RUNNER = getApiBase(); // Appeler la fonction pour obtenir l'URL

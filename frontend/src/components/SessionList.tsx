@@ -12,8 +12,10 @@ export function SessionList() {
 
     const handleCreateSession = async () => {
         const count = sessions.length + 1;
-        const session = await createSession(`Session ${count}`);
-        setSelectedTab(session.id);
+        await createSession(`Session ${count}`);
+        // Session sera ajoutée au store, sélectionner la dernière
+        const newSessions = useSessionStore.getState().sessions;
+        setSelectedTab(newSessions[newSessions.length - 1]?.id || null);
     };
 
     return (
@@ -45,13 +47,13 @@ export function SessionList() {
                                 onClick={() => setSelectedTab(session.id)}
                             >
                                 <div className="flex items-center gap-2">
-                                    {session.connected ? (
+                                    {session.isConnected ? (
                                         <Wifi size={16} className="text-green-400" />
                                     ) : (
                                         <WifiOff size={16} className="text-gray-500" />
                                     )}
-                                    <span>{session.title}</span>
-                                    {session.charging && (
+                                    <span>{session.cpId}</span>
+                                    {session.status === 'charging' && (
                                         <Zap size={16} className="text-yellow-400 animate-pulse" />
                                     )}
                                 </div>

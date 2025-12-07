@@ -3,7 +3,12 @@ package com.evse.simulator.controller;
 import com.evse.simulator.domain.service.OCPPService;
 import com.evse.simulator.model.Session;
 import com.evse.simulator.model.enums.ConnectorStatus;
+import com.evse.simulator.model.enums.SessionState;
 import com.evse.simulator.service.SessionService;
+import com.evse.simulator.service.SessionStateManager;
+import com.evse.simulator.tte.model.PricingData;
+import com.evse.simulator.tte.service.CognitoTokenService;
+import com.evse.simulator.tte.service.TTEApiService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -15,10 +20,8 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -35,10 +38,13 @@ public class SimuCompatController {
 
     private final SessionService sessionService;
     private final OCPPService ocppService;
+    private final TTEApiService tteApiService;
+    private final CognitoTokenService cognitoTokenService;
+    private final SessionStateManager stateManager;
 
-    // Scheduler pour les meter values périodiques
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(10);
-    private final ConcurrentHashMap<String, ScheduledFuture<?>> meterValuesTasks = new ConcurrentHashMap<>();
+    // Note: Le scheduler pour MeterValues est centralisé dans OCPPService pour éviter les doublons
+    // Ce scheduler est uniquement pour les simulations temporaires (phase imbalance)
+    private final ScheduledExecutorService delayedTaskScheduler = Executors.newScheduledThreadPool(2);
 
     // =========================================================================
     // List Sessions
@@ -151,8 +157,8 @@ public class SimuCompatController {
     @Operation(summary = "Supprime une session (compat /api/simu/{id})")
     public ResponseEntity<Map<String, Object>> deleteSession(@PathVariable String id) {
         try {
-            // Arrêter les meter values si actifs
-            stopMeterValuesTask(id);
+            // Arrêter les meter values si actifs (via OCPPService centralisé)
+            ocppService.stopMeterValuesPublic(id);
 
             // Déconnecter si connecté
             ocppService.disconnect(id);
@@ -219,8 +225,16 @@ public class SimuCompatController {
     public ResponseEntity<Map<String, Object>> park(@PathVariable String id) {
         log.info("Vehicle parked for session {}", id);
         Session session = sessionService.getSession(id);
-        // État: PARKED (véhicule configuré)
-        session.setState(com.evse.simulator.model.enums.SessionState.PARKED);
+
+        // Transition validée vers PARKED
+        if (!stateManager.transition(session, SessionState.PARKED)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                "ok", false,
+                "error", "Invalid state transition to PARKED from " + session.getState(),
+                "currentState", session.getState().getValue()
+            ));
+        }
+
         session.setParked(true);
         sessionService.updateSession(id, session);
         return ResponseEntity.ok(Map.of("ok", true, "status", "parked"));
@@ -237,11 +251,20 @@ public class SimuCompatController {
     public ResponseEntity<Map<String, Object>> plug(@PathVariable String id) {
         log.info("Cable plugged for session {}", id);
         Session session = sessionService.getSession(id);
-        // État: PLUGGED (câble branché, prêt pour authorize)
-        session.setState(com.evse.simulator.model.enums.SessionState.PLUGGED);
+
+        // Transition validée vers PLUGGED
+        if (!stateManager.transition(session, SessionState.PLUGGED)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                "ok", false,
+                "error", "Invalid state transition to PLUGGED from " + session.getState(),
+                "currentState", session.getState().getValue()
+            ));
+        }
+
         session.setPlugged(true);
         sessionService.updateSession(id, session);
-        // Envoyer StatusNotification: Preparing
+
+        // Envoyer StatusNotification: Preparing (géré par la transition si shouldSendStatusNotification)
         ocppService.sendStatusNotification(id, ConnectorStatus.PREPARING);
         return ResponseEntity.ok(Map.of("ok", true, "status", "plugged"));
     }
@@ -257,11 +280,23 @@ public class SimuCompatController {
     public ResponseEntity<Map<String, Object>> unplug(@PathVariable String id) {
         log.info("Cable unplugged for session {}", id);
         Session session = sessionService.getSession(id);
-        // Retour à PARKED (véhicule toujours garé mais débranché)
-        session.setState(com.evse.simulator.model.enums.SessionState.PARKED);
+
+        // Déterminer l'état cible: PARKED si véhicule garé, sinon AVAILABLE
+        SessionState targetState = session.isParked() ? SessionState.PARKED : SessionState.AVAILABLE;
+
+        // Transition validée
+        if (!stateManager.transition(session, targetState)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                "ok", false,
+                "error", "Invalid state transition to " + targetState + " from " + session.getState(),
+                "currentState", session.getState().getValue()
+            ));
+        }
+
         session.setPlugged(false);
         session.setAuthorized(false);
         sessionService.updateSession(id, session);
+
         // Envoyer StatusNotification: Available
         ocppService.sendStatusNotification(id, ConnectorStatus.AVAILABLE);
         return ResponseEntity.ok(Map.of("ok", true, "status", "unplugged"));
@@ -278,8 +313,16 @@ public class SimuCompatController {
     public ResponseEntity<Map<String, Object>> leave(@PathVariable String id) {
         log.info("Vehicle left for session {}", id);
         Session session = sessionService.getSession(id);
-        // Retour à BOOT_ACCEPTED (prêt pour nouvelle session)
-        session.setState(com.evse.simulator.model.enums.SessionState.BOOT_ACCEPTED);
+
+        // Transition validée vers AVAILABLE (prêt pour nouvelle session)
+        if (!stateManager.transition(session, SessionState.AVAILABLE)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                "ok", false,
+                "error", "Invalid state transition to AVAILABLE from " + session.getState(),
+                "currentState", session.getState().getValue()
+            ));
+        }
+
         session.setParked(false);
         session.setPlugged(false);
         session.setAuthorized(false);
@@ -370,8 +413,8 @@ public class SimuCompatController {
             @PathVariable String id,
             @RequestBody(required = false) Map<String, Object> body) {
 
-        // Arrêter les meter values automatiques
-        stopMeterValuesTask(id);
+        // Arrêter les meter values automatiques (via OCPPService centralisé)
+        ocppService.stopMeterValuesPublic(id);
 
         return ocppService.sendStopTransaction(id)
             .thenApply(result -> ResponseEntity.ok(Map.of("ok", true, "result", result)))
@@ -390,21 +433,10 @@ public class SimuCompatController {
 
         int periodSec = ((Number) body.getOrDefault("periodSec", 10)).intValue();
 
-        // Arrêter une tâche existante
-        stopMeterValuesTask(id);
+        // Déléguer à OCPPService (qui gère le scheduler unique)
+        ocppService.startMeterValuesWithInterval(id, periodSec);
 
-        // Créer nouvelle tâche
-        ScheduledFuture<?> task = scheduler.scheduleAtFixedRate(() -> {
-            try {
-                ocppService.sendMeterValues(id).join();
-            } catch (Exception e) {
-                log.warn("MeterValues error for session {}: {}", id, e.getMessage());
-            }
-        }, 0, periodSec, TimeUnit.SECONDS);
-
-        meterValuesTasks.put(id, task);
-
-        log.info("Started MeterValues for session {} every {} seconds", id, periodSec);
+        log.info("Started MeterValues for session {} every {} seconds (via OCPPService)", id, periodSec);
 
         return ResponseEntity.ok(Map.of(
             "ok", true,
@@ -415,7 +447,8 @@ public class SimuCompatController {
     @PostMapping("/{id}/mv/stop")
     @Operation(summary = "Arrête l'envoi périodique de MeterValues")
     public ResponseEntity<Map<String, Object>> stopMeterValues(@PathVariable String id) {
-        stopMeterValuesTask(id);
+        // Déléguer à OCPPService
+        ocppService.stopMeterValuesPublic(id);
         return ResponseEntity.ok(Map.of("ok", true));
     }
 
@@ -427,21 +460,10 @@ public class SimuCompatController {
 
         int periodSec = body != null ? ((Number) body.getOrDefault("periodSec", 10)).intValue() : 10;
 
-        // Arrêter une tâche existante
-        stopMeterValuesTask(id);
+        // Déléguer à OCPPService (startMeterValuesWithInterval arrête automatiquement l'ancienne tâche)
+        ocppService.startMeterValuesWithInterval(id, periodSec);
 
-        // Créer nouvelle tâche
-        ScheduledFuture<?> task = scheduler.scheduleAtFixedRate(() -> {
-            try {
-                ocppService.sendMeterValues(id).join();
-            } catch (Exception e) {
-                log.warn("MeterValues error for session {}: {}", id, e.getMessage());
-            }
-        }, 0, periodSec, TimeUnit.SECONDS);
-
-        meterValuesTasks.put(id, task);
-
-        log.info("Restarted MeterValues for session {} every {} seconds", id, periodSec);
+        log.info("Restarted MeterValues for session {} every {} seconds (via OCPPService)", id, periodSec);
 
         return ResponseEntity.ok(Map.of(
             "ok", true,
@@ -473,13 +495,7 @@ public class SimuCompatController {
         return ResponseEntity.ok(Map.of("ok", true, "mask", body != null ? body : Map.of()));
     }
 
-    private void stopMeterValuesTask(String id) {
-        ScheduledFuture<?> task = meterValuesTasks.remove(id);
-        if (task != null) {
-            task.cancel(false);
-            log.info("Stopped MeterValues for session {}", id);
-        }
-    }
+    // Note: stopMeterValuesTask supprimé - utiliser ocppService.stopMeterValuesPublic() à la place
 
     // =========================================================================
     // Logs
@@ -733,7 +749,7 @@ public class SimuCompatController {
 
             // Programmer la restauration de la puissance originale
             if (durationSeconds > 0) {
-                scheduler.schedule(() -> {
+                delayedTaskScheduler.schedule(() -> {
                     try {
                         Session s = sessionService.getSession(id);
                         s.setCurrentPowerKw(originalPower);
@@ -756,6 +772,85 @@ public class SimuCompatController {
         } catch (Exception e) {
             log.error("Error simulating phase imbalance: {}", e.getMessage());
             return ResponseEntity.ok(Map.of("ok", false, "error", e.getMessage()));
+        }
+    }
+
+    // =========================================================================
+    // Pricing
+    // =========================================================================
+
+    @GetMapping("/{id}/price")
+    @Operation(summary = "Récupère le prix de la session depuis le CSMS (TTE API uniquement)")
+    public ResponseEntity<Map<String, Object>> getSessionPrice(@PathVariable String id) {
+        try {
+            Session session = sessionService.getSession(id);
+            if (session == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "ok", false,
+                    "error", "Session not found"
+                ));
+            }
+
+            // Vérifier que TTE est configuré
+            if (!cognitoTokenService.isConfigured()) {
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                    "ok", false,
+                    "error", "TTE non configuré - définir TTE_CLIENT_ID et TTE_CLIENT_SECRET"
+                ));
+            }
+
+            if (!tteApiService.isAvailable()) {
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                    "ok", false,
+                    "error", "Service TTE indisponible"
+                ));
+            }
+
+            // Récupérer les infos de la session
+            Integer transactionId = session.getTxId();
+            String cpId = session.getCpId();
+
+            if (cpId == null || cpId.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "ok", false,
+                    "error", "Pas de ChargePoint ID valide pour cette session"
+                ));
+            }
+
+            // Récupérer le prix depuis TTE API (CSMS) - même si transactionId est 0 ou null
+            int txId = transactionId != null ? transactionId : 0;
+            String csmsUrl = session.getWsUrl();
+            log.info("Fetching pricing from TTE API for CP: {}, transactionId: {}, env: {}",
+                     cpId, txId, csmsUrl != null ? csmsUrl : "default");
+            PricingData pricing = tteApiService.getTransactionPricing(cpId, txId, csmsUrl);
+
+            if (pricing == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "ok", false,
+                    "error", "Prix non trouvé dans le CSMS pour cette transaction",
+                    "transactionId", txId,
+                    "chargePointId", cpId
+                ));
+            }
+
+            return ResponseEntity.ok(Map.of(
+                "ok", true,
+                "source", "tte",
+                "totalPrice", pricing.getTotalPrice() != null ? pricing.getTotalPrice() : 0.0,
+                "currency", pricing.getCurrency() != null ? pricing.getCurrency() : "EUR",
+                "energyKWh", pricing.getEnergyDelivered() != null ? pricing.getEnergyDelivered() : 0.0,
+                "pricePerKWh", pricing.getPricePerKwh() != null ? pricing.getPricePerKwh() : 0.0,
+                "transactionId", txId,
+                "chargePointId", cpId,
+                "status", session.getStatus()
+            ));
+
+        } catch (Exception e) {
+            log.error("Error getting price from CSMS for session {}: {}", id, e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                "ok", false,
+                "error", "Erreur lors de la récupération du prix: " + e.getMessage()
+            ));
         }
     }
 }

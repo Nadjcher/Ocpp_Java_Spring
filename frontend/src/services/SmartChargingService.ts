@@ -58,7 +58,7 @@ export class SmartChargingService {
     private profiles: Map<number, ChargingProfile> = new Map();
     private profilesByConnector: Map<number, Set<number>> = new Map();
     private profilesByPurpose: Map<ChargingProfilePurpose, Set<number>> = new Map();
-    private scheduleTimers: Map<number, NodeJS.Timer[]> = new Map();
+    private scheduleTimers: Map<number, ReturnType<typeof setTimeout>[]> = new Map();
     private onLimitChanged?: (limit: number, connectorId: number) => void;
     private bearerToken?: string;
     private evpId?: string;
@@ -471,7 +471,7 @@ export class SmartChargingService {
      * Planifie les changements pour un profil récurrent
      */
     private scheduleRecurringProfile(profile: ChargingProfile, connectorId: number): void {
-        const timers: NodeJS.Timer[] = [];
+        const timers: ReturnType<typeof setTimeout>[] = [];
 
         // Calculer les prochaines occurrences
         const now = new Date();

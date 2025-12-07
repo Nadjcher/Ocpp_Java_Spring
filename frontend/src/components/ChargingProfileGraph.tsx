@@ -19,6 +19,7 @@ import {
     type EffectiveLimit,
     getPurposeColor
 } from '@/store/chargingProfileStore';
+import { useShallow } from 'zustand/react/shallow';
 
 interface ChargingProfileGraphProps {
     sessionId: string;
@@ -43,9 +44,23 @@ export function ChargingProfileGraph({
     showLegend = true,
     height = 200
 }: ChargingProfileGraphProps) {
-    const profiles = useChargingProfileStore(state => state.getProfiles(sessionId));
-    const effectiveLimit = useChargingProfileStore(state => state.getEffectiveLimit(sessionId));
-    const convertToWatts = useChargingProfileStore(state => state.convertToWatts);
+    // Access Maps directly with shallow comparison to avoid infinite loops
+    const { profilesMap, effectiveLimitsMap, convertToWatts } = useChargingProfileStore(
+        useShallow((state) => ({
+            profilesMap: state.profiles,
+            effectiveLimitsMap: state.effectiveLimits,
+            convertToWatts: state.convertToWatts
+        }))
+    );
+
+    // Derive data using useMemo
+    const profiles = useMemo(() => {
+        return profilesMap.get(sessionId) || [];
+    }, [profilesMap, sessionId]);
+
+    const effectiveLimit = useMemo(() => {
+        return effectiveLimitsMap.get(sessionId) || null;
+    }, [effectiveLimitsMap, sessionId]);
 
     // Construire les données du graphique
     const data = useMemo(() => {

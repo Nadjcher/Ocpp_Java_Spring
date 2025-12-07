@@ -99,10 +99,19 @@ export class OCPPChargingProfilesManager {
   }
 
   updateConnectorConfig(connectorId: number, config: ConnectorConfig) {
-    console.log(`[OCPPManager] Config connecteur ${connectorId}: ${config.voltage}V, ${config.phases} phase(s)`);
+    const newVoltage = config.voltage;
+    const newPhases = Math.max(1, Math.round(config.phases));
+
+    // Only update and recalculate if config has actually changed
+    const existing = this.connectors.get(connectorId);
+    if (existing && existing.voltage === newVoltage && existing.phases === newPhases) {
+      return; // No change, skip logging and recalculation
+    }
+
+    console.log(`[OCPPManager] Config connecteur ${connectorId}: ${newVoltage}V, ${newPhases} phase(s)`);
     this.connectors.set(connectorId, {
-      voltage: config.voltage,
-      phases: Math.max(1, Math.round(config.phases))
+      voltage: newVoltage,
+      phases: newPhases
     });
     this.recalculate(connectorId);
   }
@@ -527,10 +536,15 @@ export class OCPPChargingProfilesManager {
 
     this.effective.set(connectorId, current);
 
-    if (previous !== current.limitW) {
-      console.log(`[OCPPManager] Limite changée: ${previous}W -> ${current.limitW}W`);
+    // Treat undefined as maxPowerW (default state) to avoid logging initial setup
+    const effectivePrevious = previous ?? this.maxPowerW;
+    if (effectivePrevious !== current.limitW) {
+      console.log(`[OCPPManager] Limite changée: ${effectivePrevious}W -> ${current.limitW}W`);
       this.lastAppliedLimit.set(connectorId, current.limitW);
       this.onLimitChange?.(connectorId, current.limitW, current);
+    } else if (previous === undefined) {
+      // First time initialization - just set the value without logging
+      this.lastAppliedLimit.set(connectorId, current.limitW);
     }
   }
 
