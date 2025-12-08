@@ -1,5 +1,6 @@
 package com.evse.simulator.controller;
 
+import com.evse.simulator.data.VehicleDatabase;
 import com.evse.simulator.model.VehicleProfile;
 import com.evse.simulator.service.VehicleService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 
 /**
  * Contrôleur REST pour la gestion des profils de véhicules.
@@ -102,5 +104,121 @@ public class VehicleController {
         int hours = minutes / 60;
         int mins = minutes % 60;
         return String.format("%dh %02dmin", hours, mins);
+    }
+
+    // =========================================================================
+    // ENDPOINTS POUR VehicleDatabase (profils prédéfinis)
+    // =========================================================================
+
+    @GetMapping("/database")
+    @Operation(summary = "Liste tous les véhicules prédéfinis de la base de données")
+    public ResponseEntity<List<VehicleProfile>> getDatabaseVehicles() {
+        return ResponseEntity.ok(VehicleDatabase.getAll());
+    }
+
+    @GetMapping("/database/{id}")
+    @Operation(summary = "Récupère un véhicule prédéfini par ID")
+    public ResponseEntity<VehicleProfile> getDatabaseVehicle(@PathVariable String id) {
+        return ResponseEntity.ok(VehicleDatabase.getById(id));
+    }
+
+    @GetMapping("/database/ids")
+    @Operation(summary = "Liste tous les IDs de véhicules prédéfinis")
+    public ResponseEntity<List<String>> getDatabaseIds() {
+        return ResponseEntity.ok(VehicleDatabase.getAllIds());
+    }
+
+    @GetMapping("/database/names")
+    @Operation(summary = "Retourne les noms d'affichage des véhicules prédéfinis")
+    public ResponseEntity<Map<String, String>> getDatabaseDisplayNames() {
+        return ResponseEntity.ok(VehicleDatabase.getDisplayNames());
+    }
+
+    @GetMapping("/database/{id}/charging-curve")
+    @Operation(summary = "Récupère la courbe de charge DC d'un véhicule prédéfini")
+    public ResponseEntity<Map<String, Object>> getDatabaseChargingCurve(@PathVariable String id) {
+        VehicleProfile vehicle = VehicleDatabase.getById(id);
+        NavigableMap<Integer, Double> curve = vehicle.getDcChargingCurve();
+
+        return ResponseEntity.ok(Map.of(
+            "vehicleId", vehicle.getId(),
+            "displayName", vehicle.getDisplayName(),
+            "maxDcPowerKw", vehicle.getMaxDcPowerKw(),
+            "dcChargingCurve", curve != null ? curve : Map.of(),
+            "voltageCurve", vehicle.getVoltageCurve() != null ? vehicle.getVoltageCurve() : Map.of()
+        ));
+    }
+
+    @GetMapping("/database/{id}/power-at-soc")
+    @Operation(summary = "Calcule la puissance DC à un SoC donné")
+    public ResponseEntity<Map<String, Object>> getPowerAtSoc(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "50") int soc) {
+
+        VehicleProfile vehicle = VehicleDatabase.getById(id);
+        double power = vehicle.getDcPowerAtSoc(soc);
+        double voltage = vehicle.getVoltageAtSoc(soc);
+        double current = vehicle.getDcCurrentAtSoc(soc);
+
+        return ResponseEntity.ok(Map.of(
+            "vehicleId", vehicle.getId(),
+            "displayName", vehicle.getDisplayName(),
+            "soc", soc,
+            "powerKw", Math.round(power * 10.0) / 10.0,
+            "voltageV", Math.round(voltage * 10.0) / 10.0,
+            "currentA", Math.round(current * 10.0) / 10.0
+        ));
+    }
+
+    @GetMapping("/database/ccs")
+    @Operation(summary = "Liste les véhicules supportant le CCS")
+    public ResponseEntity<List<VehicleProfile>> getCCSVehicles() {
+        return ResponseEntity.ok(VehicleDatabase.getCCSVehicles());
+    }
+
+    @GetMapping("/database/chademo")
+    @Operation(summary = "Liste les véhicules supportant le CHAdeMO")
+    public ResponseEntity<List<VehicleProfile>> getCHAdeMOVehicles() {
+        return ResponseEntity.ok(VehicleDatabase.getCHAdeMOVehicles());
+    }
+
+    @GetMapping("/database/monophase")
+    @Operation(summary = "Liste les véhicules mono-phase")
+    public ResponseEntity<List<VehicleProfile>> getMonoPhaseVehicles() {
+        return ResponseEntity.ok(VehicleDatabase.getMonoPhaseVehicles());
+    }
+
+    @GetMapping("/database/800v")
+    @Operation(summary = "Liste les véhicules avec architecture 800V")
+    public ResponseEntity<List<VehicleProfile>> get800VVehicles() {
+        return ResponseEntity.ok(VehicleDatabase.get800VVehicles());
+    }
+
+    @GetMapping("/database/{id}/ac-power")
+    @Operation(summary = "Calcule la puissance AC effective selon les capacités de la borne")
+    public ResponseEntity<Map<String, Object>> getEffectiveAcPower(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "3") int evsePhases,
+            @RequestParam(defaultValue = "32") double evseCurrentA,
+            @RequestParam(defaultValue = "230") double evseVoltageV) {
+
+        VehicleProfile vehicle = VehicleDatabase.getById(id);
+        double effectivePower = vehicle.getEffectiveAcPower(evsePhases, evseCurrentA, evseVoltageV);
+
+        double evsePower = (evseVoltageV * evseCurrentA * evsePhases) / 1000.0;
+
+        return ResponseEntity.ok(Map.of(
+            "vehicleId", vehicle.getId(),
+            "displayName", vehicle.getDisplayName(),
+            "evsePhases", evsePhases,
+            "evsePowerKw", Math.round(evsePower * 100.0) / 100.0,
+            "vehicleMaxAcPowerKw", vehicle.getMaxAcPowerKw(),
+            "vehicleMaxPhases", vehicle.getMaxAcPhases(),
+            "vehicleMaxCurrentA", vehicle.getMaxAcCurrentA(),
+            "effectivePowerKw", Math.round(effectivePower * 100.0) / 100.0,
+            "limitedBy", effectivePower < vehicle.getMaxAcPowerKw() ?
+                (vehicle.getMaxAcPhases() < evsePhases ? "vehicle phases" : "vehicle charger") :
+                (evsePower < vehicle.getMaxAcPowerKw() ? "evse" : "both equal")
+        ));
     }
 }

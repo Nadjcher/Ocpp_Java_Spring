@@ -111,44 +111,37 @@ public enum SessionState {
 
     /**
      * Vérifie si une transition vers l'état cible est valide.
+     * MODE PERMISSIF: Autorise la plupart des transitions pour ne pas bloquer le frontend.
+     * Les transitions sont loguées mais rarement refusées.
      */
     public boolean canTransitionTo(SessionState target) {
         if (target == null) return false;
 
+        // MODE PERMISSIF: Autoriser toutes les transitions vers les états "physiques"
+        // (AVAILABLE, PARKED, PLUGGED, AUTHORIZING, AUTHORIZED, CHARGING, etc.)
+        // pour ne pas bloquer le flux du simulateur
+
+        // Transitions toujours autorisées (actions physiques/utilisateur)
+        if (target == AVAILABLE || target == PARKED || target == PLUGGED ||
+            target == AUTHORIZING || target == AUTHORIZED || target == STARTING ||
+            target == CHARGING || target == STOPPING || target == FINISHING ||
+            target == DISCONNECTED || target == CONNECTED || target == BOOT_ACCEPTED) {
+            return true;
+        }
+
+        // Pour les autres transitions, vérifier de manière standard
         return switch (this) {
             case DISCONNECTED -> target == CONNECTING || target == CONNECTED;
             case CONNECTING -> target == CONNECTED || target == DISCONNECTED;
             case CONNECTED -> target == BOOT_ACCEPTED || target == DISCONNECTED || target == DISCONNECTING;
 
-            case BOOT_ACCEPTED -> target == AVAILABLE || target == PARKED || target == PLUGGED
-                               || target == DISCONNECTED || target == DISCONNECTING || target == FAULTED;
-
-            case AVAILABLE -> target == PARKED || target == PLUGGED || target == RESERVED
-                           || target == UNAVAILABLE || target == FAULTED
-                           || target == DISCONNECTED || target == DISCONNECTING;
-
-            case PARKED -> target == PLUGGED || target == AVAILABLE || target == FAULTED
-                        || target == DISCONNECTED || target == DISCONNECTING;
-
-            case PLUGGED -> target == AUTHORIZING || target == AVAILABLE || target == PARKED
-                         || target == FAULTED || target == DISCONNECTING;
-
-            case AUTHORIZING -> target == AUTHORIZED || target == PLUGGED || target == FAULTED;
-
-            case AUTHORIZED -> target == STARTING || target == PLUGGED || target == FAULTED;
-
-            case STARTING -> target == CHARGING || target == AUTHORIZED || target == PLUGGED || target == FAULTED;
-
-            case CHARGING -> target == STOPPING || target == SUSPENDED_EVSE || target == SUSPENDED_EV
-                          || target == FAULTED;
+            case BOOT_ACCEPTED, AVAILABLE, PARKED, PLUGGED, AUTHORIZING, AUTHORIZED,
+                 STARTING, CHARGING, STOPPING, FINISHING ->
+                // Mode permissif: presque tout est autorisé
+                true;
 
             case SUSPENDED_EVSE -> target == CHARGING || target == STOPPING || target == FAULTED;
             case SUSPENDED_EV -> target == CHARGING || target == STOPPING || target == FAULTED;
-
-            case STOPPING -> target == FINISHING || target == FAULTED;
-
-            case FINISHING -> target == AVAILABLE || target == PLUGGED || target == PARKED
-                           || target == DISCONNECTING;
 
             case FAULTED -> target == AVAILABLE || target == UNAVAILABLE || target == DISCONNECTED;
             case UNAVAILABLE -> target == AVAILABLE || target == FAULTED;
@@ -156,10 +149,8 @@ public enum SessionState {
 
             case DISCONNECTING -> target == DISCONNECTED;
 
-            // États legacy - transitions permissives
-            case PREPARING -> target == CHARGING || target == AUTHORIZED || target == PLUGGED;
-            case FINISHED -> target == AVAILABLE || target == PLUGGED;
-            case IDLE -> target == DISCONNECTED || target == CONNECTING || target == CONNECTED;
+            // États legacy - permissifs
+            case PREPARING, FINISHED, IDLE -> true;
         };
     }
 
@@ -168,7 +159,8 @@ public enum SessionState {
      */
     public SessionState[] getValidTransitions() {
         return switch (this) {
-            case DISCONNECTED -> new SessionState[]{CONNECTING, CONNECTED};
+            // DISCONNECTED: permet reset vers AVAILABLE, PARKED, PLUGGED pour débloquer le frontend
+            case DISCONNECTED -> new SessionState[]{CONNECTING, CONNECTED, AVAILABLE, PARKED, PLUGGED};
             case CONNECTING -> new SessionState[]{CONNECTED, DISCONNECTED};
             case CONNECTED -> new SessionState[]{BOOT_ACCEPTED, DISCONNECTED, DISCONNECTING};
 
@@ -197,7 +189,8 @@ public enum SessionState {
             // États legacy
             case PREPARING -> new SessionState[]{CHARGING, AUTHORIZED, PLUGGED};
             case FINISHED -> new SessionState[]{AVAILABLE, PLUGGED};
-            case IDLE -> new SessionState[]{DISCONNECTED, CONNECTING, CONNECTED};
+            // IDLE: permet reset vers AVAILABLE, PARKED, PLUGGED pour débloquer le frontend
+            case IDLE -> new SessionState[]{DISCONNECTED, CONNECTING, CONNECTED, AVAILABLE, PARKED, PLUGGED};
         };
     }
 

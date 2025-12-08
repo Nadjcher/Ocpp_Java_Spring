@@ -158,4 +158,33 @@ public class AsyncConfig implements AsyncConfigurer {
                     method.getName(), ex.getMessage(), ex);
         }
     }
+
+    // =========================================================================
+    // Virtual Threads (Java 21) - Spring Boot 3.5
+    // NOTE: Uncomment when Java 21 is installed
+    // =========================================================================
+
+    /*
+     * Virtual Threads require Java 21+. Uncomment these beans when upgrading to Java 21:
+     *
+     * @Bean("virtualThreadExecutor")
+     * @ConditionalOnProperty(name = "spring.threads.virtual.enabled", havingValue = "true")
+     * public AsyncTaskExecutor virtualThreadExecutor() {
+     *     log.info("Virtual Threads executor enabled (Java 21)");
+     *     return new TaskExecutorAdapter(
+     *         Executors.newVirtualThreadPerTaskExecutor()
+     *     );
+     * }
+     *
+     * @Bean("ocppVirtualExecutor")
+     * @ConditionalOnProperty(name = "spring.threads.virtual.enabled", havingValue = "true")
+     * public AsyncTaskExecutor ocppVirtualExecutor() {
+     *     log.info("OCPP Virtual Threads executor enabled");
+     *     return new TaskExecutorAdapter(
+     *         Executors.newThreadPerTaskExecutor(
+     *             Thread.ofVirtual().name("ocpp-vt-", 0).factory()
+     *         )
+     *     );
+     * }
+     */
 }

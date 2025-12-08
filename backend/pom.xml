@@ -8,7 +8,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.0</version>
+        <version>3.5.0</version>
         <relativePath/>
     </parent>
 
@@ -19,14 +19,15 @@
     <description>Spring Boot backend for EVSE OCPP 1.6 simulator supporting 25k+ concurrent connections</description>
 
     <properties>
+        <!-- Java 17 (LTS) - Upgrade to 21 when Java 21 is installed -->
         <java.version>17</java.version>
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
-        <java-websocket.version>1.5.4</java-websocket.version>
-        <springdoc.version>2.3.0</springdoc.version>
-        <commons-io.version>2.15.1</commons-io.version>
-        <guava.version>32.1.3-jre</guava.version>
-        <hdrhistogram.version>2.1.12</hdrhistogram.version>
+        <java-websocket.version>1.5.7</java-websocket.version>
+        <springdoc.version>2.7.0</springdoc.version>
+        <commons-io.version>2.17.0</commons-io.version>
+        <guava.version>33.3.1-jre</guava.version>
+        <hdrhistogram.version>2.2.2</hdrhistogram.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <maven.resources.encoding>UTF-8</maven.resources.encoding>
@@ -59,16 +60,16 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
-        <!-- AspectJ -->
+        <!-- AspectJ (Java 21 compatible) -->
         <dependency>
             <groupId>org.aspectj</groupId>
             <artifactId>aspectjrt</artifactId>
-            <version>1.9.21</version>
+            <version>1.9.22.1</version>
         </dependency>
         <dependency>
             <groupId>org.aspectj</groupId>
             <artifactId>aspectjweaver</artifactId>
-            <version>1.9.21</version>
+            <version>1.9.22.1</version>
             <scope>runtime</scope>
         </dependency>
 
@@ -224,9 +225,9 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
                 <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
+                    <release>17</release>
                     <annotationProcessorPaths>
                         <path>
                             <groupId>org.projectlombok</groupId>
@@ -240,6 +241,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
                 <configuration>
                     <argLine>-Xmx1024m</argLine>
                 </configuration>

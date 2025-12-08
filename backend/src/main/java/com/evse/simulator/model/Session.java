@@ -350,6 +350,12 @@ public class Session {
     @Builder.Default
     private String firmwareVersion = "1.0.0";
 
+    /**
+     * Version du protocole OCPP (1.6 ou 2.0.1).
+     */
+    @Builder.Default
+    private String ocppVersion = "1.6";
+
     // =========================================================================
     // Horodatage
     // =========================================================================

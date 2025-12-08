@@ -90,13 +90,21 @@ class WebSocketManager {
         if (!state || state.isIntentionallyClosed) return;
 
         try {
-            const ws = new WebSocket(state.url);
+            // OCPP 1.6 requires the subprotocol to be specified
+            // The CSMS will reject connections without the correct subprotocol
+            const ws = new WebSocket(state.url, ['ocpp1.6']);
             state.ws = ws;
 
             ws.onopen = () => {
                 console.log('[WebSocketManager] Session', sessionId, 'connected');
                 state.reconnectAttempts = 0;
                 state.lastActivity = Date.now();
+
+                // Ajouter un log de succès visible dans l'interface
+                useSessionStore.getState().addLog(sessionId, {
+                    ts: new Date().toISOString(),
+                    line: `[SUCCESS] [OCPP] WebSocket connected to CSMS`
+                });
 
                 // Notifier les handlers
                 this.connectionHandlers.forEach(h => h(sessionId, true));
@@ -120,10 +128,23 @@ class WebSocketManager {
 
             ws.onerror = (error) => {
                 console.error('[WebSocketManager] Session', sessionId, 'error:', error);
+                // Ajouter un log d'erreur visible dans l'interface
+                useSessionStore.getState().addLog(sessionId, {
+                    ts: new Date().toISOString(),
+                    line: `[ERROR] [OCPP] WebSocket connection error`
+                });
             };
 
             ws.onclose = (event) => {
                 console.log('[WebSocketManager] Session', sessionId, 'closed:', event.code, event.reason);
+
+                // Ajouter un log de fermeture avec le code et la raison
+                const reason = event.reason || 'Unknown reason';
+                const logLevel = event.code === 1000 ? 'INFO' : 'ERROR';
+                useSessionStore.getState().addLog(sessionId, {
+                    ts: new Date().toISOString(),
+                    line: `[${logLevel}] [OCPP] WebSocket closed: ${event.code} - ${reason}`
+                });
 
                 // Notifier les handlers
                 this.connectionHandlers.forEach(h => h(sessionId, false));
@@ -141,6 +162,11 @@ class WebSocketManager {
             };
         } catch (error) {
             console.error('[WebSocketManager] Failed to create WebSocket:', error);
+            // Ajouter un log d'erreur visible dans l'interface
+            useSessionStore.getState().addLog(sessionId, {
+                ts: new Date().toISOString(),
+                line: `[ERROR] [OCPP] Failed to create WebSocket: ${error instanceof Error ? error.message : String(error)}`
+            });
             this.scheduleReconnect(sessionId);
         }
     }

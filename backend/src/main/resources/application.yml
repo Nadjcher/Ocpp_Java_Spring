@@ -4,6 +4,7 @@
 
 server:
   port: ${SERVER_PORT:8887}
+  shutdown: graceful
   tomcat:
     max-connections: 30000
     accept-count: 1000
@@ -19,6 +20,14 @@ spring:
     name: evse-simulator
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
+  # Graceful shutdown timeout
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  # Virtual Threads (Java 21) - Enable when Java 21 is installed
+  # NOTE: Currently disabled as Java 17 is in use
+  threads:
+    virtual:
+      enabled: ${VIRTUAL_THREADS_ENABLED:false}
   jackson:
     serialization:
       write-dates-as-timestamps: false
@@ -154,17 +163,31 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus
+        include: health,info,metrics,prometheus,httpexchanges,scheduledtasks
       base-path: /actuator
   endpoint:
     health:
       show-details: when-authorized
+      probes:
+        enabled: true
+  # HTTP Exchanges recording (Spring Boot 3.5)
+  httpexchanges:
+    recording:
+      enabled: true
+      include: REQUEST_HEADERS,RESPONSE_HEADERS,TIME_TAKEN
   metrics:
     export:
       prometheus:
         enabled: true
     tags:
       application: ${spring.application.name}
+  info:
+    env:
+      enabled: true
+    java:
+      enabled: true
+    os:
+      enabled: true
 
 # =============================================================================
 # OpenAPI / Swagger
