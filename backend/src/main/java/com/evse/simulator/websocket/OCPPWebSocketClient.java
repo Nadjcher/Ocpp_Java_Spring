@@ -84,19 +84,10 @@ public class OCPPWebSocketClient extends WebSocketClient {
     private static Draft_6455 createOcppDraft(String ocppVersion) {
         List<IProtocol> protocols = new ArrayList<>();
 
-        // Déterminer le sous-protocole selon la version OCPP
-        String subprotocol;
-        if (ocppVersion != null && ocppVersion.startsWith("2.0")) {
-            subprotocol = "ocpp2.0.1";
-        } else {
-            subprotocol = "ocpp1.6";
-        }
+        // Utiliser uniquement ocpp1.6 - pas de fallback vide (requis par le CSMS)
+        protocols.add(new Protocol("ocpp1.6"));
 
-        protocols.add(new Protocol(subprotocol));
-        // Ajouter un fallback vide pour éviter les erreurs si le serveur ne répond pas le protocole
-        protocols.add(new Protocol(""));
-
-        log.info("Creating WebSocket draft with OCPP subprotocol: {}", subprotocol);
+        log.info("Creating WebSocket draft with OCPP subprotocol: ocpp1.6");
         return new Draft_6455(Collections.emptyList(), protocols);
     }
 
