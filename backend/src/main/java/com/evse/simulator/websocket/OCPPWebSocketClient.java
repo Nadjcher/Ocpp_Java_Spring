@@ -14,7 +14,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.java_websocket.client.WebSocketClient;
+import org.java_websocket.drafts.Draft_6455;
 import org.java_websocket.handshake.ServerHandshake;
+import org.java_websocket.protocols.IProtocol;
+import org.java_websocket.protocols.Protocol;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
@@ -23,6 +26,7 @@ import javax.net.ssl.X509TrustManager;
 import java.net.URI;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,7 +49,9 @@ public class OCPPWebSocketClient extends WebSocketClient {
     public OCPPWebSocketClient(URI serverUri, Session session, OCPPService ocppService,
                                ChargingProfileManager chargingProfileManager,
                                Ocpp16MessageRouter messageRouter) {
-        super(serverUri);
+        // Utiliser Draft_6455 avec le sous-protocole OCPP 1.6 correctement configuré
+        // C'est la méthode correcte pour Java-WebSocket (pas addHeader!)
+        super(serverUri, createOcppDraft(session.getOcppVersion()));
         this.session = session;
         this.ocppService = ocppService;
         this.objectMapper = new ObjectMapper();
@@ -66,6 +72,32 @@ public class OCPPWebSocketClient extends WebSocketClient {
                 log.error("Failed to configure SSL for WebSocket: {}", e.getMessage());
             }
         }
+    }
+
+    /**
+     * Crée un Draft_6455 avec le sous-protocole OCPP correctement configuré.
+     * C'est la méthode officielle de Java-WebSocket pour négocier les sous-protocoles.
+     *
+     * @param ocppVersion Version OCPP (1.6, 2.0, 2.0.1)
+     * @return Draft_6455 configuré avec le sous-protocole OCPP
+     */
+    private static Draft_6455 createOcppDraft(String ocppVersion) {
+        List<IProtocol> protocols = new ArrayList<>();
+
+        // Déterminer le sous-protocole selon la version OCPP
+        String subprotocol;
+        if (ocppVersion != null && ocppVersion.startsWith("2.0")) {
+            subprotocol = "ocpp2.0.1";
+        } else {
+            subprotocol = "ocpp1.6";
+        }
+
+        protocols.add(new Protocol(subprotocol));
+        // Ajouter un fallback vide pour éviter les erreurs si le serveur ne répond pas le protocole
+        protocols.add(new Protocol(""));
+
+        log.info("Creating WebSocket draft with OCPP subprotocol: {}", subprotocol);
+        return new Draft_6455(Collections.emptyList(), protocols);
     }
 
     /**

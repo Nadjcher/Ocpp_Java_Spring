@@ -116,8 +116,8 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
                 client.addHeader("Authorization", "Bearer " + session.getBearerToken());
             }
 
-            // Subprotocole OCPP 1.6
-            client.addHeader("Sec-WebSocket-Protocol", "ocpp1.6");
+            // Note: Le sous-protocole OCPP est maintenant configuré via Draft_6455
+            // dans OCPPWebSocketClient (méthode correcte pour java-websocket)
 
             clients.put(sessionId, client);
 
