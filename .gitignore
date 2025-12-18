@@ -1,0 +1,96 @@
+# Windows artifacts
+nul
+**/nul
+
+# Claude Code config
+.claude/
+CLAUDE.md
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build artifacts
+target/
+dist/
+build/
+*.jar
+*.war
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.code-workspace
+*.suo
+*.user
+.project
+.classpath
+.settings/
+
+# =============================================================================
+# Environment files with secrets - NEVER COMMIT THESE
+# =============================================================================
+.env
+.env.local
+.env.*.local
+*.env
+
+# Spring Boot local config with secrets
+application-local.yml
+application-local.properties
+application-secrets.yml
+application-secrets.properties
+**/application-local.yml
+**/application-local.properties
+**/application-secrets.yml
+**/application-secrets.properties
+
+# =============================================================================
+# Logs
+# =============================================================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =============================================================================
+# OS files
+# =============================================================================
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# =============================================================================
+# Temporary files
+# =============================================================================
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# =============================================================================
+# Test and coverage
+# =============================================================================
+coverage/
+.nyc_output/
+test-results/
+*.lcov
+
+# =============================================================================
+# Vite / Frontend build
+# =============================================================================
+.vite/
+*.local
+
+# =============================================================================
+# Data files (may contain sensitive session data)
+# =============================================================================
+# backend/data/ - keep the directory but exclude sensitive runtime data
+backend/data/sessions.json
+perf-runner/perf_sessions.csv
+perf-runner/tnr/*.json
+perf-runner/tnr/executions/

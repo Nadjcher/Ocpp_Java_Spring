@@ -1,0 +1,310 @@
+package com.evse.simulator.service;
+
+import com.evse.simulator.model.Session;
+import com.evse.simulator.model.TNRScenario;
+import com.evse.simulator.model.TNRScenario.*;
+import com.evse.simulator.model.enums.SessionState;
+import com.evse.simulator.repository.JsonFileRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+/**
+ * Tests unitaires pour TNRService.
+ */
+@ExtendWith(MockitoExtension.class)
+class TNRServiceTest {
+
+    @Mock
+    private JsonFileRepository repository;
+
+    @Mock
+    private SessionService sessionService;
+
+    @Mock
+    private OCPPService ocppService;
+
+    private TNRService tnrService;
+
+    @BeforeEach
+    void setUp() {
+        tnrService = new TNRService(repository, sessionService, ocppService);
+    }
+
+    @Test
+    @DisplayName("Doit créer un scénario TNR")
+    void shouldCreateScenario() {
+        // Given
+        TNRScenario scenario = createTestScenario("Test Scenario");
+        when(repository.saveScenario(any(TNRScenario.class))).thenAnswer(i -> i.getArgument(0));
+
+        // When
+        TNRScenario created = tnrService.createScenario(scenario);
+
+        // Then
+        assertThat(created).isNotNull();
+        assertThat(created.getId()).isNotNull();
+        assertThat(created.getName()).isEqualTo("Test Scenario");
+        verify(repository).saveScenario(any(TNRScenario.class));
+    }
+
+    @Test
+    @DisplayName("Doit récupérer un scénario par ID")
+    void shouldGetScenarioById() {
+        // Given
+        String scenarioId = "scenario-123";
+        TNRScenario scenario = createTestScenario("Test");
+        scenario.setId(scenarioId);
+
+        when(repository.findScenarioById(scenarioId)).thenReturn(Optional.of(scenario));
+
+        // When
+        TNRScenario found = tnrService.getScenario(scenarioId);
+
+        // Then
+        assertThat(found).isNotNull();
+        assertThat(found.getId()).isEqualTo(scenarioId);
+    }
+
+    @Test
+    @DisplayName("Doit récupérer tous les scénarios")
+    void shouldGetAllScenarios() {
+        // Given
+        List<TNRScenario> scenarios = List.of(
+                createTestScenario("Scenario 1"),
+                createTestScenario("Scenario 2"),
+                createTestScenario("Scenario 3")
+        );
+
+        when(repository.findAllScenarios()).thenReturn(scenarios);
+
+        // When
+        List<TNRScenario> found = tnrService.getAllScenarios();
+
+        // Then
+        assertThat(found).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("Doit supprimer un scénario")
+    void shouldDeleteScenario() {
+        // Given
+        String scenarioId = "scenario-123";
+        TNRScenario scenario = createTestScenario("Test");
+        scenario.setId(scenarioId);
+
+        when(repository.findScenarioById(scenarioId)).thenReturn(Optional.of(scenario));
+        doNothing().when(repository).deleteScenario(scenarioId);
+
+        // When
+        tnrService.deleteScenario(scenarioId);
+
+        // Then
+        verify(repository).deleteScenario(scenarioId);
+    }
+
+    @Test
+    @DisplayName("Doit exécuter un scénario simple avec succès")
+    void shouldExecuteSimpleScenarioSuccessfully() throws ExecutionException, InterruptedException {
+        // Given
+        String scenarioId = "scenario-123";
+        TNRScenario scenario = createTestScenario("Boot Test");
+        scenario.setId(scenarioId);
+        scenario.setSteps(List.of(
+                new ScenarioStep("connect", "Connect to CSMS", Map.of()),
+                new ScenarioStep("boot", "Send BootNotification", Map.of())
+        ));
+        scenario.setAssertions(List.of(
+                new ScenarioAssertion("state", "AVAILABLE", "Session should be available")
+        ));
+
+        Session session = createTestSession("session-test");
+        session.setState(SessionState.AVAILABLE);
+
+        when(repository.findScenarioById(scenarioId)).thenReturn(Optional.of(scenario));
+        when(sessionService.createSession(any(Session.class))).thenReturn(session);
+        when(sessionService.getSession(session.getId())).thenReturn(session);
+        when(ocppService.connect(any())).thenReturn(CompletableFuture.completedFuture(true));
+        when(ocppService.sendBootNotification(any())).thenReturn(CompletableFuture.completedFuture(Map.of("status", "Accepted")));
+        when(repository.saveScenario(any(TNRScenario.class))).thenAnswer(i -> i.getArgument(0));
+
+        // When
+        CompletableFuture<TNRResult> futureResult = tnrService.runScenario(scenarioId);
+        TNRResult result = futureResult.get();
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getStatus()).isEqualTo(ScenarioStatus.PASSED);
+    }
+
+    @Test
+    @DisplayName("Doit marquer un scénario comme failed si une assertion échoue")
+    void shouldMarkScenarioAsFailedOnAssertionFailure() throws ExecutionException, InterruptedException {
+        // Given
+        String scenarioId = "scenario-123";
+        TNRScenario scenario = createTestScenario("Charge Test");
+        scenario.setId(scenarioId);
+        scenario.setSteps(List.of(
+                new ScenarioStep("connect", "Connect", Map.of())
+        ));
+        scenario.setAssertions(List.of(
+                new ScenarioAssertion("state", "CHARGING", "Should be charging") // Will fail
+        ));
+
+        Session session = createTestSession("session-test");
+        session.setState(SessionState.AVAILABLE); // Not CHARGING
+
+        when(repository.findScenarioById(scenarioId)).thenReturn(Optional.of(scenario));
+        when(sessionService.createSession(any(Session.class))).thenReturn(session);
+        when(sessionService.getSession(session.getId())).thenReturn(session);
+        when(ocppService.connect(any())).thenReturn(CompletableFuture.completedFuture(true));
+        when(repository.saveScenario(any(TNRScenario.class))).thenAnswer(i -> i.getArgument(0));
+
+        // When
+        CompletableFuture<TNRResult> futureResult = tnrService.runScenario(scenarioId);
+        TNRResult result = futureResult.get();
+
+        // Then
+        assertThat(result.getStatus()).isEqualTo(ScenarioStatus.FAILED);
+        assertThat(result.getFailedAssertions()).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("Doit vérifier si un scénario est en cours d'exécution")
+    void shouldCheckIfScenarioIsRunning() {
+        // Given
+        String scenarioId = "scenario-123";
+
+        // When
+        boolean running = tnrService.isRunning(scenarioId);
+
+        // Then
+        assertThat(running).isFalse();
+    }
+
+    @Test
+    @DisplayName("Doit récupérer le résultat d'un scénario")
+    void shouldGetScenarioResult() {
+        // Given
+        String scenarioId = "scenario-123";
+        TNRResult result = new TNRResult();
+        result.setScenarioId(scenarioId);
+        result.setStatus(ScenarioStatus.PASSED);
+
+        // Simuler l'ajout d'un résultat
+        tnrService.storeResult(scenarioId, result);
+
+        // When
+        TNRResult found = tnrService.getResult(scenarioId);
+
+        // Then
+        assertThat(found).isNotNull();
+        assertThat(found.getScenarioId()).isEqualTo(scenarioId);
+    }
+
+    @Test
+    @DisplayName("Doit récupérer tous les résultats")
+    void shouldGetAllResults() {
+        // Given
+        TNRResult result1 = new TNRResult();
+        result1.setScenarioId("scenario-1");
+        result1.setStatus(ScenarioStatus.PASSED);
+
+        TNRResult result2 = new TNRResult();
+        result2.setScenarioId("scenario-2");
+        result2.setStatus(ScenarioStatus.FAILED);
+
+        tnrService.storeResult("scenario-1", result1);
+        tnrService.storeResult("scenario-2", result2);
+
+        // When
+        List<TNRResult> results = tnrService.getAllResults();
+
+        // Then
+        assertThat(results).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("Doit exporter les résultats au format Xray")
+    void shouldExportToXray() {
+        // Given
+        TNRResult result = new TNRResult();
+        result.setScenarioId("scenario-123");
+        result.setScenarioName("Test Scenario");
+        result.setStatus(ScenarioStatus.PASSED);
+        result.setDurationMs(1500);
+
+        tnrService.storeResult("scenario-123", result);
+
+        // When
+        Map<String, Object> xrayExport = tnrService.exportToXray();
+
+        // Then
+        assertThat(xrayExport).containsKey("testExecutionKey");
+        assertThat(xrayExport).containsKey("tests");
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> tests = (List<Map<String, Object>>) xrayExport.get("tests");
+        assertThat(tests).isNotEmpty();
+    }
+
+    @Test
+    @DisplayName("Doit mettre à jour un scénario")
+    void shouldUpdateScenario() {
+        // Given
+        String scenarioId = "scenario-123";
+        TNRScenario existing = createTestScenario("Original");
+        existing.setId(scenarioId);
+
+        TNRScenario updates = new TNRScenario();
+        updates.setName("Updated Name");
+        updates.setDescription("New description");
+
+        when(repository.findScenarioById(scenarioId)).thenReturn(Optional.of(existing));
+        when(repository.saveScenario(any(TNRScenario.class))).thenAnswer(i -> i.getArgument(0));
+
+        // When
+        TNRScenario updated = tnrService.updateScenario(scenarioId, updates);
+
+        // Then
+        assertThat(updated.getName()).isEqualTo("Updated Name");
+        assertThat(updated.getDescription()).isEqualTo("New description");
+    }
+
+    // Helper methods
+
+    private TNRScenario createTestScenario(String name) {
+        TNRScenario scenario = new TNRScenario();
+        scenario.setName(name);
+        scenario.setDescription("Test scenario description");
+        scenario.setSteps(List.of(
+                new ScenarioStep("connect", "Connect to CSMS", Map.of())
+        ));
+        scenario.setAssertions(List.of(
+                new ScenarioAssertion("connected", "true", "Should be connected")
+        ));
+        return scenario;
+    }
+
+    private Session createTestSession(String id) {
+        Session session = new Session();
+        session.setId(id);
+        session.setChargePointId("CP-" + id);
+        session.setCsmsUrl("ws://localhost:9000/ocpp");
+        session.setState(SessionState.IDLE);
+        return session;
+    }
+}

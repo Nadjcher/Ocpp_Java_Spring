@@ -1,0 +1,236 @@
+# =============================================================================
+# EVSE Simulator - Configuration par défaut
+# =============================================================================
+
+server:
+  port: ${SERVER_PORT:8887}
+  shutdown: graceful
+  tomcat:
+    max-connections: 30000
+    accept-count: 1000
+    threads:
+      max: 500
+      min-spare: 50
+    connection-timeout: 20000
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: evse-simulator
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  # Graceful shutdown timeout
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  # Virtual Threads (Java 21) - Enable when Java 21 is installed
+  # NOTE: Currently disabled as Java 17 is in use
+  threads:
+    virtual:
+      enabled: ${VIRTUAL_THREADS_ENABLED:false}
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+      indent-output: true
+      fail-on-empty-beans: false
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: non_null
+    date-format: yyyy-MM-dd'T'HH:mm:ss.SSS'Z'
+    time-zone: UTC
+  mvc:
+    async:
+      request-timeout: 60000
+
+# =============================================================================
+# WebSocket Configuration
+# =============================================================================
+websocket:
+  allowed-origins:
+    - "http://localhost:3000"
+    - "http://localhost:3002"
+    - "http://localhost:8887"
+    - "http://127.0.0.1:3000"
+    - "http://127.0.0.1:3002"
+  stomp:
+    endpoint: /ws
+    broker:
+      - /topic
+      - /queue
+    application-destination-prefix: /app
+  message:
+    buffer-size: 65536
+
+# =============================================================================
+# OCPP Configuration
+# =============================================================================
+ocpp:
+  version: "1.6"
+  heartbeat-interval: 30000
+  meter-values-interval: 10000
+  default-url: ${OCPP_DEFAULT_URL:ws://localhost:8887/ocpp}
+  connection-timeout: 10000
+  reconnect-delay: 5000
+  max-reconnect-attempts: 5
+  message:
+    max-size: 65536
+  # Environnements CSMS disponibles
+  environments:
+    test:
+      name: Test
+      url: ${OCPP_TEST_URL:wss://evse-test.total-ev-charge.com/ocpp/WebSocket}
+    pp:
+      name: Pre-Production
+      url: ${OCPP_PP_URL:wss://evse-pp.total-ev-charge.com/ocpp/WebSocket}
+    prod:
+      name: Production
+      url: ${OCPP_PROD_URL:wss://evse.total-ev-charge.com/ocpp/WebSocket}
+  default-environment: ${OCPP_DEFAULT_ENV:test}
+
+# =============================================================================
+# Session Defaults
+# =============================================================================
+session:
+  defaults:
+    cp-id: ${DEFAULT_CP_ID:SIMU-CP-001}
+    id-tag: ${DEFAULT_ID_TAG:TAG-001}
+    vehicle: ${DEFAULT_VEHICLE:GENERIC}
+    connector-id: ${DEFAULT_CONNECTOR_ID:1}
+    max-power-kw: ${DEFAULT_MAX_POWER_KW:22.0}
+
+# =============================================================================
+# Metrics Configuration
+# =============================================================================
+metrics:
+  # Intervalle de diffusion des métriques (ms)
+  broadcast-interval: 1000
+  # Nombre maximum d'échantillons de latence conservés
+  latency-samples: 1000
+
+# =============================================================================
+# Load Test Configuration
+# =============================================================================
+loadtest:
+  # Nombre maximum de sessions pour les tests de charge
+  max-sessions: 25000
+  # Taille du pool de threads pour les tests de charge
+  thread-pool-size: 200
+
+# =============================================================================
+# Performance Configuration - High Capacity (25K+ connections)
+# =============================================================================
+performance:
+  max-sessions: ${loadtest.max-sessions}
+  websocket-pool-size: 500
+  metrics-interval: ${metrics.broadcast-interval}
+  batch-size: 500
+  async:
+    core-pool-size: 100
+    max-pool-size: 500
+    queue-capacity: 50000
+    thread-name-prefix: "evse-async-"
+  # High performance settings
+  high-perf:
+    enabled: true
+    # Rate limiting: connections per second
+    rate-limit: 500
+    # Connection timeout in seconds
+    connection-timeout: 30
+    # Histogramme settings
+    latency-max-ms: 60000
+    latency-precision: 3
+    # Thread pool for connections
+    connection-pool-size: 250
+    # SSE broadcasting
+    sse-timeout: 0
+
+# =============================================================================
+# Data Storage Configuration
+# =============================================================================
+data:
+  path: ./data
+  vehicles-file: ${data.path}/vehicles.json
+  sessions-file: ${data.path}/sessions.json
+  tnr-scenarios-file: ${data.path}/tnr-scenarios.json
+  auto-save-interval: 30000
+  max-log-entries: 500
+  max-chart-points: 500
+
+# =============================================================================
+# Actuator / Metrics
+# =============================================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,httpexchanges,scheduledtasks
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  # HTTP Exchanges recording (Spring Boot 3.5)
+  httpexchanges:
+    recording:
+      enabled: true
+      include: REQUEST_HEADERS,RESPONSE_HEADERS,TIME_TAKEN
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+  info:
+    env:
+      enabled: true
+    java:
+      enabled: true
+    os:
+      enabled: true
+
+# =============================================================================
+# OpenAPI / Swagger
+# =============================================================================
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    operations-sorter: alpha
+    tags-sorter: alpha
+  show-actuator: false
+
+# =============================================================================
+# Logging
+# =============================================================================
+logging:
+  level:
+    root: INFO
+    com.evse.simulator: DEBUG
+    org.springframework.web.socket: INFO
+    org.springframework.messaging: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/evse-simulator.log
+    max-size: 10MB
+    max-history: 30
+
+# =============================================================================
+# TTE API Configuration (Cognito OAuth2)
+# =============================================================================
+tte:
+  enabled: ${TTE_ENABLED:true}
+  cognito:
+    token-url: ${TTE_COGNITO_URL:https://tte-pool-prod.auth.eu-central-1.amazoncognito.com/oauth2/token}
+    client-id: ${TTE_CLIENT_ID:}
+    client-secret: ${TTE_CLIENT_SECRET:}
+    # Renouveler le token X secondes avant expiration
+    token-expiry-buffer-seconds: 300
+  api:
+    base-url: ${TTE_API_URL:https://api.total-ev-charge.com}
+    timeout-seconds: 30

@@ -1,0 +1,274 @@
+package com.evse.simulator.service;
+
+import com.evse.simulator.exception.VehicleNotFoundException;
+import com.evse.simulator.model.VehicleProfile;
+import com.evse.simulator.model.enums.ChargerType;
+import com.evse.simulator.repository.JsonFileRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+/**
+ * Tests unitaires pour VehicleService.
+ */
+@ExtendWith(MockitoExtension.class)
+class VehicleServiceTest {
+
+    @Mock
+    private JsonFileRepository repository;
+
+    private VehicleService vehicleService;
+
+    @BeforeEach
+    void setUp() {
+        vehicleService = new VehicleService(repository);
+    }
+
+    @Test
+    @DisplayName("Doit créer un profil véhicule")
+    void shouldCreateVehicleProfile() {
+        // Given
+        VehicleProfile vehicle = createTestVehicle("Tesla", "Model 3");
+        when(repository.saveVehicle(any(VehicleProfile.class))).thenAnswer(i -> i.getArgument(0));
+
+        // When
+        VehicleProfile created = vehicleService.createVehicle(vehicle);
+
+        // Then
+        assertThat(created).isNotNull();
+        assertThat(created.getId()).isNotNull();
+        assertThat(created.getManufacturer()).isEqualTo("Tesla");
+        assertThat(created.getModel()).isEqualTo("Model 3");
+        verify(repository).saveVehicle(any(VehicleProfile.class));
+    }
+
+    @Test
+    @DisplayName("Doit récupérer un véhicule existant")
+    void shouldGetExistingVehicle() {
+        // Given
+        String vehicleId = "vehicle-123";
+        VehicleProfile vehicle = createTestVehicle("Tesla", "Model 3");
+        vehicle.setId(vehicleId);
+
+        when(repository.findVehicleById(vehicleId)).thenReturn(Optional.of(vehicle));
+
+        // When
+        VehicleProfile found = vehicleService.getVehicle(vehicleId);
+
+        // Then
+        assertThat(found).isNotNull();
+        assertThat(found.getId()).isEqualTo(vehicleId);
+    }
+
+    @Test
+    @DisplayName("Doit lever une exception si le véhicule n'existe pas")
+    void shouldThrowExceptionWhenVehicleNotFound() {
+        // Given
+        String vehicleId = "unknown-vehicle";
+        when(repository.findVehicleById(vehicleId)).thenReturn(Optional.empty());
+
+        // When/Then
+        assertThatThrownBy(() -> vehicleService.getVehicle(vehicleId))
+                .isInstanceOf(VehicleNotFoundException.class)
+                .hasMessageContaining(vehicleId);
+    }
+
+    @Test
+    @DisplayName("Doit récupérer tous les véhicules")
+    void shouldGetAllVehicles() {
+        // Given
+        List<VehicleProfile> vehicles = List.of(
+                createTestVehicle("Tesla", "Model 3"),
+                createTestVehicle("Tesla", "Model Y"),
+                createTestVehicle("Renault", "Zoe")
+        );
+
+        when(repository.findAllVehicles()).thenReturn(vehicles);
+
+        // When
+        List<VehicleProfile> found = vehicleService.getAllVehicles();
+
+        // Then
+        assertThat(found).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("Doit filtrer les véhicules par fabricant")
+    void shouldFilterVehiclesByManufacturer() {
+        // Given
+        VehicleProfile tesla1 = createTestVehicle("Tesla", "Model 3");
+        VehicleProfile tesla2 = createTestVehicle("Tesla", "Model Y");
+        VehicleProfile renault = createTestVehicle("Renault", "Zoe");
+
+        when(repository.findAllVehicles()).thenReturn(List.of(tesla1, tesla2, renault));
+
+        // When
+        List<VehicleProfile> teslaVehicles = vehicleService.searchByManufacturer("Tesla");
+
+        // Then
+        assertThat(teslaVehicles).hasSize(2);
+        assertThat(teslaVehicles).allMatch(v -> v.getManufacturer().equals("Tesla"));
+    }
+
+    @Test
+    @DisplayName("Doit filtrer les véhicules par type de connecteur")
+    void shouldFilterVehiclesByConnectorType() {
+        // Given
+        VehicleProfile ccs = createTestVehicle("Tesla", "Model 3");
+        ccs.setConnectorType("CCS");
+
+        VehicleProfile type2 = createTestVehicle("Renault", "Zoe");
+        type2.setConnectorType("Type2");
+
+        VehicleProfile chademo = createTestVehicle("Nissan", "Leaf");
+        chademo.setConnectorType("CHAdeMO");
+
+        when(repository.findAllVehicles()).thenReturn(List.of(ccs, type2, chademo));
+
+        // When
+        List<VehicleProfile> ccsVehicles = vehicleService.searchByConnectorType("CCS");
+
+        // Then
+        assertThat(ccsVehicles).hasSize(1);
+        assertThat(ccsVehicles.get(0).getConnectorType()).isEqualTo("CCS");
+    }
+
+    @Test
+    @DisplayName("Doit estimer le temps de charge pour DC rapide")
+    void shouldEstimateChargingTimeForDCFast() {
+        // Given
+        VehicleProfile vehicle = createTestVehicle("Tesla", "Model 3");
+        vehicle.setBatteryCapacity(75.0);
+        vehicle.setMaxDcPower(170.0);
+        vehicle.setEfficiency(0.85);
+
+        when(repository.findVehicleById(vehicle.getId())).thenReturn(Optional.of(vehicle));
+
+        // When
+        double estimatedMinutes = vehicleService.estimateChargingTime(
+                vehicle.getId(), 20, 80, ChargerType.DC_150);
+
+        // Then
+        // 60 kWh à charger (80% - 20% de 75 kWh = 45 kWh utile, avec efficacité)
+        // Devrait prendre environ 20-30 minutes avec DC_150
+        assertThat(estimatedMinutes).isBetween(15.0, 45.0);
+    }
+
+    @Test
+    @DisplayName("Doit estimer le temps de charge pour AC lent")
+    void shouldEstimateChargingTimeForACSlow() {
+        // Given
+        VehicleProfile vehicle = createTestVehicle("Renault", "Zoe");
+        vehicle.setBatteryCapacity(52.0);
+        vehicle.setMaxAcPower(22.0);
+        vehicle.setEfficiency(0.90);
+
+        when(repository.findVehicleById(vehicle.getId())).thenReturn(Optional.of(vehicle));
+
+        // When
+        double estimatedMinutes = vehicleService.estimateChargingTime(
+                vehicle.getId(), 20, 80, ChargerType.AC_TRI);
+
+        // Then
+        // Devrait prendre plus de temps qu'en DC
+        assertThat(estimatedMinutes).isGreaterThan(60.0);
+    }
+
+    @Test
+    @DisplayName("Doit mettre à jour un véhicule")
+    void shouldUpdateVehicle() {
+        // Given
+        String vehicleId = "vehicle-123";
+        VehicleProfile existing = createTestVehicle("Tesla", "Model 3");
+        existing.setId(vehicleId);
+        existing.setBatteryCapacity(75.0);
+
+        VehicleProfile updates = new VehicleProfile();
+        updates.setBatteryCapacity(82.0);
+
+        when(repository.findVehicleById(vehicleId)).thenReturn(Optional.of(existing));
+        when(repository.saveVehicle(any(VehicleProfile.class))).thenAnswer(i -> i.getArgument(0));
+
+        // When
+        VehicleProfile updated = vehicleService.updateVehicle(vehicleId, updates);
+
+        // Then
+        assertThat(updated.getBatteryCapacity()).isEqualTo(82.0);
+        assertThat(updated.getManufacturer()).isEqualTo("Tesla"); // Non modifié
+    }
+
+    @Test
+    @DisplayName("Doit supprimer un véhicule")
+    void shouldDeleteVehicle() {
+        // Given
+        String vehicleId = "vehicle-123";
+        VehicleProfile vehicle = createTestVehicle("Tesla", "Model 3");
+        vehicle.setId(vehicleId);
+
+        when(repository.findVehicleById(vehicleId)).thenReturn(Optional.of(vehicle));
+        doNothing().when(repository).deleteVehicle(vehicleId);
+
+        // When
+        vehicleService.deleteVehicle(vehicleId);
+
+        // Then
+        verify(repository).deleteVehicle(vehicleId);
+    }
+
+    @Test
+    @DisplayName("Doit récupérer la courbe de charge")
+    void shouldGetChargingCurve() {
+        // Given
+        VehicleProfile vehicle = createTestVehicle("Tesla", "Model 3");
+        vehicle.setChargingCurve(Map.of(
+                0, 150,
+                20, 150,
+                50, 120,
+                80, 50,
+                100, 10
+        ));
+
+        when(repository.findVehicleById(vehicle.getId())).thenReturn(Optional.of(vehicle));
+
+        // When
+        Map<Integer, Integer> curve = vehicleService.getChargingCurve(vehicle.getId());
+
+        // Then
+        assertThat(curve).isNotNull();
+        assertThat(curve).hasSize(5);
+        assertThat(curve.get(0)).isEqualTo(150);
+        assertThat(curve.get(80)).isEqualTo(50);
+    }
+
+    // Helper method
+
+    private VehicleProfile createTestVehicle(String manufacturer, String model) {
+        VehicleProfile vehicle = new VehicleProfile();
+        vehicle.setId(java.util.UUID.randomUUID().toString());
+        vehicle.setManufacturer(manufacturer);
+        vehicle.setModel(model);
+        vehicle.setBatteryCapacity(75.0);
+        vehicle.setMaxAcPower(11.0);
+        vehicle.setMaxDcPower(150.0);
+        vehicle.setConnectorType("CCS");
+        vehicle.setEfficiency(0.90);
+        vehicle.setChargingCurve(Map.of(
+                0, 150,
+                50, 120,
+                80, 50,
+                100, 10
+        ));
+        return vehicle;
+    }
+}

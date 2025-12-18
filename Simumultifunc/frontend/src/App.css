@@ -1,0 +1,307 @@
+/* ===== App.css - Styles EVSE Simulator avec Tailwind @apply ===== */
+
+/* ===== Variables CSS (pour compatibilité) ===== */
+:root {
+    --sky: #eaf6ff;
+    --card: #ffffff;
+    --text: #0f172a;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --primary: #2563eb;
+    --primary-600: #1d4ed8;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+}
+
+/* ===== Base ===== */
+html, body, #root {
+    @apply h-full;
+}
+
+body {
+    @apply m-0 bg-sky-light text-slate-900 font-sans;
+}
+
+/* ===== Layout principal ===== */
+.root {
+    @apply min-h-full flex flex-col;
+}
+
+.topbar {
+    @apply h-12 flex items-center bg-nav text-white px-3;
+}
+
+.topbar .toggle {
+    @apply bg-transparent text-white border-0 text-lg cursor-pointer;
+}
+
+.topbar .title {
+    @apply ml-3 font-semibold;
+}
+
+.topbar .right {
+    @apply ml-auto opacity-80 text-xs;
+}
+
+.layout {
+    @apply flex min-h-screen-nav;
+}
+
+.sidebar {
+    @apply w-44 bg-nav-dark text-white p-2 border-r border-nav;
+}
+
+.sidebar.hide {
+    @apply -translate-x-full;
+}
+
+.sidebar.show {
+    @apply translate-x-0 transition-transform duration-200;
+}
+
+.tabbtn {
+    @apply w-full text-left px-2.5 py-2 border-0 rounded-lg bg-transparent text-gray-200 cursor-pointer mb-1.5;
+}
+
+.tabbtn:hover {
+    @apply bg-nav-hover;
+}
+
+.tabbtn.active {
+    @apply bg-nav-active text-white;
+}
+
+.content {
+    @apply flex-1 p-4;
+}
+
+/* ===== Cartes & Surfaces ===== */
+.card {
+    @apply bg-white border border-gray-200 rounded-xl shadow-card;
+}
+
+.surface {
+    @apply bg-surface border border-gray-200 rounded-lg;
+}
+
+/* ===== Espacements utilitaires ===== */
+.p16 { @apply p-4; }
+.p12 { @apply p-3; }
+.mb16 { @apply mb-4; }
+.mt8 { @apply mt-2; }
+.mt12 { @apply mt-3; }
+.ml8 { @apply ml-2; }
+.ml12 { @apply ml-3; }
+.mr8 { @apply mr-2; }
+
+/* ===== Formulaires ===== */
+label {
+    @apply block text-xs text-gray-500 mb-1;
+}
+
+input, select, textarea {
+    @apply w-full px-2.5 py-2 border border-gray-200 rounded-lg bg-white text-slate-900;
+}
+
+input:focus, select:focus, textarea:focus {
+    @apply outline-none ring-2 ring-primary/30 border-primary;
+}
+
+textarea {
+    @apply font-mono;
+}
+
+/* ===== Layouts utilitaires ===== */
+.row {
+    @apply flex items-center flex-wrap;
+}
+
+.grid2 { @apply grid grid-cols-2 gap-3; }
+.grid3 { @apply grid grid-cols-3 gap-3; }
+.grid4 { @apply grid grid-cols-4 gap-3; }
+.grid6 { @apply grid grid-cols-6 gap-3; }
+
+/* ===== Boutons ===== */
+.btn {
+    @apply bg-primary text-white border border-primary rounded-lg px-3 py-2 cursor-pointer font-semibold transition-colors;
+}
+
+.btn:hover {
+    @apply bg-primary-700;
+}
+
+.btn:disabled {
+    @apply opacity-50 cursor-not-allowed;
+}
+
+.btn.secondary {
+    @apply bg-gray-100 text-slate-900 border-gray-200;
+}
+
+.btn.secondary:hover {
+    @apply bg-gray-200;
+}
+
+.btn.danger {
+    @apply bg-red-500 border-red-500;
+}
+
+.btn.danger:hover {
+    @apply bg-red-600;
+}
+
+.btn.warning {
+    @apply bg-amber-500 border-amber-500;
+}
+
+.btn.warning:hover {
+    @apply bg-amber-600;
+}
+
+.btn.success {
+    @apply bg-green-500 border-green-500;
+}
+
+.btn.success:hover {
+    @apply bg-green-600;
+}
+
+/* Classes utilisées dans les composants */
+.btn-success {
+    @apply bg-green-500 text-white border border-green-500 rounded-lg px-3 py-2 cursor-pointer font-semibold transition-colors;
+}
+
+.btn-success:hover {
+    @apply bg-green-600;
+}
+
+.btn-danger {
+    @apply bg-red-500 text-white border border-red-500 rounded-lg px-3 py-2 cursor-pointer font-semibold transition-colors;
+}
+
+.btn-danger:hover {
+    @apply bg-red-600;
+}
+
+/* ===== Texte ===== */
+.muted {
+    @apply text-gray-500;
+}
+
+.text-success {
+    @apply text-green-500;
+}
+
+.text-danger {
+    @apply text-red-500;
+}
+
+.text-warning {
+    @apply text-amber-500;
+}
+
+/* ===== Tables ===== */
+table {
+    @apply w-full border-collapse;
+}
+
+th, td {
+    @apply border-b border-gray-200 px-2.5 py-2;
+}
+
+th {
+    @apply bg-gray-100 text-left font-semibold;
+}
+
+/* ===== Inputs spéciaux ===== */
+.input-field {
+    @apply w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white;
+}
+
+.input-field:focus {
+    @apply outline-none ring-2 ring-blue-500/50 border-blue-500;
+}
+
+/* ===== Status badges ===== */
+.status-available { @apply bg-evse-available text-white; }
+.status-preparing { @apply bg-evse-preparing text-slate-900; }
+.status-charging { @apply bg-evse-charging text-white; }
+.status-finishing { @apply bg-evse-finishing text-white; }
+.status-unavailable { @apply bg-evse-unavailable text-white; }
+.status-faulted { @apply bg-evse-faulted text-white; }
+
+/* ===== Animations ===== */
+@keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slide-up {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+    animation: fade-in 0.3s ease-out;
+}
+
+.animate-slide-up {
+    animation: slide-up 0.3s ease-out;
+}
+
+/* ===== Dark mode cards (pour les composants sombres) ===== */
+.dark-card {
+    @apply bg-gray-800 rounded-lg p-4 text-white;
+}
+
+.dark-surface {
+    @apply bg-gray-900 rounded-lg p-3;
+}
+
+/* ===== Scrollbar personnalisée ===== */
+::-webkit-scrollbar {
+    @apply w-2;
+}
+
+::-webkit-scrollbar-track {
+    @apply bg-gray-100 rounded;
+}
+
+::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400;
+}
+
+/* Dark mode scrollbar */
+.dark-card ::-webkit-scrollbar-track,
+.dark-surface ::-webkit-scrollbar-track {
+    @apply bg-gray-800;
+}
+
+.dark-card ::-webkit-scrollbar-thumb,
+.dark-surface ::-webkit-scrollbar-thumb {
+    @apply bg-gray-600;
+}
+
+/* ===== Tooltips ===== */
+.tooltip {
+    @apply absolute z-50 px-2 py-1 text-xs text-white bg-gray-900 rounded shadow-lg;
+}
+
+/* ===== Focus visible pour accessibilité ===== */
+:focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2;
+}
+
+/* ===== Print styles ===== */
+@media print {
+    .sidebar, .topbar {
+        @apply hidden;
+    }
+    .content {
+        @apply p-0;
+    }
+}

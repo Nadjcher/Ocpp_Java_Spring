@@ -1,0 +1,141 @@
+================================================================================
+PATCH POUR TNRService.java - Ajout des méthodes TNR+
+================================================================================
+
+1. REMPLACER LES IMPORTS (lignes 1-16) par :
+--------------------------------------------------------------------------------
+package com.evse.simulator.service;
+
+import com.evse.simulator.model.Session;
+import com.evse.simulator.model.TNREvent;
+import com.evse.simulator.model.TNRScenario;
+import com.evse.simulator.model.TNRScenario.*;
+import com.evse.simulator.repository.JsonFileRepository;
+import lombok.Data;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
+
+--------------------------------------------------------------------------------
+
+2. AJOUTER après la ligne "private final Map<String, TNRResult> runningTests = new ConcurrentHashMap<>();" :
+--------------------------------------------------------------------------------
+
+    // Stockage des exécutions et événements pour TNR+
+    private final Map<String, ExecutionDetail> executions = new ConcurrentHashMap<>();
+    private final List<TNREvent> currentRecordingEvents = new CopyOnWriteArrayList<>();
+    private volatile String currentRecordingId = null;
+
+    // =========================================================================
+    // TNR+ Support Classes
+    // =========================================================================
+
+    /**
+     * Métadonnées d'une exécution TNR.
+     */
+    @Data
+    public static class ExecutionMeta {
+        private String id;
+        private String scenarioName;
+        private LocalDateTime executedAt;
+        private int eventCount;
+        private String signature;
+    }
+
+    /**
+     * Détail complet d'une exécution TNR.
+     */
+    @Data
+    public static class ExecutionDetail {
+        public String id;
+        public String scenarioName;
+        public LocalDateTime executedAt;
+        public List<TNREvent> events;
+        public String signature;
+    }
+
+    // =========================================================================
+    // TNR+ Methods
+    // =========================================================================
+
+    /**
+     * Liste toutes les exécutions TNR disponibles.
+     */
+    public List<ExecutionMeta> listExecutions() {
+        List<ExecutionMeta> metas = new ArrayList<>();
+        for (ExecutionDetail detail : executions.values()) {
+            ExecutionMeta meta = new ExecutionMeta();
+            meta.setId(detail.id);
+            meta.setScenarioName(detail.scenarioName);
+            meta.setExecutedAt(detail.executedAt);
+            meta.setEventCount(detail.events != null ? detail.events.size() : 0);
+            meta.setSignature(detail.signature);
+            metas.add(meta);
+        }
+        return metas;
+    }
+
+    /**
+     * Récupère le détail d'une exécution.
+     */
+    public ExecutionDetail getExecution(String executionId) throws Exception {
+        ExecutionDetail detail = executions.get(executionId);
+        if (detail == null) {
+            throw new IllegalArgumentException("Execution not found: " + executionId);
+        }
+        return detail;
+    }
+
+    /**
+     * Enregistre un événement TNR.
+     */
+    public void recordEvent(TNREvent event) {
+        if (currentRecordingId != null) {
+            currentRecordingEvents.add(event);
+            log.debug("TNR event recorded: {} - {}", event.getType(), event.getAction());
+        }
+    }
+
+    /**
+     * Démarre l'enregistrement d'une exécution.
+     */
+    public void startRecording(String executionId, String scenarioName) {
+        currentRecordingId = executionId;
+        currentRecordingEvents.clear();
+        log.info("TNR recording started: {}", executionId);
+    }
+
+    /**
+     * Arrête l'enregistrement et sauvegarde l'exécution.
+     */
+    public void stopRecording() {
+        if (currentRecordingId != null) {
+            ExecutionDetail detail = new ExecutionDetail();
+            detail.id = currentRecordingId;
+            detail.executedAt = LocalDateTime.now();
+            detail.events = new ArrayList<>(currentRecordingEvents);
+            detail.signature = computeSignature(detail.events);
+            executions.put(currentRecordingId, detail);
+            log.info("TNR recording stopped: {} with {} events", currentRecordingId, detail.events.size());
+            currentRecordingId = null;
+            currentRecordingEvents.clear();
+        }
+    }
+
+    private String computeSignature(List<TNREvent> events) {
+        StringBuilder sb = new StringBuilder();
+        for (TNREvent ev : events) {
+            sb.append(ev.getType()).append(":").append(ev.getAction()).append(";");
+        }
+        return Integer.toHexString(sb.toString().hashCode());
+    }
+
+--------------------------------------------------------------------------------

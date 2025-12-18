@@ -34,6 +34,11 @@ export default defineConfig({
                 changeOrigin: true,
                 ws: true
             },
+            "/ws-ml": {
+                target: "ws://localhost:8887",
+                changeOrigin: true,
+                ws: true
+            },
         },
     },
     resolve: {

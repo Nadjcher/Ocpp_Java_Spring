@@ -1,0 +1,277 @@
+package com.evse.simulator.service;
+
+import com.evse.simulator.model.ChargingProfile;
+import com.evse.simulator.model.ChargingProfile.*;
+import com.evse.simulator.model.Session;
+import com.evse.simulator.model.enums.SessionState;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.*;
+
+/**
+ * Tests unitaires pour SmartChargingService.
+ */
+@ExtendWith(MockitoExtension.class)
+class SmartChargingServiceTest {
+
+    @Mock
+    private SessionService sessionService;
+
+    @Mock
+    private OCPPService ocppService;
+
+    @Mock
+    private WebSocketBroadcaster broadcaster;
+
+    private SmartChargingService smartChargingService;
+
+    @BeforeEach
+    void setUp() {
+        smartChargingService = new SmartChargingService(sessionService, ocppService, broadcaster);
+    }
+
+    @Test
+    @DisplayName("Doit créer un profil de charge TxProfile")
+    void shouldCreateTxProfile() {
+        // Given
+        String sessionId = "session-123";
+        Session session = createTestSession(sessionId);
+        session.setState(SessionState.CHARGING);
+        session.setTransactionId("tx-001");
+
+        ChargingProfile profile = createTestProfile(ChargingProfilePurpose.TxProfile);
+
+        when(sessionService.getSession(sessionId)).thenReturn(session);
+
+        // When
+        ChargingProfile created = smartChargingService.setChargingProfile(sessionId, profile);
+
+        // Then
+        assertThat(created).isNotNull();
+        assertThat(created.getChargingProfilePurpose()).isEqualTo(ChargingProfilePurpose.TxProfile);
+        verify(broadcaster).broadcastToSession(eq(sessionId), eq("chargingProfile"), any());
+    }
+
+    @Test
+    @DisplayName("Doit créer un profil ChargePointMaxProfile")
+    void shouldCreateChargePointMaxProfile() {
+        // Given
+        String sessionId = "session-123";
+        Session session = createTestSession(sessionId);
+
+        ChargingProfile profile = createTestProfile(ChargingProfilePurpose.ChargePointMaxProfile);
+
+        when(sessionService.getSession(sessionId)).thenReturn(session);
+
+        // When
+        ChargingProfile created = smartChargingService.setChargingProfile(sessionId, profile);
+
+        // Then
+        assertThat(created).isNotNull();
+        assertThat(created.getChargingProfilePurpose()).isEqualTo(ChargingProfilePurpose.ChargePointMaxProfile);
+    }
+
+    @Test
+    @DisplayName("Doit récupérer les profils actifs d'une session")
+    void shouldGetActiveProfiles() {
+        // Given
+        String sessionId = "session-123";
+        Session session = createTestSession(sessionId);
+
+        ChargingProfile profile1 = createTestProfile(ChargingProfilePurpose.TxProfile);
+        ChargingProfile profile2 = createTestProfile(ChargingProfilePurpose.TxDefaultProfile);
+
+        when(sessionService.getSession(sessionId)).thenReturn(session);
+        smartChargingService.setChargingProfile(sessionId, profile1);
+        smartChargingService.setChargingProfile(sessionId, profile2);
+
+        // When
+        List<ChargingProfile> profiles = smartChargingService.getActiveProfiles(sessionId);
+
+        // Then
+        assertThat(profiles).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("Doit supprimer un profil de charge par ID")
+    void shouldClearChargingProfileById() {
+        // Given
+        String sessionId = "session-123";
+        Session session = createTestSession(sessionId);
+
+        ChargingProfile profile = createTestProfile(ChargingProfilePurpose.TxProfile);
+        profile.setChargingProfileId(42);
+
+        when(sessionService.getSession(sessionId)).thenReturn(session);
+        smartChargingService.setChargingProfile(sessionId, profile);
+
+        // When
+        boolean cleared = smartChargingService.clearChargingProfile(sessionId, 42, null, null, null);
+
+        // Then
+        assertThat(cleared).isTrue();
+        assertThat(smartChargingService.getActiveProfiles(sessionId)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Doit supprimer les profils par purpose")
+    void shouldClearChargingProfilesByPurpose() {
+        // Given
+        String sessionId = "session-123";
+        Session session = createTestSession(sessionId);
+
+        ChargingProfile txProfile = createTestProfile(ChargingProfilePurpose.TxProfile);
+        txProfile.setChargingProfileId(1);
+
+        ChargingProfile maxProfile = createTestProfile(ChargingProfilePurpose.ChargePointMaxProfile);
+        maxProfile.setChargingProfileId(2);
+
+        when(sessionService.getSession(sessionId)).thenReturn(session);
+        smartChargingService.setChargingProfile(sessionId, txProfile);
+        smartChargingService.setChargingProfile(sessionId, maxProfile);
+
+        // When
+        boolean cleared = smartChargingService.clearChargingProfile(
+                sessionId, null, null, ChargingProfilePurpose.TxProfile, null);
+
+        // Then
+        assertThat(cleared).isTrue();
+        List<ChargingProfile> remaining = smartChargingService.getActiveProfiles(sessionId);
+        assertThat(remaining).hasSize(1);
+        assertThat(remaining.get(0).getChargingProfilePurpose())
+                .isEqualTo(ChargingProfilePurpose.ChargePointMaxProfile);
+    }
+
+    @Test
+    @DisplayName("Doit calculer le schedule composite")
+    void shouldGetCompositeSchedule() {
+        // Given
+        String sessionId = "session-123";
+        Session session = createTestSession(sessionId);
+
+        ChargingProfile profile = createTestProfile(ChargingProfilePurpose.TxProfile);
+        profile.getChargingSchedule().setChargingSchedulePeriod(List.of(
+                new ChargingSchedulePeriod(0, 32.0, 1),
+                new ChargingSchedulePeriod(3600, 16.0, 1),
+                new ChargingSchedulePeriod(7200, 8.0, 1)
+        ));
+
+        when(sessionService.getSession(sessionId)).thenReturn(session);
+        smartChargingService.setChargingProfile(sessionId, profile);
+
+        // When
+        Map<String, Object> composite = smartChargingService.getCompositeSchedule(sessionId, 1, 7200);
+
+        // Then
+        assertThat(composite).containsKey("status");
+        assertThat(composite.get("status")).isEqualTo("Accepted");
+        assertThat(composite).containsKey("chargingSchedule");
+    }
+
+    @Test
+    @DisplayName("Doit retourner Rejected si aucun profil actif")
+    void shouldReturnRejectedWhenNoActiveProfile() {
+        // Given
+        String sessionId = "session-123";
+        Session session = createTestSession(sessionId);
+
+        when(sessionService.getSession(sessionId)).thenReturn(session);
+
+        // When
+        Map<String, Object> composite = smartChargingService.getCompositeSchedule(sessionId, 1, 3600);
+
+        // Then
+        assertThat(composite.get("status")).isEqualTo("Rejected");
+    }
+
+    @Test
+    @DisplayName("Doit appliquer le stacking des profils par priorité")
+    void shouldApplyProfileStackingByPriority() {
+        // Given
+        String sessionId = "session-123";
+        Session session = createTestSession(sessionId);
+
+        // Profil basse priorité avec limit haute
+        ChargingProfile lowPriority = createTestProfile(ChargingProfilePurpose.TxDefaultProfile);
+        lowPriority.setChargingProfileId(1);
+        lowPriority.setStackLevel(0);
+        lowPriority.getChargingSchedule().getChargingSchedulePeriod().get(0).setLimit(32.0);
+
+        // Profil haute priorité avec limit basse
+        ChargingProfile highPriority = createTestProfile(ChargingProfilePurpose.TxProfile);
+        highPriority.setChargingProfileId(2);
+        highPriority.setStackLevel(1);
+        highPriority.getChargingSchedule().getChargingSchedulePeriod().get(0).setLimit(16.0);
+
+        when(sessionService.getSession(sessionId)).thenReturn(session);
+        smartChargingService.setChargingProfile(sessionId, lowPriority);
+        smartChargingService.setChargingProfile(sessionId, highPriority);
+
+        // When
+        double effectiveLimit = smartChargingService.getEffectiveChargingLimit(sessionId, 1);
+
+        // Then
+        // Le profil haute priorité devrait s'appliquer
+        assertThat(effectiveLimit).isEqualTo(16.0);
+    }
+
+    @Test
+    @DisplayName("Doit valider les périodes du schedule")
+    void shouldValidateSchedulePeriods() {
+        // Given
+        ChargingProfile profile = new ChargingProfile();
+        ChargingSchedule schedule = new ChargingSchedule();
+        schedule.setChargingRateUnit(ChargingRateUnit.A);
+        schedule.setChargingSchedulePeriod(List.of(
+                new ChargingSchedulePeriod(0, 32.0, 1),
+                new ChargingSchedulePeriod(3600, -5.0, 1) // Limite négative invalide
+        ));
+        profile.setChargingSchedule(schedule);
+
+        // When/Then
+        assertThatThrownBy(() -> smartChargingService.validateProfile(profile))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("limit");
+    }
+
+    // Helper methods
+
+    private Session createTestSession(String id) {
+        Session session = new Session();
+        session.setId(id);
+        session.setChargePointId("CP-" + id);
+        session.setState(SessionState.AVAILABLE);
+        return session;
+    }
+
+    private ChargingProfile createTestProfile(ChargingProfilePurpose purpose) {
+        ChargingProfile profile = new ChargingProfile();
+        profile.setChargingProfileId((int) (Math.random() * 1000));
+        profile.setStackLevel(0);
+        profile.setChargingProfilePurpose(purpose);
+        profile.setChargingProfileKind(ChargingProfileKind.Absolute);
+
+        ChargingSchedule schedule = new ChargingSchedule();
+        schedule.setChargingRateUnit(ChargingRateUnit.A);
+        schedule.setStartSchedule(LocalDateTime.now());
+        schedule.setDuration(3600);
+        schedule.setChargingSchedulePeriod(List.of(
+                new ChargingSchedulePeriod(0, 32.0, 1)
+        ));
+
+        profile.setChargingSchedule(schedule);
+        return profile;
+    }
+}

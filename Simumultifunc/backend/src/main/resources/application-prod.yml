@@ -1,0 +1,85 @@
+# =============================================================================
+# EVSE Simulator - Production Profile
+# =============================================================================
+
+server:
+  port: ${PORT:8887}
+  tomcat:
+    max-connections: 50000
+    accept-count: 2000
+    threads:
+      max: 800
+      min-spare: 100
+    connection-timeout: 10000
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain
+    min-response-size: 1024
+
+spring:
+  devtools:
+    restart:
+      enabled: false
+    livereload:
+      enabled: false
+
+# CORS restrictif pour la production
+cors:
+  allowed-origins:
+    - ${CORS_ORIGINS:http://localhost:3000}
+  allowed-methods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+  allowed-headers:
+    - Authorization
+    - Content-Type
+    - X-Requested-With
+  allow-credentials: true
+  max-age: 7200
+
+# Performance maximale
+performance:
+  max-sessions: 25000
+  websocket-pool-size: 200
+  metrics-interval: 5000
+  batch-size: 500
+  async:
+    core-pool-size: 100
+    max-pool-size: 500
+    queue-capacity: 25000
+
+# Logging minimal
+logging:
+  level:
+    root: WARN
+    com.evse.simulator: INFO
+    org.springframework.web.socket: WARN
+    org.springframework.messaging: WARN
+  file:
+    name: /var/log/evse-simulator/app.log
+    max-size: 50MB
+    max-history: 60
+
+# Données production
+data:
+  path: ${DATA_PATH:/data/evse-simulator}
+  auto-save-interval: 60000
+
+# Swagger désactivé en prod
+springdoc:
+  swagger-ui:
+    enabled: false
+  api-docs:
+    enabled: false
+
+# Actuator sécurisé
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  endpoint:
+    health:
+      show-details: never

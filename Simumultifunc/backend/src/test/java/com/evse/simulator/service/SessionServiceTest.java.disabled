@@ -1,0 +1,228 @@
+package com.evse.simulator.service;
+
+import com.evse.simulator.exception.SessionNotFoundException;
+import com.evse.simulator.model.Session;
+import com.evse.simulator.model.enums.ChargerType;
+import com.evse.simulator.model.enums.SessionState;
+import com.evse.simulator.repository.JsonFileRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+/**
+ * Tests unitaires pour SessionService.
+ */
+@ExtendWith(MockitoExtension.class)
+class SessionServiceTest {
+
+    @Mock
+    private JsonFileRepository repository;
+
+    @Mock
+    private WebSocketBroadcaster broadcaster;
+
+    private SessionService sessionService;
+
+    @BeforeEach
+    void setUp() {
+        sessionService = new SessionService(repository, broadcaster);
+    }
+
+    @Test
+    @DisplayName("Doit créer une session avec les valeurs par défaut")
+    void shouldCreateSessionWithDefaults() {
+        // Given
+        Session template = new Session();
+        template.setCpId("CP001");
+        template.setUrl("ws://localhost:9000/ocpp");
+        template.setChargerType(ChargerType.AC_TRI);
+
+        when(repository.saveSession(any(Session.class))).thenAnswer(i -> i.getArgument(0));
+
+        // When
+        Session created = sessionService.createSession(template);
+
+        // Then
+        assertThat(created).isNotNull();
+        assertThat(created.getId()).isNotNull();
+        assertThat(created.getCpId()).isEqualTo("CP001");
+        assertThat(created.getState()).isEqualTo(SessionState.IDLE);
+        assertThat(created.getSoc()).isEqualTo(20);
+        assertThat(created.getTargetSoc()).isEqualTo(80);
+
+        verify(repository).saveSession(any(Session.class));
+        verify(broadcaster).broadcastSession(any(Session.class));
+    }
+
+    @Test
+    @DisplayName("Doit récupérer une session existante")
+    void shouldGetExistingSession() {
+        // Given
+        String sessionId = "session-123";
+        Session session = new Session();
+        session.setId(sessionId);
+        session.setCpId("CP001");
+
+        when(repository.findSessionById(sessionId)).thenReturn(Optional.of(session));
+
+        // When
+        Session found = sessionService.getSession(sessionId);
+
+        // Then
+        assertThat(found).isNotNull();
+        assertThat(found.getId()).isEqualTo(sessionId);
+        assertThat(found.getCpId()).isEqualTo("CP001");
+    }
+
+    @Test
+    @DisplayName("Doit lever une exception si la session n'existe pas")
+    void shouldThrowExceptionWhenSessionNotFound() {
+        // Given
+        String sessionId = "unknown-session";
+        when(repository.findSessionById(sessionId)).thenReturn(Optional.empty());
+
+        // When/Then
+        assertThatThrownBy(() -> sessionService.getSession(sessionId))
+                .isInstanceOf(SessionNotFoundException.class)
+                .hasMessageContaining(sessionId);
+    }
+
+    @Test
+    @DisplayName("Doit mettre à jour l'état de la session")
+    void shouldUpdateSessionState() {
+        // Given
+        String sessionId = "session-123";
+        Session session = new Session();
+        session.setId(sessionId);
+        session.setState(SessionState.IDLE);
+
+        when(repository.findSessionById(sessionId)).thenReturn(Optional.of(session));
+        when(repository.saveSession(any(Session.class))).thenAnswer(i -> i.getArgument(0));
+
+        // When
+        Session updated = sessionService.updateState(sessionId, SessionState.CONNECTED);
+
+        // Then
+        assertThat(updated.getState()).isEqualTo(SessionState.CONNECTED);
+        verify(broadcaster).broadcastSession(session);
+    }
+
+    @Test
+    @DisplayName("Doit retourner les sessions connectées")
+    void shouldReturnConnectedSessions() {
+        // Given
+        Session connected1 = new Session();
+        connected1.setId("s1");
+        connected1.setConnected(true);
+
+        Session connected2 = new Session();
+        connected2.setId("s2");
+        connected2.setConnected(true);
+
+        Session disconnected = new Session();
+        disconnected.setId("s3");
+        disconnected.setConnected(false);
+
+        when(repository.findAllSessions()).thenReturn(List.of(connected1, connected2, disconnected));
+
+        // When
+        List<Session> connectedSessions = sessionService.getConnectedSessions();
+
+        // Then
+        assertThat(connectedSessions).hasSize(2);
+        assertThat(connectedSessions).extracting(Session::getId)
+                .containsExactlyInAnyOrder("s1", "s2");
+    }
+
+    @Test
+    @DisplayName("Doit mettre à jour les données de charge")
+    void shouldUpdateChargingData() {
+        // Given
+        String sessionId = "session-123";
+        Session session = new Session();
+        session.setId(sessionId);
+        session.setSoc(20);
+        session.setCurrentPowerKw(0);
+        session.setEnergyDeliveredKwh(0);
+
+        when(repository.findSessionById(sessionId)).thenReturn(Optional.of(session));
+        when(repository.saveSession(any(Session.class))).thenAnswer(i -> i.getArgument(0));
+
+        // When
+        sessionService.updateChargingData(sessionId, 50, 22.5, 15.75);
+
+        // Then
+        assertThat(session.getSoc()).isEqualTo(50);
+        assertThat(session.getCurrentPowerKw()).isEqualTo(22.5);
+        assertThat(session.getEnergyDeliveredKwh()).isEqualTo(15.75);
+        verify(broadcaster).broadcastSession(session);
+    }
+
+    @Test
+    @DisplayName("Doit créer des sessions en lot")
+    void shouldCreateBatchSessions() {
+        // Given
+        Session template = new Session();
+        template.setCpId("CP");
+        template.setUrl("ws://localhost:9000/ocpp");
+        template.setChargerType(ChargerType.DC_50);
+
+        when(repository.saveSession(any(Session.class))).thenAnswer(i -> i.getArgument(0));
+
+        // When
+        List<Session> sessions = sessionService.createBatchSessions(5, template);
+
+        // Then
+        assertThat(sessions).hasSize(5);
+        assertThat(sessions).allMatch(s -> s.getChargerType() == ChargerType.DC_50);
+        assertThat(sessions).extracting(Session::getCpId)
+                .containsExactly("CP-1", "CP-2", "CP-3", "CP-4", "CP-5");
+
+        verify(repository, times(5)).saveSession(any(Session.class));
+    }
+
+    @Test
+    @DisplayName("Doit supprimer une session")
+    void shouldDeleteSession() {
+        // Given
+        String sessionId = "session-123";
+        Session session = new Session();
+        session.setId(sessionId);
+
+        when(repository.findSessionById(sessionId)).thenReturn(Optional.of(session));
+        doNothing().when(repository).deleteSession(sessionId);
+
+        // When
+        sessionService.deleteSession(sessionId);
+
+        // Then
+        verify(repository).deleteSession(sessionId);
+    }
+
+    @Test
+    @DisplayName("Doit vérifier si une session peut démarrer la charge")
+    void shouldCheckIfCanStartCharging() {
+        // Given
+        Session availableSession = new Session();
+        availableSession.setState(SessionState.AVAILABLE);
+        availableSession.setConnected(true);
+
+        Session chargingSession = new Session();
+        chargingSession.setState(SessionState.CHARGING);
+        chargingSession.setConnected(true);
+
+        // Then
+        assertThat(availableSession.canStartCharging()).isTrue();
+        assertThat(chargingSession.canStartCharging()).isFalse();
+    }
+}

@@ -28,14 +28,82 @@ export interface PerfStatus {
     messagesProcessed: number;
     errors: number;
     startTime?: string;
+    stats?: PerfStats;
 }
 
 /** Configuration de test de performance */
 export interface PerfConfig {
     sessions: number;
-    duration: number;
+    duration?: number;
     rampUp?: number;
     targetMPS?: number;
+    url?: string;
+    concurrent?: number;
+    rampMs?: number;
+    holdSec?: number;
+    mvEverySec?: number;
+    useCsv?: boolean;
+}
+
+/** Configuration haute performance (25K+ connexions) */
+export interface HighPerfConfig {
+    scenario: 'CONNECTION' | 'CHARGING' | 'STRESS' | 'ENDURANCE';
+    targetConnections: number;
+    rampUpSeconds: number;
+    holdSeconds: number;
+    ocppUrl: string;
+    meterValuesCount?: number;
+    meterValueIntervalMs?: number;
+    durationMinutes?: number;
+    autoReconnect?: boolean;
+    cpIdPrefix?: string;
+    idTag?: string;
+}
+
+/** Métriques haute performance */
+export interface HighPerfMetrics {
+    timestamp: string;
+    activeConnections: number;
+    successfulConnections: number;
+    failedConnections: number;
+    totalMessagesSent: number;
+    totalMessagesReceived: number;
+    totalErrors: number;
+    connectionLatencyAvgMs: number;
+    connectionLatencyP50Ms: number;
+    connectionLatencyP95Ms: number;
+    connectionLatencyP99Ms: number;
+    connectionLatencyMaxMs: number;
+    messageLatencyAvgMs: number;
+    messageLatencyP50Ms: number;
+    messageLatencyP95Ms: number;
+    messageLatencyP99Ms: number;
+    throughputMsgPerSec: number;
+    connectionsPerSec: number;
+    memoryUsedMb: number;
+    memoryMaxMb: number;
+    threadCount: number;
+    progressPercent: number;
+    targetConnections: number;
+}
+
+/** Résultat haute performance */
+export interface HighPerfResult {
+    testId: string;
+    config: HighPerfConfig;
+    status: 'IDLE' | 'INITIALIZING' | 'RUNNING' | 'COMPLETED' | 'STOPPED' | 'FAILED';
+    startTime?: string;
+    endTime?: string;
+    duration?: string;
+    successfulConnections: number;
+    failedConnections: number;
+    totalMessagesSent: number;
+    totalMessagesReceived: number;
+    totalErrors: number;
+    completedTransactions?: number;
+    maxConnectionsReached?: number;
+    finalMetrics?: HighPerfMetrics;
+    error?: string;
 }
 
 /** Statistiques de performance */
@@ -223,6 +291,89 @@ export const perf = {
 };
 
 // =============================================================================
+// HIGH PERF (Spring Boot - 25K+ connexions)
+// =============================================================================
+
+export const highPerf = {
+    /** Démarre un test haute performance */
+    start: (cfg: HighPerfConfig) => post<HighPerfResult>("/api/highperf/start", cfg),
+
+    /** Arrête le test en cours */
+    stop: () => post<HighPerfResult>("/api/highperf/stop"),
+
+    /** Récupère le statut actuel */
+    status: () => get<{ status: string; testId?: string; metrics?: HighPerfMetrics }>("/api/highperf/status"),
+
+    /** Récupère les métriques actuelles */
+    metrics: () => get<HighPerfMetrics>("/api/highperf/metrics"),
+
+    /** Récupère le résultat du test */
+    result: () => get<HighPerfResult>("/api/highperf/result"),
+
+    /** Health check */
+    health: () => get<{ status: string; engine: string; memory: { used: string; max: string }; threads: number }>("/api/highperf/health"),
+
+    /** API Legacy pour compatibilité */
+    legacyStart: (params: { targetConnections: number; rampUpSeconds: number; holdSeconds: number; ocppUrl: string }) => {
+        const query = new URLSearchParams({
+            targetConnections: String(params.targetConnections),
+            rampUpSeconds: String(params.rampUpSeconds),
+            holdSeconds: String(params.holdSeconds),
+            ocppUrl: params.ocppUrl
+        }).toString();
+        return post<{ success: boolean; testId?: string; error?: string }>(`/api/highperf/legacy/start?${query}`);
+    },
+    legacyStatus: () => get<{
+        running: boolean;
+        status: string;
+        activeConnections?: number;
+        successfulConnections?: number;
+        failedConnections?: number;
+        throughput?: number;
+        latencyP95?: number;
+        progress?: number;
+    }>("/api/highperf/legacy/status"),
+
+    /** Stream SSE des métriques temps réel */
+    streamMetrics: (onMetrics: (m: HighPerfMetrics) => void, onComplete?: (r: HighPerfResult) => void, onError?: (e: Error) => void) => {
+        const url = `${API_BASE}/api/highperf/stream`;
+        const eventSource = new EventSource(url);
+
+        eventSource.addEventListener('metrics', (event) => {
+            try {
+                const metrics = JSON.parse(event.data) as HighPerfMetrics;
+                onMetrics(metrics);
+            } catch (e) {
+                console.error('Error parsing metrics:', e);
+            }
+        });
+
+        eventSource.addEventListener('completed', (event) => {
+            try {
+                const result = JSON.parse(event.data) as HighPerfResult;
+                onComplete?.(result);
+            } catch (e) {
+                console.error('Error parsing result:', e);
+            }
+        });
+
+        eventSource.addEventListener('status', (event) => {
+            console.log('Status event:', event.data);
+        });
+
+        eventSource.onerror = (error) => {
+            console.error('SSE error:', error);
+            onError?.(new Error('SSE connection error'));
+        };
+
+        // Retourne une fonction pour fermer la connexion
+        return () => {
+            eventSource.close();
+        };
+    }
+};
+
+// =============================================================================
 // TNR (Test Non-Régression)
 // =============================================================================
 
@@ -349,6 +500,29 @@ export const api = {
     // TNR shortcuts
     tnr: () => get<TNRScenario[]>("/api/tnr"),
     record: () => post<{ ok: boolean; id: string }>("/api/tnr/record"),
+
+    // TNR extended methods
+    getTNRScenarios: () => get<TNRScenario[]>("/api/tnr"),
+    startTNRRecording: (params: { name?: string; sessionId?: string }) =>
+        post<{ ok: boolean; recordingId: string }>("/api/tnr/recorder/start", params),
+    stopTNRRecording: (params?: { name?: string; description?: string }) =>
+        post<TNRScenario>("/api/tnr/recorder/stop", params || {}),
+    cancelTNRRecording: () => post<ApiResponse>("/api/tnr/recorder/cancel"),
+    replayTNRScenario: (scenarioId: string) => post<ApiResponse>(`/api/tnr/replay/${scenarioId}`),
+    deleteTNRScenario: (scenarioId: string) => del<ApiResponse>(`/api/tnr/${scenarioId}`),
+
+    // OCPP actions
+    sendOCPPMessage: (sessionId: string, action: string, payload: Record<string, unknown> = {}) =>
+        post<ApiResponse>(`/api/simu/${encodeURIComponent(sessionId)}/ocpp`, { action, payload }),
+    connectOCPP: (sessionId: string) => post<ApiResponse>(`/api/sessions/${sessionId}/connect`),
+    disconnectOCPP: (sessionId: string) => post<ApiResponse>(`/api/sessions/${sessionId}/disconnect`),
+    startTransaction: (sessionId: string, idTag?: string) =>
+        post<{ transactionId: number }>(`/api/simu/${encodeURIComponent(sessionId)}/startTx`, idTag ? { idTag } : {}),
+    stopTransaction: (sessionId: string) =>
+        post<ApiResponse>(`/api/simu/${encodeURIComponent(sessionId)}/stopTx`, {}),
+
+    // Performance
+    importPerfCSV: (csvText: string) => post<ApiResponse>("/api/perf/import", { csv: csvText }),
 };
 
 // Export default pour compatibilité

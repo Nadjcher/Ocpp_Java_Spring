@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { SmartChargingPanel } from "@/components/SmartChargingPanel";
 import { OCPPChargingProfilesManager } from "@/services/OCPPChargingProfilesManager";
 import PhasingSection from '@/components/PhasingSection';
+import { config, fetchOcppUrls } from '@/config/env';
 
 // Types extraits dans un fichier dédié
 import type {
@@ -49,11 +50,174 @@ import {
 import { useToasts, useTNRWithAPI } from '@/hooks/useEvseHooks';
 
 // Composants extraits dans un fichier dédié
-import { TNRBandeau, ChargeDisplay } from '@/components/simu-evse';
+import { TNRBandeau, ChargeDisplay, ChargingCable } from '@/components/simu-evse';
 
 // Multi-sessions components et hooks
 import { SessionTabBar } from '@/components/evse/SessionTabBar';
 import type { SessionState, SessionConfig } from '@/types/multiSession.types';
+
+// ==========================================================================
+// CACHE D'ÉTAT PER-SESSION (isolation des sessions) AVEC PERSISTANCE
+// ==========================================================================
+const STORAGE_KEY_SESSIONS = 'evse-simu-sessions-cache';
+const STORAGE_KEY_SELECTED = 'evse-simu-selected-id';
+
+interface PerSessionLocalState {
+  logs: LogEntry[];
+  series: {
+    soc: Array<{ t: number; y: number }>;
+    pActive: Array<{ t: number; y: number }>;
+    expected: Array<{ t: number; y: number }>;
+  };
+  isParked: boolean;
+  isPlugged: boolean;
+  mvRunning: boolean;
+  socStart: number;
+  socTarget: number;
+  vehicleId: string;
+  chargeStartTime: number | null;
+  energyStartKWh: number | null;
+  energyNowKWh: number | null;
+  energyFromPowerKWh: number;
+  lastPowerMs: number | null;
+  socFilt: number | null;
+  pActiveFilt: number | null;
+  lastRealMvMs: number;
+  // === AJOUT: Config session-spécifique ===
+  cpId: string;
+  idTag: string;
+  evseType: "ac-mono" | "ac-bi" | "ac-tri" | "dc";
+  maxA: number;
+  mvEvery: number;
+  mvMask: MeterValuesMask;
+  environment: "test" | "pp";
+}
+
+// Initialiser le cache depuis localStorage avec migration des anciennes données
+function initSessionStateCache(): Map<string, PerSessionLocalState> {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY_SESSIONS);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      const cache = new Map<string, PerSessionLocalState>();
+
+      // Migrer chaque entrée en ajoutant les champs manquants
+      Object.entries(parsed).forEach(([id, state]: [string, any], index) => {
+        const migratedState: PerSessionLocalState = {
+          logs: state.logs || [],
+          series: state.series || { soc: [], pActive: [], expected: [] },
+          isParked: state.isParked ?? false,
+          isPlugged: state.isPlugged ?? false,
+          mvRunning: state.mvRunning ?? false,
+          socStart: state.socStart ?? 20,
+          socTarget: state.socTarget ?? 80,
+          vehicleId: state.vehicleId || '',
+          chargeStartTime: state.chargeStartTime ?? null,
+          energyStartKWh: state.energyStartKWh ?? null,
+          energyNowKWh: state.energyNowKWh ?? null,
+          energyFromPowerKWh: state.energyFromPowerKWh ?? 0,
+          lastPowerMs: state.lastPowerMs ?? null,
+          socFilt: state.socFilt ?? 20,
+          pActiveFilt: state.pActiveFilt ?? null,
+          lastRealMvMs: state.lastRealMvMs ?? 0,
+          // Migrer les nouveaux champs avec valeurs par défaut uniques
+          cpId: state.cpId || `CP-SESSION-${String(index + 1).padStart(3, '0')}`,
+          idTag: state.idTag || '',
+          evseType: state.evseType || 'ac-mono',
+          maxA: state.maxA ?? 32,
+          mvEvery: state.mvEvery ?? 10,
+          mvMask: state.mvMask || {
+            powerActive: true,
+            energy: true,
+            soc: true,
+            powerOffered: true,
+          },
+          environment: state.environment || 'test'
+        };
+        cache.set(id, migratedState);
+      });
+
+      console.log('[SessionCache] Loaded and migrated', cache.size, 'sessions from localStorage');
+      return cache;
+    }
+  } catch (e) {
+    console.warn('[SessionCache] Failed to restore from localStorage:', e);
+  }
+  return new Map();
+}
+
+const sessionStateCache = initSessionStateCache();
+
+// Sauvegarder le cache dans localStorage
+function persistSessionCache() {
+  try {
+    const obj = Object.fromEntries(sessionStateCache.entries());
+    localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(obj));
+  } catch (e) {
+    console.warn('[SessionCache] Failed to persist to localStorage:', e);
+  }
+}
+
+// Récupérer l'ID sélectionné depuis localStorage
+function getStoredSelectedId(): string | null {
+  try {
+    return localStorage.getItem(STORAGE_KEY_SELECTED);
+  } catch {
+    return null;
+  }
+}
+
+// Sauvegarder l'ID sélectionné dans localStorage
+function setStoredSelectedId(id: string | null) {
+  try {
+    if (id) {
+      localStorage.setItem(STORAGE_KEY_SELECTED, id);
+    } else {
+      localStorage.removeItem(STORAGE_KEY_SELECTED);
+    }
+  } catch (e) {
+    console.warn('[SessionCache] Failed to persist selected ID:', e);
+  }
+}
+
+function getDefaultSessionState(sessionIndex?: number): PerSessionLocalState {
+  // Générer un CP-ID unique basé sur l'index ou le timestamp
+  const uniqueSuffix = sessionIndex !== undefined
+    ? String(sessionIndex + 1).padStart(3, '0')
+    : Date.now().toString().slice(-6);
+
+  return {
+    logs: [],
+    series: { soc: [], pActive: [], expected: [] },
+    isParked: false,
+    isPlugged: false,
+    mvRunning: false,
+    socStart: 20,
+    socTarget: 80,
+    vehicleId: '',
+    chargeStartTime: null,
+    energyStartKWh: null,
+    energyNowKWh: null,
+    energyFromPowerKWh: 0,
+    lastPowerMs: null,
+    socFilt: 20,
+    pActiveFilt: null,
+    lastRealMvMs: 0,
+    // === Config session-spécifique avec valeurs uniques ===
+    cpId: `CP-SESSION-${uniqueSuffix}`,
+    idTag: '',
+    evseType: 'ac-mono',
+    maxA: 32,
+    mvEvery: 10,
+    mvMask: {
+      powerActive: true,
+      energy: true,
+      soc: true,
+      powerOffered: true,
+    },
+    environment: 'test'
+  };
+}
 
 // =========================================================================
 // Types locaux (alias pour compatibilité)
@@ -511,13 +675,17 @@ function Connector({
   );
 }
 
+type CableState = 'idle' | 'vehicle_parked' | 'plugged' | 'charging';
+
 function Cable({
                  containerRef,
                  startRef,
                  endRef,
                  show,
                  charging,
-                 sagFactor = 0.48,
+                 state,
+                 powerKW = 0,
+                 sagFactor = 0.35,
                  extraDropPx = 10,
                  onAnglesChange,
                }: {
@@ -526,6 +694,8 @@ function Cable({
   endRef: React.RefObject<HTMLDivElement>;
   show: boolean;
   charging: boolean;
+  state?: CableState;
+  powerKW?: number;
   sagFactor?: number;
   extraDropPx?: number;
   onAnglesChange?: (angles: { left: number; right: number }) => void;
@@ -534,6 +704,24 @@ function Cable({
   const pathRef = useRef<SVGPathElement>(null);
   const [len, setLen] = useState(0);
   const [dashOffset, setDashOffset] = useState(0);
+  const animationIdRef = useRef<number>(0);
+
+  // Couleur du flux selon la puissance
+  const getEnergyColor = () => {
+    if (powerKW > 100) return { start: '#00d4ff', mid: '#00ff88', end: '#00d4ff' }; // DC rapide
+    if (powerKW > 22) return { start: '#3b82f6', mid: '#60a5fa', end: '#3b82f6' }; // DC moyen
+    return { start: '#10b981', mid: '#34d399', end: '#10b981' }; // AC
+  };
+
+  // Vitesse d'animation selon la puissance
+  const getAnimationDuration = () => {
+    if (powerKW > 100) return '0.8s';
+    if (powerKW > 50) return '1s';
+    if (powerKW > 22) return '1.2s';
+    return '1.5s';
+  };
+
+  const effectiveState = state || (charging ? 'charging' : show ? 'plugged' : 'idle');
 
   useEffect(() => {
     if (!show) return;
@@ -555,9 +743,14 @@ function Cable({
 
       const dx = Math.abs(x2 - x1);
       const dist = Math.hypot(x2 - x1, y2 - y1);
-      const sag = clamp(dist * sagFactor, 60, 220);
-      const cx1 = x1 + dx * 0.28, cy1 = y1 + sag + extraDropPx;
-      const cx2 = x2 - dx * 0.28, cy2 = y2 + sag * 0.85 + extraDropPx;
+
+      // Sag réduit quand connecté pour un câble plus tendu
+      const effectiveSag = effectiveState === 'charging' || effectiveState === 'plugged'
+        ? clamp(dist * sagFactor * 0.7, 40, 150)
+        : clamp(dist * sagFactor, 60, 200);
+
+      const cx1 = x1 + dx * 0.3, cy1 = y1 + effectiveSag + extraDropPx;
+      const cx2 = x2 - dx * 0.3, cy2 = y2 + effectiveSag * 0.8 + extraDropPx;
 
       const leftAngle = (Math.atan2(cy1 - y1, cx1 - x1) * 180) / Math.PI;
       const rightAngle = (Math.atan2(y2 - cy2, x2 - cx2) * 180) / Math.PI;
@@ -566,7 +759,7 @@ function Cable({
       const d = `M ${x1},${y1} C ${cx1},${cy1} ${cx2},${cy2} ${x2},${y2}`;
       setDims({ w: r.width, h: r.height, d });
 
-      requestAnimationFrame(() => {
+      animationIdRef.current = requestAnimationFrame(() => {
         const p = pathRef.current;
         if (!p) return;
         const L = p.getTotalLength();
@@ -582,42 +775,89 @@ function Cable({
     return () => {
       clearInterval(int);
       window.removeEventListener("resize", update);
+      if (animationIdRef.current) cancelAnimationFrame(animationIdRef.current);
     };
-  }, [containerRef, startRef, endRef, show, sagFactor, extraDropPx, onAnglesChange]);
+  }, [containerRef, startRef, endRef, show, effectiveState, sagFactor, extraDropPx, onAnglesChange]);
 
   if (!show) return null;
+
+  const energyColors = getEnergyColor();
+  const animDuration = getAnimationDuration();
 
   return (
       <svg
           width="100%"
           height="100%"
           viewBox={`0 0 ${Math.max(1, dims.w)} ${Math.max(1, dims.h)}`}
-          style={{ position: "absolute", inset: 0, zIndex: 40 }}
+          style={{ position: "absolute", inset: 0, zIndex: 40, pointerEvents: 'none' }}
       >
         <defs>
+          {/* Ombre du câble */}
           <filter id="cable-shadow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur in="SourceAlpha" stdDeviation="3" />
-            <feOffset dx="0" dy="4" result="offsetblur" />
-            <feFlood floodColor="rgba(0,0,0,0.25)" />
+            <feGaussianBlur in="SourceAlpha" stdDeviation="4" />
+            <feOffset dx="0" dy="6" result="offsetblur" />
+            <feFlood floodColor="rgba(0,0,0,0.35)" />
             <feComposite in2="offsetblur" operator="in" />
             <feMerge>
               <feMergeNode />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
+
+          {/* Gradient du câble principal */}
+          <linearGradient id="cable-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#2a2a3e" />
+            <stop offset="30%" stopColor="#1a1a2a" />
+            <stop offset="70%" stopColor="#1a1a2a" />
+            <stop offset="100%" stopColor="#2a2a3e" />
+          </linearGradient>
+
+          {/* Highlight du câble */}
+          <linearGradient id="cable-highlight" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="rgba(255,255,255,0.15)" />
+            <stop offset="50%" stopColor="rgba(255,255,255,0)" />
+            <stop offset="100%" stopColor="rgba(0,0,0,0.1)" />
+          </linearGradient>
+
+          {/* Gradient du flux d'énergie animé */}
           {charging && (
-              <linearGradient id="energy-flow" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#10b981" />
-                <stop offset="50%" stopColor="#34d399" />
-                <stop offset="100%" stopColor="#10b981" />
+            <>
+              <linearGradient id="energy-flow-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor={energyColors.start} stopOpacity="0.2" />
+                <stop offset="20%" stopColor={energyColors.start} stopOpacity="1" />
+                <stop offset="50%" stopColor={energyColors.mid} stopOpacity="1" />
+                <stop offset="80%" stopColor={energyColors.end} stopOpacity="1" />
+                <stop offset="100%" stopColor={energyColors.end} stopOpacity="0.2" />
               </linearGradient>
+
+              {/* Glow pour le flux d'énergie */}
+              <filter id="energy-glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feMerge>
+                  <feMergeNode in="blur" />
+                  <feMergeNode in="SourceGraphic" />
+                </feMerge>
+              </filter>
+            </>
           )}
         </defs>
 
+        {/* Câble principal - couche d'ombre */}
+        <path
+          d={dims.d}
+          stroke="#0a0a12"
+          strokeWidth={22}
+          strokeLinecap="round"
+          fill="none"
+          opacity="0.3"
+          style={{ transform: 'translate(0, 4px)' }}
+        />
+
+        {/* Câble principal - corps */}
         <path
             ref={pathRef}
             d={dims.d}
-            stroke="#0f172a"
+            stroke="url(#cable-gradient)"
             strokeWidth={18}
             strokeLinecap="round"
             fill="none"
@@ -625,22 +865,91 @@ function Cable({
             style={{
               strokeDasharray: len,
               strokeDashoffset: dashOffset,
-              transition:
-                  "stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
+              transition: "stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
             }}
         />
 
+        {/* Câble - highlight supérieur */}
+        <path
+          d={dims.d}
+          stroke="url(#cable-highlight)"
+          strokeWidth={18}
+          strokeLinecap="round"
+          fill="none"
+          opacity="0.6"
+        />
+
+        {/* Bandes de renfort sur le câble */}
+        <path
+          d={dims.d}
+          stroke="#3a3a4e"
+          strokeWidth={3}
+          strokeLinecap="round"
+          strokeDasharray="2 40"
+          fill="none"
+          opacity="0.6"
+        />
+
+        {/* Flux d'énergie pendant la charge */}
         {charging && (
+          <>
+            {/* Glow principal */}
             <path
-                d={dims.d}
-                stroke="url(#energy-flow)"
-                strokeWidth={6}
-                strokeLinecap="round"
-                fill="none"
-                strokeDasharray="12 20"
-                style={{ animation: "cableEnergy 1.5s linear infinite" }}
+              d={dims.d}
+              stroke={energyColors.mid}
+              strokeWidth={10}
+              strokeLinecap="round"
+              fill="none"
+              opacity="0.3"
+              filter="url(#energy-glow)"
             />
+
+            {/* Flux animé - particules */}
+            <path
+              d={dims.d}
+              stroke="url(#energy-flow-gradient)"
+              strokeWidth={6}
+              strokeLinecap="round"
+              fill="none"
+              strokeDasharray="20 30"
+              style={{ animation: `cableEnergyFlow ${animDuration} linear infinite` }}
+            />
+
+            {/* Flux animé secondaire (décalé) */}
+            <path
+              d={dims.d}
+              stroke={energyColors.start}
+              strokeWidth={3}
+              strokeLinecap="round"
+              fill="none"
+              strokeDasharray="8 50"
+              opacity="0.8"
+              style={{ animation: `cableEnergyFlow ${animDuration} linear infinite`, animationDelay: '-0.4s' }}
+            />
+
+            {/* Particules d'énergie */}
+            <path
+              d={dims.d}
+              stroke={energyColors.mid}
+              strokeWidth={4}
+              strokeLinecap="round"
+              fill="none"
+              strokeDasharray="4 60"
+              filter="url(#energy-glow)"
+              style={{ animation: `cableEnergyFlow ${animDuration} linear infinite`, animationDelay: '-0.8s' }}
+            />
+          </>
         )}
+
+        {/* Styles d'animation inline */}
+        <style>
+          {`
+            @keyframes cableEnergyFlow {
+              from { stroke-dashoffset: 100; }
+              to { stroke-dashoffset: 0; }
+            }
+          `}
+        </style>
       </svg>
   );
 }
@@ -654,19 +963,26 @@ export default function SimuEvseTab() {
   const toasts = useToasts();
 
   // ========= 2. ÉTATS NÉCESSAIRES POUR TNR =========
-  const [environment, setEnvironment] = useState<"test" | "pp">("test");
-  const ENV_URLS = {
-    test: "wss://evse-test.total-ev-charge.com/ocpp/WebSocket",
-    pp: "wss://evse-pp.total-ev-charge.com/ocpp/WebSocket"
-  };
-  const cpUrl = ENV_URLS[environment];
+  const [environment, setEnvironment] = useState<"test" | "pp">(config.defaultEnvironment as "test" | "pp");
+  const [envUrls, setEnvUrls] = useState<Record<string, string>>(config.ocppUrls);
+
+  // Charger les URLs OCPP depuis l'API au démarrage
+  useEffect(() => {
+    fetchOcppUrls().then(urls => {
+      if (urls && Object.keys(urls).length > 0) {
+        setEnvUrls(urls);
+      }
+    });
+  }, []);
+
+  const cpUrl = envUrls[environment] || config.ocppUrls[environment];
 
   // ========= 3. HOOK TNR (après toasts et cpUrl) =========
   const tnr = useTNRWithAPI(toasts, cpUrl);
 
   // ========= 4. AUTRES ÉTATS =========
   const [sessions, setSessions] = useState<SessionItem[]>([]);
-  const [selId, setSelId] = useState<string | null>(null);
+  const [selId, setSelId] = useState<string | null>(() => getStoredSelectedId());
   const [logs, setLogs] = useState<LogEntry[]>([]);
 
   // Helper pour ajouter un log côté frontend
@@ -692,6 +1008,10 @@ export default function SimuEvseTab() {
     capacityKWh: number;
     efficiency?: number;
     imageUrl?: string;
+    maxPowerKW?: number;
+    acMaxKW?: number;
+    maxDCPower?: number;
+    maxACPower?: number;
   }>>([]);
   const [vehicleId, setVehicleId] = useState<string>("");
 
@@ -706,11 +1026,9 @@ export default function SimuEvseTab() {
   const [socTarget, setSocTarget] = useState<number>(80);
   const [mvRunning, setMvRunning] = useState(false);
 
-  const [priceToken, setPriceToken] = useState<string>("");
   const [priceApiUrl, setPriceApiUrl] = useState<string>("https://evplatform.evcharge-pp.totalenergies.com/evportal/api/tx");
   const [priceData, setPriceData] = useState<any | null>(null);
   const [fetchingPrice, setFetchingPrice] = useState(false);
-  const [showPriceConfig, setShowPriceConfig] = useState(false);
 
   const [series, setSeries] = useState<{
     soc: Array<{ t: number; y: number }>;
@@ -727,6 +1045,7 @@ export default function SimuEvseTab() {
   const [showCable, setShowCable] = useState(true);
   const [isParked, setIsParked] = useState(false);
   const [isPlugged, setIsPlugged] = useState(false);
+  const [bootAccepted, setBootAccepted] = useState<boolean | null>(null); // null = unknown, true = accepted, false = rejected
   const [connAngles, setConnAngles] = useState<{ left: number; right: number }>({
     left: 0,
     right: 0,
@@ -742,6 +1061,7 @@ export default function SimuEvseTab() {
   const pActiveFiltRef = useRef<number | null>(null);
   const socFiltRef = useRef<number | null>(20);
   const lastRealMvMsRef = useRef<number>(0);
+  const skipNextSyncRef = useRef(false); // Pour éviter que le useEffect écrase l'état local après action utilisateur
 
   const containerRef = useRef<HTMLDivElement>(null);
   const stationRef = useRef<HTMLDivElement>(null);
@@ -749,9 +1069,136 @@ export default function SimuEvseTab() {
   const carRef = useRef<HTMLDivElement>(null);
   const carPortRef = useRef<HTMLDivElement>(null);
 
+  // Ref pour gérer le changement de session
+  const previousSessionIdRef = useRef<string | null>(null);
+
+  // ========= 5.5 SESSION STATE ISOLATION =========
+  // Sauvegarder l'état dans le cache quand la session change
+  const saveCurrentSessionState = useCallback(() => {
+    const currentId = previousSessionIdRef.current;
+    if (currentId) {
+      const state: PerSessionLocalState = {
+        logs,
+        series,
+        isParked,
+        isPlugged,
+        mvRunning,
+        socStart,
+        socTarget,
+        vehicleId,
+        chargeStartTime: chargeStartTimeRef.current,
+        energyStartKWh: energyStartKWhRef.current,
+        energyNowKWh: energyNowKWhRef.current,
+        energyFromPowerKWh: energyFromPowerKWhRef.current,
+        lastPowerMs: lastPowerMsRef.current,
+        socFilt: socFiltRef.current,
+        pActiveFilt: pActiveFiltRef.current,
+        lastRealMvMs: lastRealMvMsRef.current,
+        // === AJOUT: Config session-spécifique ===
+        cpId,
+        idTag,
+        evseType,
+        maxA,
+        mvEvery,
+        mvMask,
+        environment
+      };
+      sessionStateCache.set(currentId, state);
+      persistSessionCache(); // Persister dans localStorage
+      console.log('[SessionIsolation] Saved state for session:', currentId, 'cpId:', cpId);
+    }
+  }, [logs, series, isParked, isPlugged, mvRunning, socStart, socTarget, vehicleId, cpId, idTag, evseType, maxA, mvEvery, mvMask, environment]);
+
+  // Charger l'état depuis le cache ou créer un nouvel état
+  const loadSessionState = useCallback((newId: string | null) => {
+    if (!newId) return;
+
+    const cached = sessionStateCache.get(newId);
+    if (cached) {
+      console.log('[SessionIsolation] Loading cached state for session:', newId, 'cpId:', cached.cpId);
+      setLogs(cached.logs);
+      setSeries(cached.series);
+      setIsParked(cached.isParked);
+      setIsPlugged(cached.isPlugged);
+      setMvRunning(cached.mvRunning);
+      setSocStart(cached.socStart);
+      setSocTarget(cached.socTarget);
+      setVehicleId(cached.vehicleId);
+      chargeStartTimeRef.current = cached.chargeStartTime;
+      energyStartKWhRef.current = cached.energyStartKWh;
+      energyNowKWhRef.current = cached.energyNowKWh;
+      energyFromPowerKWhRef.current = cached.energyFromPowerKWh;
+      lastPowerMsRef.current = cached.lastPowerMs;
+      socFiltRef.current = cached.socFilt;
+      pActiveFiltRef.current = cached.pActiveFilt;
+      lastRealMvMsRef.current = cached.lastRealMvMs;
+      // === AJOUT: Restaurer la config session-spécifique ===
+      setCpId(cached.cpId);
+      setIdTag(cached.idTag);
+      setEvseType(cached.evseType);
+      setMaxA(cached.maxA);
+      setMvEvery(cached.mvEvery);
+      setMvMask(cached.mvMask);
+      setEnvironment(cached.environment);
+    } else {
+      console.log('[SessionIsolation] Creating new state for session:', newId);
+      // Créer un état par défaut avec un CP-ID unique
+      const sessionIndex = sessions.length;
+      const defaultState = getDefaultSessionState(sessionIndex);
+
+      // Réinitialiser à l'état par défaut pour une nouvelle session
+      setLogs([]);
+      setSeries({ soc: [], pActive: [], expected: [] });
+      setMvRunning(false);
+      chargeStartTimeRef.current = null;
+      energyStartKWhRef.current = null;
+      energyNowKWhRef.current = null;
+      energyFromPowerKWhRef.current = 0;
+      lastPowerMsRef.current = null;
+      socFiltRef.current = defaultState.socStart;
+      pActiveFiltRef.current = null;
+      lastRealMvMsRef.current = 0;
+      // === AJOUT: Initialiser avec un CP-ID unique ===
+      setCpId(defaultState.cpId);
+      setIdTag(defaultState.idTag);
+      setEvseType(defaultState.evseType);
+      setMaxA(defaultState.maxA);
+      setMvEvery(defaultState.mvEvery);
+      setMvMask(defaultState.mvMask);
+      setEnvironment(defaultState.environment);
+      setSocStart(defaultState.socStart);
+      setSocTarget(defaultState.socTarget);
+
+      // Sauvegarder immédiatement le nouvel état dans le cache
+      sessionStateCache.set(newId, defaultState);
+      persistSessionCache();
+    }
+  }, [sessions.length]);
+
+  // useEffect pour gérer le changement de session
+  useEffect(() => {
+    if (previousSessionIdRef.current !== selId) {
+      // Sauvegarder l'état de l'ancienne session
+      saveCurrentSessionState();
+
+      // Charger l'état de la nouvelle session
+      loadSessionState(selId);
+
+      // Mettre à jour la référence
+      previousSessionIdRef.current = selId;
+    }
+  }, [selId, saveCurrentSessionState, loadSessionState]);
+
+  // Nettoyer le cache quand une session est supprimée
+  const cleanupSessionCache = useCallback((sessionId: string) => {
+    sessionStateCache.delete(sessionId);
+    persistSessionCache(); // Persister dans localStorage
+    console.log('[SessionIsolation] Cleaned cache for session:', sessionId);
+  }, []);
+
   // ========= 6. VARIABLES DÉRIVÉES (qui dépendent des états) =========
   const selSession = sessions.find((s) => s.id === selId) || null;
-  const isCharging = selSession?.status === "started";
+  const isCharging = selSession?.status === "charging" || selSession?.status === "started";
   const voltage = selSession?.metrics?.voltage || DEFAULT_VOLTAGE;
   const phases = selSession?.metrics?.phases || DEFAULT_PHASES[evseType] || 1;
   const selectedVehicle = vehicles.find((v) => v.id === vehicleId) || undefined;
@@ -762,11 +1209,14 @@ export default function SimuEvseTab() {
   const currentPowerKw = pActiveFiltRef.current ?? 0;
 
   // ========= 7. FONCTIONS CALLBACK (utilisées dans le gestionnaire) =========
+  // Déterminer si c'est une charge DC ou AC selon le type de borne
+  const isDCCharging = evseType === 'dc';
+
   const vehMaxKwAtSoc = useCallback((soc: number): number => {
-    if (!vehicleId) return 22;
-    const kw = calcVehPowerKW(vehicleId, soc);
-    return Number.isFinite(kw) ? Math.max(0, kw) : 22;
-  }, [vehicleId]);
+    if (!vehicleId) return isDCCharging ? 50 : 11;
+    const kw = calcVehPowerKW(vehicleId, soc, isDCCharging);
+    return Number.isFinite(kw) ? Math.max(0, kw) : (isDCCharging ? 50 : 11);
+  }, [vehicleId, isDCCharging]);
 
   const clampRamp = useCallback((prev: number, target: number, dtSec: number) => {
     const maxStep = RAMP_KW_PER_S * dtSec;
@@ -798,10 +1248,19 @@ export default function SimuEvseTab() {
   const profileState = profilesManager.getConnectorState(1);
 
   // ========= 9. CALCULS USEMEMO (peuvent maintenant utiliser vehMaxKwAtSoc) =========
+  // Puissance max de la borne DC (configurable, typiquement 50-350 kW)
+  const [dcMaxPowerKw, setDcMaxPowerKw] = useState<number>(350);
+
   const physicalLimitKw = useMemo(() => {
+    if (isDCCharging) {
+      // En DC, la puissance est directement en kW (pas de calcul V*A*phases)
+      // On utilise le min entre la borne DC et le courant max configuré
+      return dcMaxPowerKw;
+    }
+    // En AC: P = V * I * phases (pour triphasé) ou P = V * I (mono)
     const evseKw = (maxA * voltage * phases) / 1000;
     return evseKw;
-  }, [maxA, voltage, phases]);
+  }, [maxA, voltage, phases, isDCCharging, dcMaxPowerKw]);
 
   const appliedLimitKw = useMemo(() => {
     const profileLimitKw = profileState.effectiveLimit.limitW / 1000;
@@ -821,8 +1280,8 @@ export default function SimuEvseTab() {
 
   const totalEnergyKWh = useMemo(() => {
     // Priorité 1: Valeur du backend (source de vérité)
-    if (selSession?.energyDeliveredKwh != null && selSession.energyDeliveredKwh > 0) {
-      return selSession.energyDeliveredKwh;
+    if (selSession?.energy != null && selSession.energy > 0) {
+      return selSession.energy;
     }
     // Priorité 2: Valeur parsée des MeterValues (énergie relative dans la session)
     if (energyNowKWhRef.current != null && energyStartKWhRef.current != null) {
@@ -830,40 +1289,63 @@ export default function SimuEvseTab() {
     }
     // Fallback: Calcul local depuis la puissance
     return energyFromPowerKWhRef.current;
-  }, [selSession?.energyDeliveredKwh, series.pActive, series.soc]);
+  }, [selSession?.energy, series.pActive, series.soc]);
 
   const elapsedTime = useMemo(() => {
-    if (!chargeStartTimeRef.current || selSession?.status !== "started")
+    const isChargingStatus = selSession?.status === "charging" || selSession?.status === "started";
+    if (!isChargingStatus)
       return "00:00:00";
-    const elapsed = Math.floor((Date.now() - chargeStartTimeRef.current) / 1000);
+    // Priorité: utiliser chargeStartTime du backend si disponible, sinon la ref locale
+    const startTime = (selSession as any)?.chargeStartTime || chargeStartTimeRef.current;
+    if (!startTime) {
+      // Fallback: utiliser chargingDurationSec du backend si disponible
+      const durationSec = (selSession as any)?.chargingDurationSec;
+      if (durationSec && durationSec > 0) {
+        return formatHMS(durationSec);
+      }
+      return "00:00:00";
+    }
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
     return formatHMS(elapsed);
-  }, [selSession?.status, series.pActive]);
+  }, [selSession?.status, selSession, series.pActive]);
+
+  // Ref pour éviter que refreshSessions écrase la sélection utilisateur
+  const userSelectedIdRef = useRef<string | null>(getStoredSelectedId());
 
   // ========= 10. FONCTIONS ACTIONS =========
   async function refreshSessions() {
     try {
-      const list: SessionItem[] = await fetchJSON(`/api/simu`);
+      const allSessions: SessionItem[] = await fetchJSON(`/api/simu`);
+      // Filtrer les sessions de performance (ID commençant par "perf-")
+      const list = allSessions.filter(s => !s.id?.startsWith('perf-'));
       setSessions(list);
-      if (!selId && list.length) setSelId(list[0].id);
-      if (selId && !list.some((s) => s.id === selId))
-        setSelId(list[0]?.id || null);
+
+      // Ne changer la sélection que si:
+      // 1. Aucune session n'est sélectionnée ET il y a des sessions
+      // 2. La session sélectionnée n'existe plus dans la liste
+      const currentSelId = userSelectedIdRef.current || selId;
+
+      if (!currentSelId && list.length) {
+        setSelId(list[0].id);
+        userSelectedIdRef.current = list[0].id;
+        setStoredSelectedId(list[0].id); // Persister dans localStorage
+      } else if (currentSelId && !list.some((s) => s.id === currentSelId)) {
+        // La session sélectionnée n'existe plus, sélectionner la première
+        const newId = list[0]?.id || null;
+        setSelId(newId);
+        userSelectedIdRef.current = newId;
+        setStoredSelectedId(newId); // Persister dans localStorage
+      }
+      // SINON: garder la sélection actuelle, ne rien changer
     } catch {}
   }
 
-  async function saveTokenConfig() {
-    try {
-      await fetchJSON("/api/config/price-token", {
-        method: "POST",
-        body: JSON.stringify({
-          token: priceToken,
-          url: priceApiUrl,
-        }),
-      });
-      toasts.push("Configuration du token sauvegardée");
-    } catch (error: any) {
-      toasts.push(`Erreur: ${error.message}`);
-    }
-  }
+  // Fonction pour sélectionner une session (mise à jour de la ref + localStorage)
+  const selectSession = useCallback((id: string | null) => {
+    userSelectedIdRef.current = id;
+    setSelId(id);
+    setStoredSelectedId(id); // Persister dans localStorage
+  }, []);
 
   async function fetchPrice() {
     if (!selId) {
@@ -873,32 +1355,26 @@ export default function SimuEvseTab() {
 
     setFetchingPrice(true);
     try {
-      const headers: HeadersInit = {
-        "Content-Type": "application/json",
-      };
+      // Token is now handled automatically by the backend via CognitoTokenService
+      const data = await fetchJSON<typeof priceData>(`/api/simu/${selId}/price`);
 
-      if (priceToken) {
-        headers["x-price-token"] = priceToken;
-      }
+      // Validate response has required fields
+      if (data && typeof data.totalPrice === 'number') {
+        setPriceData(data);
 
-      const data = await fetchJSON<typeof priceData>(
-          `/api/simu/${selId}/price`,
-          {
-            method: "GET",
-            headers,
-          }
-      );
-
-      setPriceData(data);
-
-      if (data?.source === "api") {
-        toasts.push(`Prix récupéré depuis l'API`);
-      } else if (data?.source === "no_token") {
-        toasts.push(`Pas de token configuré - prix à 0`);
-      } else if (data?.source === "not_found") {
-        toasts.push(`Transaction non trouvée - prix à 0`);
+        if (data.source === "api" || data.source === "tte") {
+          toasts.push(`Prix récupéré depuis l'API TTE`);
+        } else if (data.source === "not_configured") {
+          toasts.push(`TTE non configuré - prix calculé localement`);
+        } else if (data.source === "not_found") {
+          toasts.push(`Transaction non trouvée - prix à 0`);
+        } else {
+          toasts.push(`Prix calculé avec fallback`);
+        }
       } else {
-        toasts.push(`Prix calculé avec fallback`);
+        // Invalid response structure
+        toasts.push(`Réponse invalide du serveur`);
+        setPriceData(null);
       }
     } catch (error: any) {
       toasts.push(`Erreur récupération prix: ${error.message}`);
@@ -922,6 +1398,9 @@ export default function SimuEvseTab() {
     const fullUrl = cpUrl.endsWith(`/${cpId}`) ? cpUrl : `${cpUrl}/${cpId}`;
     const tagToUse = idTag.trim() || "TAG-001";
 
+    // Reset boot status
+    setBootAccepted(null);
+
     addLog('INFO', 'SESSION', `>> Creating session`, { cpId, url: fullUrl, evseType, maxA });
     try {
       const res = await fetchJSON<any>("/api/simu/session", {
@@ -933,12 +1412,46 @@ export default function SimuEvseTab() {
           auto: false,
           evseType,
           maxA,
+          // Pour DC, envoyer la puissance max configurée
+          ...(evseType === 'dc' ? { maxPowerKw: dcMaxPowerKw } : {}),
         }),
       });
 
       if (res?.id) {
         addLog('INFO', 'SESSION', `<< Session created`, { id: res.id });
-        setSelId(res.id);
+
+        // === IMPORTANT: Initialiser le cache pour cette session ===
+        // Utiliser les valeurs actuelles du formulaire (cpId, idTag, etc.)
+        const sessionState: PerSessionLocalState = {
+          logs: [],
+          series: { soc: [], pActive: [], expected: [] },
+          isParked: false,
+          isPlugged: false,
+          mvRunning: false,
+          socStart,
+          socTarget,
+          vehicleId,
+          chargeStartTime: null,
+          energyStartKWh: null,
+          energyNowKWh: null,
+          energyFromPowerKWh: 0,
+          lastPowerMs: null,
+          socFilt: socStart,
+          pActiveFilt: null,
+          lastRealMvMs: 0,
+          // Config spécifique pour cette session (valeurs du formulaire)
+          cpId,
+          idTag: tagToUse,
+          evseType,
+          maxA,
+          mvEvery,
+          mvMask,
+          environment
+        };
+        sessionStateCache.set(res.id, sessionState);
+        persistSessionCache();
+
+        selectSession(res.id);
         await postAny([
           `/api/simu/${res.id}/mv-mask`,
           `/api/simu/${res.id}/status/mv-mask`,
@@ -956,6 +1469,34 @@ export default function SimuEvseTab() {
         }).catch(() => {});
         addLog('INFO', 'OCPP', `>> WebSocket connecting to CSMS...`);
         addLog('INFO', 'OCPP', `>> Sending BootNotification`);
+
+        // Attendre et vérifier la réponse du BootNotification
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Attendre 2s pour la réponse
+        await refreshSessions();
+
+        // Vérifier le status de la session pour le boot
+        // Utiliser une requête séparée pour récupérer les données fraîches
+        const updatedSessions = await fetchJSON<any[]>('/api/sessions');
+        const updatedSession = updatedSessions?.find((s: any) => s.id === res.id);
+
+        // Vérifier le bootStatus si disponible dans la réponse API
+        const sessionBootStatus = (updatedSession as any)?.bootStatus || (updatedSession as any)?.boot?.status;
+
+        if (sessionBootStatus === 'Rejected' || updatedSession?.status === 'error') {
+          setBootAccepted(false);
+          addLog('ERROR', 'OCPP', `<< BootNotification REJECTED - OCPP ID "${cpId}" non reconnu par le CSMS`);
+          toasts.push(`[WARN] BootNotification rejeté - L'OCPP ID "${cpId}" n'est pas enregistré sur le CSMS`);
+        } else if (sessionBootStatus === 'Accepted' ||
+                   updatedSession?.status === 'booted' ||
+                   updatedSession?.status === 'parked' ||
+                   updatedSession?.status === 'plugged') {
+          setBootAccepted(true);
+          addLog('SUCCESS', 'OCPP', `<< BootNotification ACCEPTED`);
+        } else if (updatedSession?.status === 'connected') {
+          // Encore en attente - on attend un peu plus ou on considère comme potentiellement rejeté
+          addLog('WARNING', 'OCPP', `<< BootNotification en attente de réponse...`);
+        }
+
         await tnr.tapEvent(
             "session",
             "CONNECT",
@@ -975,9 +1516,11 @@ export default function SimuEvseTab() {
   }
 
   async function onNewSession() {
-    // Demander le cpId à l'utilisateur
-    const newCpId = prompt("Entrez le CP-ID pour la nouvelle session:", cpId || `TEST-CP-${Date.now()}`);
-    if (!newCpId) return;
+    // Générer automatiquement un nouveau CP-ID unique (incrémental basé sur le timestamp)
+    const sessionNum = sessions.length + 1;
+    const timestamp = Date.now().toString().slice(-6);
+    const newCpId = `CP-SESSION-${sessionNum}-${timestamp}`;
+    const newIdTag = `TAG-${sessionNum}`;
 
     const fullUrl = cpUrl.endsWith(`/${newCpId}`) ? cpUrl : `${cpUrl}/${newCpId}`;
     try {
@@ -986,25 +1529,60 @@ export default function SimuEvseTab() {
         body: JSON.stringify({
           url: fullUrl,
           cpId: newCpId,
-          idTag: idTag || "TAG-001",
+          idTag: newIdTag,
           auto: false,
-          evseType,
-          maxA,
+          evseType: 'ac-mono', // Valeur par défaut pour nouvelle session
+          maxA: 32,
         }),
       });
       if (res?.id) {
-        setCpId(newCpId);
-        setSelId(res.id);
+        // === IMPORTANT: Initialiser le cache pour cette nouvelle session AVANT de la sélectionner ===
+        const newSessionState: PerSessionLocalState = {
+          logs: [],
+          series: { soc: [], pActive: [], expected: [] },
+          isParked: false,
+          isPlugged: false,
+          mvRunning: false,
+          socStart: 20,
+          socTarget: 80,
+          vehicleId: '',
+          chargeStartTime: null,
+          energyStartKWh: null,
+          energyNowKWh: null,
+          energyFromPowerKWh: 0,
+          lastPowerMs: null,
+          socFilt: 20,
+          pActiveFilt: null,
+          lastRealMvMs: 0,
+          // Config spécifique pour cette nouvelle session
+          cpId: newCpId,
+          idTag: newIdTag,
+          evseType: 'ac-mono',
+          maxA: 32,
+          mvEvery: 10,
+          mvMask: {
+            powerActive: true,
+            energy: true,
+            soc: true,
+            powerOffered: true,
+          },
+          environment: 'test'
+        };
+        sessionStateCache.set(res.id, newSessionState);
+        persistSessionCache();
+
+        // Maintenant sélectionner la session (loadSessionState trouvera les données dans le cache)
+        selectSession(res.id);
         toasts.push(`Nouvelle session créée: ${newCpId}`);
         await tnr.tapEvent(
             "session",
             "NEW_SESSION",
-            { url: fullUrl, cpId: newCpId, idTag: idTag || "TAG-001", evseType, maxA },
+            { url: fullUrl, cpId: newCpId, idTag: newIdTag, evseType: 'ac-mono', maxA: 32 },
             res.id
         );
       }
     } catch (e: any) {
-      alert(e?.message || "Erreur création session");
+      toasts.push(`Erreur: ${e?.message || "Erreur création session"}`);
     } finally {
       refreshSessions();
     }
@@ -1012,16 +1590,27 @@ export default function SimuEvseTab() {
 
   async function onDisconnect() {
     if (!selId) return;
+    const sessionIdToCleanup = selId; // Sauvegarder l'ID avant de le mettre à null
     try {
-      await fetchJSON(`/api/simu/${selId}`, { method: "DELETE" });
+      // Utiliser voluntary-stop pour marquer la déconnexion comme volontaire
+      // Ceci empêche la reconnexion automatique et ferme proprement la session
+      await fetchJSON(`/api/sessions/${selId}/voluntary-stop?reason=User%20requested%20disconnect`, { method: "POST" });
       await tnr.tapEvent("session", "DISCONNECT", { id: selId }, selId);
+      console.log('[SimuEvseTab] Session disconnected voluntarily:', selId);
+    } catch (e) {
+      // Fallback sur l'ancien endpoint si le nouveau n'existe pas
+      console.warn('[SimuEvseTab] voluntary-stop failed, falling back to DELETE:', e);
+      await fetchJSON(`/api/simu/${selId}`, { method: "DELETE" });
     } finally {
-      setSelId(null);
+      // Nettoyer le cache de la session
+      cleanupSessionCache(sessionIdToCleanup);
+      selectSession(null);
       setLogs([]);
       setSeries({ soc: [], pActive: [], expected: [] });
       setMvRunning(false);
       setIsParked(false);
       setIsPlugged(false);
+      setBootAccepted(null); // Reset boot status on disconnect
       profilesManager.reset();
       energyStartKWhRef.current = null;
       energyNowKWhRef.current = null;
@@ -1066,7 +1655,10 @@ export default function SimuEvseTab() {
         { type: "session", action: "UNPLUG" }
     );
     addLog('INFO', 'EVENT', `<< Cable unplugged`);
+    // Empêcher le useEffect de synchro d'écraser notre état local
+    skipNextSyncRef.current = true;
     setIsPlugged(false);
+    // La voiture reste garée (isParked ne change pas)
   };
 
   const onLeave = async () => {
@@ -1196,6 +1788,21 @@ export default function SimuEvseTab() {
 
       // Rafraichir les sessions
       refreshSessions();
+
+      // 7. Recuperer automatiquement le prix apres la fin de session
+      addLog('INFO', 'PRICE', `>> Recuperation automatique du prix...`);
+      try {
+        const priceResult = await fetchJSON<any>(`/api/simu/${selId}/price`);
+        if (priceResult && typeof priceResult.totalPrice === 'number') {
+          setPriceData(priceResult);
+          addLog('INFO', 'PRICE', `<< Prix recupere: ${priceResult.totalPrice?.toFixed(2)} ${priceResult.currency || 'EUR'}`);
+          toasts.push(`Prix: ${priceResult.totalPrice?.toFixed(2)} ${priceResult.currency || 'EUR'}`);
+        } else {
+          addLog('WARN', 'PRICE', `<< Reponse prix invalide`, priceResult);
+        }
+      } catch (priceError: any) {
+        addLog('ERROR', 'PRICE', `<< Erreur recuperation prix: ${priceError?.message || priceError}`);
+      }
     }, 1500);
   };
 
@@ -1238,8 +1845,7 @@ export default function SimuEvseTab() {
       voltage: actualVoltage,
       phases: actualPhases
     });
-
-    console.log(`Config mise à jour: ${actualVoltage}V, ${actualPhases} phases`);
+    // Logging is now handled by profilesManager only when config actually changes
   }, [evseType, profilesManager, selSession]);
 
   // Charger config au montage
@@ -1278,33 +1884,53 @@ export default function SimuEvseTab() {
     const STORAGE_KEY = 'evse-sessions-broadcast';
 
     // Convertir les sessions en format broadcast
-    const broadcastData = sessions.map(s => ({
-      sessionId: s.id,
-      cpId: s.cpId,
-      status: s.status,
-      isConnected: s.connected ?? s.status !== 'disconnected',
-      isCharging: s.status === 'started',
-      soc: s.soc ?? socFiltRef.current ?? socStart,
-      offeredPower: (s.metrics?.txdpKw ?? 0) * 1000,
-      activePower: (s.metrics?.txpKw ?? pActiveFiltRef.current ?? 0) * 1000,
-      setPoint: (s.metrics?.backendKwMax ?? 0) * 1000,
-      energy: (s.energyDeliveredKwh ?? energyFromPowerKWhRef.current ?? 0) * 1000,
-      voltage: s.metrics?.voltage ?? DEFAULT_VOLTAGE,
-      current: ((pActiveFiltRef.current ?? 0) * 1000) / (s.metrics?.voltage ?? DEFAULT_VOLTAGE),
-      transactionId: s.txId,
-      config: {
+    // IMPORTANT: Utiliser les données du cache par session pour l'isolation
+    const broadcastData = sessions.map(s => {
+      // Récupérer l'état caché de cette session spécifique (pas les refs globaux!)
+      const cachedState = sessionStateCache.get(s.id);
+
+      // Si c'est la session actuellement sélectionnée, utiliser les refs courantes
+      // Sinon utiliser les valeurs du cache de cette session
+      const isCurrentSession = s.id === selId;
+      const sessionSoc = isCurrentSession
+        ? (s.soc ?? socFiltRef.current ?? socStart)
+        : (s.soc ?? cachedState?.socFilt ?? cachedState?.socStart ?? 20);
+      const sessionPower = isCurrentSession
+        ? (s.metrics?.txpKw ?? pActiveFiltRef.current ?? 0)
+        : (s.metrics?.txpKw ?? cachedState?.pActiveFilt ?? 0);
+      const sessionEnergy = isCurrentSession
+        ? (s.energy ?? energyFromPowerKWhRef.current ?? 0)
+        : (s.energy ?? cachedState?.energyFromPowerKWh ?? 0);
+      const sessionVoltage = s.metrics?.voltage ?? DEFAULT_VOLTAGE;
+
+      return {
+        sessionId: s.id,
         cpId: s.cpId,
-        environment: environment,
-        evseType: evseType,
-        maxA: maxA,
-        idTag: s.idTag ?? idTag,
-        vehicleId: vehicleId,
-        socStart: socStart,
-        socTarget: socTarget,
-        mvEvery: mvEvery,
-        mvMask: mvMask
-      }
-    }));
+        status: s.status,
+        isConnected: s.isConnected ?? s.status !== 'disconnected',
+        isCharging: s.status === 'charging' || s.status === 'started',
+        soc: sessionSoc,
+        offeredPower: (s.metrics?.txdpKw ?? 0) * 1000,
+        activePower: sessionPower * 1000,
+        setPoint: (s.metrics?.backendKwMax ?? 0) * 1000,
+        energy: sessionEnergy * 1000,
+        voltage: sessionVoltage,
+        current: (sessionPower * 1000) / sessionVoltage,
+        transactionId: s.txId,
+        config: {
+          cpId: s.cpId,
+          environment: cachedState ? environment : environment, // TODO: isolate per session if needed
+          evseType: evseType,
+          maxA: maxA,
+          idTag: s.config?.idTag ?? idTag,
+          vehicleId: isCurrentSession ? vehicleId : (cachedState?.vehicleId ?? vehicleId),
+          socStart: isCurrentSession ? socStart : (cachedState?.socStart ?? 20),
+          socTarget: isCurrentSession ? socTarget : (cachedState?.socTarget ?? 80),
+          mvEvery: mvEvery,
+          mvMask: mvMask
+        }
+      };
+    });
 
     // Sauvegarder dans localStorage
     try {
@@ -1315,25 +1941,34 @@ export default function SimuEvseTab() {
     } catch (e) {
       // Ignore localStorage errors
     }
-  }, [sessions, environment, evseType, maxA, idTag, vehicleId, socStart, socTarget, mvEvery, mvMask]);
+  }, [sessions, selId, environment, evseType, maxA, idTag, vehicleId, socStart, socTarget, mvEvery, mvMask]);
 
   // Synchroniser isParked et isPlugged avec les données du backend
   useEffect(() => {
     if (selSession) {
-      // Utiliser les flags boolean du backend si disponibles
-      if (selSession.parked !== undefined) setIsParked(selSession.parked);
-      if (selSession.plugged !== undefined) setIsPlugged(selSession.plugged);
-      // Ou déduire depuis le status
-      if (selSession.parked === undefined) {
-        const parkedStatuses = ["parked", "plugged", "authorizing", "authorized", "starting", "started"];
-        setIsParked(parkedStatuses.includes(selSession.status));
+      // Si on vient de faire une action utilisateur, on ignore cette synchro
+      if (skipNextSyncRef.current) {
+        skipNextSyncRef.current = false;
+        return;
       }
-      if (selSession.plugged === undefined) {
-        const pluggedStatuses = ["plugged", "authorizing", "authorized", "starting", "started"];
-        setIsPlugged(pluggedStatuses.includes(selSession.status));
-      }
+
+      // Statuts qui impliquent que la voiture est garée (inclut "booted" pour après unplug)
+      const parkedStatuses = ["booted", "parked", "plugged", "preparing", "authorizing", "authorized", "starting", "started", "charging", "finishing", "stopping", "stopped"];
+      // Statuts qui impliquent que le câble est branché
+      const pluggedStatuses = ["plugged", "preparing", "authorizing", "authorized", "starting", "started", "charging", "finishing", "stopping", "stopped"];
+
+      // Déduire depuis le status en priorité (plus fiable)
+      const statusImpliesParked = parkedStatuses.includes(selSession.status);
+      const statusImpliesPlugged = pluggedStatuses.includes(selSession.status);
+
+      // Utiliser le flag backend OU le statut (pour éviter les incohérences)
+      const shouldBeParked = selSession.isParked === true || statusImpliesParked;
+      const shouldBePlugged = selSession.isPlugged === true || statusImpliesPlugged;
+
+      setIsParked(shouldBeParked);
+      setIsPlugged(shouldBePlugged);
     }
-  }, [selSession?.id, selSession?.status, selSession?.parked, selSession?.plugged]);
+  }, [selSession?.id, selSession?.status, selSession?.isParked, selSession?.isPlugged]);
 
   // Logs polling
   useEffect(() => {
@@ -1567,7 +2202,8 @@ export default function SimuEvseTab() {
 
   // Simulation 1 Hz
   useEffect(() => {
-    if (selSession?.status !== "started") return;
+    const isChargingStatus = selSession?.status === "charging" || selSession?.status === "started";
+    if (!isChargingStatus) return;
     const id = setInterval(() => {
       const vehKw = vehMaxKwAtSoc(socFiltRef.current ?? socStart);
       const targetKw = Math.min(vehKw, appliedLimitKw);
@@ -1615,9 +2251,11 @@ export default function SimuEvseTab() {
   }, [selSession?.status, appliedLimitKw, vehMaxKwAtSoc, socStart, vehicleCapacityKWh, vehicleEfficiency, clampRamp]);
 
   // ========= 12. RENDER =========
-  const canAuth = !!selSession && isPlugged;
-  const canStart = selSession?.status === "authorized" && isPlugged;
-  const canStop = selSession?.status === "started";
+  // Si bootAccepted === false, les boutons d'action OCPP sont désactivés
+  // car le CSMS a rejeté le BootNotification (OCPP ID non reconnu)
+  const canAuth = !!selSession && isPlugged && bootAccepted !== false;
+  const canStart = selSession?.status === "authorized" && isPlugged && bootAccepted !== false;
+  const canStop = (selSession?.status === "charging" || selSession?.status === "started") && bootAccepted !== false;
 
   // Convertir les sessions en format SessionState pour le SessionTabBar
   const sessionsForTabBar: SessionState[] = sessions.map(s => ({
@@ -1625,21 +2263,25 @@ export default function SimuEvseTab() {
     cpId: s.cpId,
     isTemporary: false,
     status: s.status as any,
-    wsUrl: s.url,
+    wsUrl: s.wsUrl,
     txId: s.txId ?? null,
     transactionStartTime: null,
-    isParked: s.parked ?? false,
-    isPlugged: s.plugged ?? false,
-    isCharging: s.status === 'started',
-    socCurrent: s.soc ?? socFiltRef.current ?? socStart,
-    powerCurrent: pActiveFiltRef.current ?? 0,
-    energyTotal: s.energyDeliveredKwh ?? 0,
+    isParked: s.isParked ?? false,
+    isPlugged: s.isPlugged ?? false,
+    isConnected: s.isConnected ?? false,
+    isCharging: s.status === 'charging' || s.status === 'started',
+    soc: s.soc ?? socFiltRef.current ?? socStart,
+    activePower: pActiveFiltRef.current ?? 0,
+    offeredPower: 0,
+    energy: s.energy ?? 0,
+    voltage: s.voltage ?? DEFAULT_VOLTAGE,
+    current: 0,
     config: {
       cpId: s.cpId,
       environment: environment,
       evseType: evseType,
       maxA: maxA,
-      idTag: s.idTag ?? idTag,
+      idTag: s.config?.idTag ?? idTag,
       vehicleId: vehicleId,
       socStart: socStart,
       socTarget: socTarget,
@@ -1653,10 +2295,10 @@ export default function SimuEvseTab() {
       txdpKw: s.metrics?.txdpKw ?? 0,
       voltage: s.metrics?.voltage ?? DEFAULT_VOLTAGE,
       phases: s.metrics?.phases ?? 1,
-      energyKWh: s.energyDeliveredKwh ?? 0
+      energyKWh: s.energy ?? 0
     },
     logs: [],
-    chartData: { soc: [], pActive: [], expected: [] }
+    chartData: { soc: [], power: [], expected: [] }
   }));
 
   // Handler pour fermer une session depuis le tab bar
@@ -1664,13 +2306,15 @@ export default function SimuEvseTab() {
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
 
-    if (session.status === 'started') {
+    if (session.status === 'charging' || session.status === 'started') {
       toasts.push("Arretez d'abord la charge");
       return;
     }
 
     try {
       await fetchJSON(`/api/simu/${sessionId}`, { method: 'DELETE' });
+      // Nettoyer le cache de la session
+      cleanupSessionCache(sessionId);
       toasts.push(`Session ${session.cpId} fermee`);
       await refreshSessions();
     } catch (e) {
@@ -1686,7 +2330,7 @@ export default function SimuEvseTab() {
         <SessionTabBar
           sessions={sessionsForTabBar}
           activeSessionId={selId}
-          onSelectSession={(id) => setSelId(id)}
+          onSelectSession={selectSession}
           onAddSession={onNewSession}
           onCloseSession={handleCloseSession}
         />
@@ -1784,12 +2428,110 @@ export default function SimuEvseTab() {
               </div>
             </div>
 
+            {/* Alerte BootNotification Rejected */}
+            {bootAccepted === false && (
+              <div className="mt-3 p-3 rounded bg-rose-100 border border-rose-300 text-rose-800 text-sm">
+                <div className="font-semibold flex items-center gap-2">
+                  <span>BootNotification REJECTED</span>
+                </div>
+                <div className="mt-1 text-xs">
+                  L'OCPP ID "{cpId}" n'est pas reconnu par le CSMS.
+                  Les opérations OCPP sont désactivées.
+                  Vérifiez que l'OCPP ID est enregistré sur le CSMS, puis déconnectez et reconnectez.
+                </div>
+              </div>
+            )}
+
             {/* État Charging Profiles avec ChargingProfileCard */}
             <div className="mt-4">
               <ChargingProfileCard
                   profilesManager={profilesManager}
                   connectorId={1}
               />
+            </div>
+
+            {/* Prix de la session - Déplacé ici depuis la section bas */}
+            <div className="mt-4 rounded border-l-4 border-l-blue-500 bg-white p-3 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <div className="font-semibold text-sm text-blue-800">Prix de la session</div>
+                <button
+                    onClick={fetchPrice}
+                    disabled={!selId || fetchingPrice}
+                    className={`px-2 py-1 rounded text-xs font-medium ${
+                        selSession?.status === "finishing" || selSession?.status === "closed" || selSession?.status === "available"
+                            ? "bg-blue-600 text-white hover:bg-blue-700"
+                            : "bg-slate-300 text-slate-500"
+                    } disabled:opacity-50`}
+                >
+                  {fetchingPrice ? "..." : "Récupérer"}
+                </button>
+              </div>
+
+              {priceData && typeof priceData.totalPrice === 'number' ? (
+                  <div className="space-y-2">
+                    {/* Prix principal */}
+                    <div className="rounded-lg bg-gradient-to-r from-emerald-50 to-blue-50 p-2">
+                      <div className="flex items-baseline justify-between">
+                        <div>
+                          <div className="text-[10px] text-slate-600">Prix total</div>
+                          <div className="text-xl font-bold text-emerald-700">
+                            {priceData.totalPrice.toFixed(2)} {priceData.currency || 'EUR'}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-[10px] text-slate-600">Énergie</div>
+                          <div className="text-sm font-semibold text-slate-700">
+                            {(priceData.energyKWh ?? 0).toFixed(2)} kWh
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Détails compacts */}
+                    <div className="grid grid-cols-2 gap-1 text-xs">
+                      <div className="rounded border p-1.5 bg-slate-50">
+                        <div className="text-[10px] text-slate-500">Prix/kWh</div>
+                        <div className="font-semibold">
+                          {(priceData.pricePerKWh ?? 0) > 0 ? priceData.pricePerKWh.toFixed(3) : "0.000"} {priceData.currency || 'EUR'}
+                        </div>
+                      </div>
+                      <div className="rounded border p-1.5 bg-slate-50">
+                        <div className="text-[10px] text-slate-500">Source</div>
+                        <div className="font-semibold">
+                          {priceData.source === "api" || priceData.source === "tte" ? "API TTE" :
+                              priceData.source === "not_configured" ? "Non config." :
+                                  priceData.source === "not_found" ? "Non trouvé" :
+                                      priceData.source === "fallback" ? "Local" : "Erreur"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Transaction ID */}
+                    {priceData.transactionId && (
+                        <div className="text-[10px] text-slate-500 border-t pt-1">
+                          TX: {priceData.transactionId}
+                        </div>
+                    )}
+
+                    {/* Message */}
+                    {priceData.message && (
+                        <div className={`text-[10px] p-1.5 rounded ${
+                            priceData.source === "api" || priceData.source === "tte" ? "bg-green-100 text-green-700" :
+                                priceData.source === "not_configured" ? "bg-gray-100 text-gray-700" :
+                                    priceData.source === "not_found" ? "bg-yellow-100 text-yellow-700" :
+                                        "bg-orange-100 text-orange-700"
+                        }`}>
+                          {priceData.message}
+                        </div>
+                    )}
+                  </div>
+              ) : (
+                  <div className="text-center py-3 text-slate-500 text-xs">
+                    {selSession?.status === "finishing" || selSession?.status === "closed" || selSession?.status === "available"
+                        ? "Cliquez pour récupérer le prix"
+                        : "Terminez la session"}
+                  </div>
+              )}
             </div>
           </div>
 
@@ -1814,14 +2556,19 @@ export default function SimuEvseTab() {
                 </select>
               </div>
               <div className="col-span-2">
-                <div className="text-xs mb-1">Max (A)</div>
+                <div className="text-xs mb-1">{isDCCharging ? 'Max (kW)' : 'Max (A)'}</div>
                 <input
                     type="number"
                     className="w-full border rounded px-2 py-1"
-                    value={maxA}
-                    onChange={(e) =>
-                        setMaxA(Number(e.target.value || 0))
-                    }
+                    value={isDCCharging ? dcMaxPowerKw : maxA}
+                    onChange={(e) => {
+                      const val = Number(e.target.value || 0);
+                      if (isDCCharging) {
+                        setDcMaxPowerKw(val);
+                      } else {
+                        setMaxA(val);
+                      }
+                    }}
                 />
               </div>
 
@@ -2013,6 +2760,7 @@ export default function SimuEvseTab() {
                             !!selSession &&
                             isPlugged &&
                             selSession?.status !== "authorized" &&
+                            selSession?.status !== "charging" &&
                             selSession?.status !== "started"
                                 ? "bg-sky-600 text-white hover:bg-sky-700"
                                 : "bg-sky-200 text-sky-600"
@@ -2021,6 +2769,7 @@ export default function SimuEvseTab() {
                             !selId ||
                             !isPlugged ||
                             selSession?.status === "authorized" ||
+                            selSession?.status === "charging" ||
                             selSession?.status === "started"
                         }
                         onClick={onAuth}
@@ -2040,11 +2789,11 @@ export default function SimuEvseTab() {
                     </button>
                     <button
                         className={`px-3 py-2 rounded text-sm ${
-                            selSession?.status === "started"
+                            selSession?.status === "charging" || selSession?.status === "started"
                                 ? "bg-rose-600 text-white hover:bg-rose-700"
                                 : "bg-rose-200 text-rose-700"
                         }`}
-                        disabled={!selId || !(selSession?.status === "started")}
+                        disabled={!selId || !(selSession?.status === "charging" || selSession?.status === "started")}
                         onClick={onStop}
                     >
                       Stop
@@ -2121,12 +2870,14 @@ export default function SimuEvseTab() {
                         }
                       }}
                   />
-                  {/* Port de la borne - position ajustée */}
-                  <div
-                      ref={stationPortRef}
-                      className="absolute w-3 h-3"
-                      style={{ right: 20, top: "50%", transform: "translateY(-50%)" }}
-                  />
+                  {/* Port de la borne - ref déplacé vers le connecteur quand plugged */}
+                  {!isPlugged && (
+                    <div
+                        ref={stationPortRef}
+                        className="absolute w-3 h-3"
+                        style={{ right: 20, top: "50%", transform: "translateY(-50%)" }}
+                    />
+                  )}
                 </div>
 
                 {/* Zone centrale pour le câble et connecteurs */}
@@ -2135,303 +2886,144 @@ export default function SimuEvseTab() {
                   {/* CONNECTEURS - avec rotation selon l'angle du câble */}
                   {isPlugged && (
                       <>
-                        {/* Connecteur côté borne */}
+                        {/* Connecteur côté borne - positionné près du bord gauche (côté station) */}
                         <div
+                            ref={stationPortRef}
                             style={{
                               position: "absolute",
-                              left: "7%",
-                              top: "35%",
+                              left: "5%",
+                              top: "40%",
                               transform: "translate(-50%, -50%)",
                               zIndex: 80,
                             }}
                         >
                           <Connector
                               side="right"
-                              rotation={connAngles.left-50}
-                              glowing={selSession?.status === "started"}
-                              size={220}
+                              rotation={connAngles.left - 50}
+                              glowing={selSession?.status === "charging" || selSession?.status === "started"}
+                              size={180}
                           />
                         </div>
 
-                        {/* Connecteur côté voiture */}
+                        {/* Connecteur côté voiture - positionné près du bord droit (côté véhicule) */}
                         {isParked && (
                             <div
+                                ref={carPortRef}
                                 style={{
                                   position: "absolute",
-                                  right: "24%" ,
-                                  top: "35%",
-                                  transform: "translate(-50%, -50%)",
+                                  right: "5%",
+                                  top: "40%",
+                                  transform: "translate(50%, -50%)",
                                   zIndex: 80,
                                 }}
                             >
                               <Connector
                                   side="left"
-                                  rotation={connAngles.right+50}
-                                  glowing={selSession?.status === "started"}
-                                  size={220}
+                                  rotation={connAngles.right + 50}
+                                  glowing={selSession?.status === "charging" || selSession?.status === "started"}
+                                  size={180}
                               />
                             </div>
                         )}
                       </>
                   )}
 
-                  {/* CÂBLE - avec callback pour les angles */}
-                  {showCable && isParked && isPlugged && (
-                      <Cable
-                          containerRef={containerRef}
-                          startRef={stationPortRef}
-                          endRef={carPortRef}
-                          show={isParked && isPlugged}
-                          charging={selSession?.status === "started"}
-                          sagFactor={0.35}
-                          extraDropPx={60}
-                          onAnglesChange={setConnAngles}
-                      />
-                  )}
-
-                  {/* ChargeDisplay en bas avec valeurs corrigées */}
-                  {selSession?.status === "started" && isParked && (
-                      <div
-                          className="absolute"
-                          style={{
-                            left: "80%",
-                            bottom: 60,
-                            transform: "translateX(-50%)",
-                            zIndex: 65,
-                          }}
-                      >
-                        <ChargeDisplay
-                            soc={currentSoc}
-                            powerKw={currentPowerKw}
-                            energyKWh={totalEnergyKWh}
-                            elapsedTime={elapsedTime}
-                            isCharging={true}
-                        />
-                      </div>
-                  )}
                 </div>
 
-                {/* VOITURE à droite */}
+                {/* VOITURE à droite avec ChargeDisplay en dessous */}
                 {isParked && (
-                    <div
-                        ref={carRef}
-                        className="relative select-none flex-shrink-0"
-                        style={{
-                          width: 380 * VEHICLE_SCALE,
-                          height: 200 * VEHICLE_SCALE,
-                        }}
-                    >
-                      <img
-                          src={vehicleImage}
-                          alt="Véhicule électrique"
-                          className="w-full h-full object-contain"
-                          style={{
-                            filter: "drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1))",
-                          }}
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = 'none';
-                            const parent = target.parentElement;
-                            if (parent) {
-                              parent.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
-                              parent.style.borderRadius = '8px';
-                              parent.style.display = 'flex';
-                              parent.style.alignItems = 'center';
-                              parent.style.justifyContent = 'center';
-                              parent.innerHTML = '<div style="color: white; text-align: center; font-weight: bold;">EV</div>';
-                            }
-                          }}
-                      />
-                      {/* Port de la voiture - position ajustée avec le facteur d'échelle */}
+                    <div className="flex flex-col items-center flex-shrink-0">
+                      {/* Image de la voiture */}
                       <div
-                          ref={carPortRef}
-                          className="absolute w-3 h-3"
+                          ref={carRef}
+                          className="relative select-none"
                           style={{
-                            left: 20 * VEHICLE_SCALE,
-                            top: "50%",
-                            transform: "translateY(-50%)"
+                            width: 380 * VEHICLE_SCALE,
+                            height: 200 * VEHICLE_SCALE,
                           }}
-                      />
+                      >
+                        <img
+                            src={vehicleImage}
+                            alt="Véhicule électrique"
+                            className="w-full h-full object-contain"
+                            style={{
+                              filter: "drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1))",
+                            }}
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.style.display = 'none';
+                              const parent = target.parentElement;
+                              if (parent) {
+                                parent.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+                                parent.style.borderRadius = '8px';
+                                parent.style.display = 'flex';
+                                parent.style.alignItems = 'center';
+                                parent.style.justifyContent = 'center';
+                                parent.innerHTML = '<div style="color: white; text-align: center; font-weight: bold;">EV</div>';
+                              }
+                            }}
+                        />
+                        {/* Port de la voiture - ref déplacé vers le connecteur quand plugged */}
+                        {!isPlugged && (
+                          <div
+                              ref={carPortRef}
+                              className="absolute w-3 h-3"
+                              style={{
+                                left: 20 * VEHICLE_SCALE,
+                                top: "50%",
+                                transform: "translateY(-50%)"
+                              }}
+                          />
+                        )}
+                      </div>
+
+                      {/* ChargeDisplay en dessous de la voiture */}
+                      {(selSession?.status === "charging" || selSession?.status === "started") && (
+                          <div className="mt-3">
+                            <ChargeDisplay
+                                soc={currentSoc}
+                                powerKw={currentPowerKw}
+                                energyKWh={totalEnergyKWh}
+                                elapsedTime={elapsedTime}
+                                isCharging={true}
+                            />
+                          </div>
+                      )}
                     </div>
                 )}
               </div>
+
+              {/* CÂBLE - placé au niveau du containerRef pour couvrir borne et voiture */}
+              {showCable && isParked && isPlugged && (
+                  <Cable
+                      containerRef={containerRef}
+                      startRef={stationPortRef}
+                      endRef={carPortRef}
+                      show={isParked && isPlugged}
+                      charging={selSession?.status === "charging" || selSession?.status === "started"}
+                      state={
+                        selSession?.status === "charging" || selSession?.status === "started"
+                          ? 'charging'
+                          : isPlugged
+                            ? 'plugged'
+                            : isParked
+                              ? 'vehicle_parked'
+                              : 'idle'
+                      }
+                      powerKW={currentPowerKw}
+                      sagFactor={0.35}
+                      extraDropPx={60}
+                      onAnglesChange={setConnAngles}
+                  />
+              )}
             </div>
           </div>
         </div>
 
-        {/* Section Prix avec récupération corrigée */}
-        <div className="col-span-12 grid grid-cols-12 gap-4 mt-4">
-          {/* Configuration du prix */}
-          <div className="col-span-6 rounded border bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <div className="font-semibold">Configuration Prix API</div>
-              <button
-                  onClick={() => setShowPriceConfig(!showPriceConfig)}
-                  className="text-sm px-2 py-1 rounded bg-slate-100 hover:bg-slate-200"
-              >
-                {showPriceConfig ? "Masquer" : "Configurer"}
-              </button>
-            </div>
-
-            {showPriceConfig && (
-                <div className="space-y-3">
-                  <div>
-                    <div className="text-xs mb-1">URL de l'API</div>
-                    <input
-                        type="text"
-                        className="w-full border rounded px-2 py-1 text-sm"
-                        value={priceApiUrl}
-                        onChange={(e) => setPriceApiUrl(e.target.value)}
-                        placeholder="https://api.example.com/transactions"
-                    />
-                  </div>
-                  <div>
-                    <div className="text-xs mb-1">Token API (Bearer)</div>
-                    <input
-                        type="password"
-                        className="w-full border rounded px-2 py-1 text-sm"
-                        value={priceToken}
-                        onChange={(e) => setPriceToken(e.target.value)}
-                        placeholder="Entrez votre token API..."
-                    />
-                  </div>
-                  <button
-                      onClick={saveTokenConfig}
-                      className="w-full px-3 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700 text-sm"
-                  >
-                    Sauvegarder la configuration
-                  </button>
-                </div>
-            )}
-
-            {!showPriceConfig && (
-                <div className="text-sm text-slate-600">
-                  {priceToken ? "Token configuré" : "Aucun token configuré"}
-                </div>
-            )}
-          </div>
-
-          {/* Affichage du prix avec récupération améliorée */}
-          <div className="col-span-6 rounded border bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <div className="font-semibold">Prix de la session</div>
-              <button
-                  onClick={fetchPrice}
-                  disabled={!selId || fetchingPrice}
-                  className={`px-3 py-2 rounded text-sm font-medium ${
-                      selSession?.status === "stopped" || selSession?.status === "closed"
-                          ? "bg-blue-600 text-white hover:bg-blue-700"
-                          : "bg-slate-300 text-slate-500"
-                  } disabled:opacity-50`}
-              >
-                {fetchingPrice ? "Chargement..." : "Récupérer le prix"}
-              </button>
-            </div>
-
-            {priceData ? (
-                <div className="space-y-2">
-                  {/* Prix principal */}
-                  <div className="rounded-lg bg-gradient-to-r from-emerald-50 to-blue-50 p-3">
-                    <div className="flex items-baseline justify-between">
-                      <div>
-                        <div className="text-xs text-slate-600">Prix total</div>
-                        <div className="text-2xl font-bold text-slate-900">
-                          {priceData.totalPrice.toFixed(2)} {priceData.currency}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs text-slate-600">Énergie</div>
-                        <div className="text-lg font-semibold text-slate-700">
-                          {priceData.energyKWh.toFixed(2)} kWh
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Détails */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded border p-2 bg-slate-50">
-                      <div className="text-xs text-slate-500">Prix/kWh</div>
-                      <div className="font-semibold">
-                        {priceData.pricePerKWh > 0 ? priceData.pricePerKWh.toFixed(3) : "0.000"} {priceData.currency}
-                      </div>
-                    </div>
-                    <div className="rounded border p-2 bg-slate-50">
-                      <div className="text-xs text-slate-500">Source</div>
-                      <div className="font-semibold">
-                        {priceData.source === "api" ? "API" :
-                            priceData.source === "no_token" ? "Pas de token" :
-                                priceData.source === "not_found" ? "Non trouvé" : "Erreur"}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Informations supplémentaires */}
-                  {priceData.transactionId && (
-                      <div className="text-xs text-slate-600 border-t pt-2">
-                        <div>Transaction ID: {priceData.transactionId}</div>
-                        {priceData.chargePointId && (
-                            <div>Charge Point: {priceData.chargePointId}</div>
-                        )}
-                        {priceData.status && <div>Status: {priceData.status}</div>}
-                      </div>
-                  )}
-
-                  {/* Détails de taxation */}
-                  {priceData.details && priceData.details.taxedPrice !== undefined && (
-                      <div className="text-xs text-slate-600 border-t pt-2">
-                        {priceData.details.nonTaxedPrice !== undefined && (
-                            <div>Prix HT: {priceData.details.nonTaxedPrice.toFixed(2)} {priceData.currency}</div>
-                        )}
-                        {priceData.details.taxedPrice !== undefined && (
-                            <div>Prix TTC: {priceData.details.taxedPrice.toFixed(2)} {priceData.currency}</div>
-                        )}
-                        {priceData.details.taxRate !== undefined && (
-                            <div>Taux TVA: {(priceData.details.taxRate * 100).toFixed(1)}%</div>
-                        )}
-                      </div>
-                  )}
-
-                  {/* Informations de recherche si pas trouvé */}
-                  {priceData?.searchCriteria && (
-                      <div className="text-xs text-orange-600 border-t pt-2 bg-orange-50 p-2 rounded">
-                        <div className="font-semibold mb-1">Recherche de transaction:</div>
-                        <div>CP-ID recherché: {priceData.searchCriteria.cpId}</div>
-                        <div>TX-ID recherché: {priceData.searchCriteria.txId}</div>
-                        {priceData.apiTransactionCount !== undefined && (
-                            <div>Transactions dans l'API: {priceData.apiTransactionCount}</div>
-                        )}
-                      </div>
-                  )}
-
-                  {/* Message d'information */}
-                  {priceData.message && (
-                      <div className={`text-xs p-2 rounded ${
-                          priceData.source === "api" ? "bg-green-100 text-green-700" :
-                              priceData.source === "no_token" ? "bg-gray-100 text-gray-700" :
-                                  priceData.source === "not_found" ? "bg-yellow-100 text-yellow-700" :
-                                      "bg-orange-100 text-orange-700"
-                      }`}>
-                        {priceData.message}
-                      </div>
-                  )}
-                </div>
-            ) : (
-                <div className="text-center py-8 text-slate-500">
-                  <div className="text-sm">
-                    {selSession?.status === "stopped" || selSession?.status === "closed"
-                        ? "Cliquez pour récupérer le prix de la session"
-                        : "Terminez la session pour récupérer le prix"}
-                  </div>
-                </div>
-            )}
-          </div>
-        </div>
-
-        {/* Métriques + Graph + Logs */}
+        {/* Métriques + Graph + Logs - Layout amélioré */}
         <div className="grid grid-cols-12 gap-4">
-          {/* Métriques temps réel corrigées */}
-          <div className="col-span-4 rounded border bg-white p-4 shadow-sm">
+          {/* Métriques temps réel - Plus compact */}
+          <div className="col-span-3 rounded border bg-white p-4 shadow-sm">
             <div className="font-semibold mb-2">Métriques temps réel</div>
 
             {/* Carte Charging Profiles */}
@@ -2442,45 +3034,39 @@ export default function SimuEvseTab() {
               />
             </div>
 
-            <div className="rounded border p-2 bg-emerald-50 mb-2">
-              <div className="text-xs text-emerald-700 mb-1">Énergie totale</div>
-              <div className="text-xl font-bold">{totalEnergyKWh.toFixed(2)} kWh</div>
-              <div className="text-[11px] text-emerald-700/80 mt-1">
-                Utilisation {appliedLimitKw > 0
-                  ? ((currentPowerKw / appliedLimitKw) * 100).toFixed(0)
-                  : "0"}% de la limite
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <div className="rounded border p-2 bg-emerald-50">
+                <div className="text-[10px] text-emerald-700 mb-0.5">Énergie</div>
+                <div className="text-lg font-bold">{totalEnergyKWh.toFixed(2)} kWh</div>
+              </div>
+              <div className="rounded border p-2 bg-blue-50">
+                <div className="text-[10px] text-blue-700 mb-0.5">Durée</div>
+                <div className="text-lg font-mono">{elapsedTime}</div>
               </div>
             </div>
 
-            <div className="rounded border p-2 bg-blue-50 mb-2">
-              <div className="text-xs text-blue-700 mb-1">Temps écoulé</div>
-              <div className="text-xl font-mono">{elapsedTime}</div>
-              <div className="text-[11px] text-blue-700/80 mt-1">
-                Puissance instantanée: {currentPowerKw.toFixed(1)} kW
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <div className="rounded border p-2 bg-slate-50">
+                <div className="text-[10px] text-slate-500 mb-0.5">Limite EVSE</div>
+                <div className="text-lg font-bold">{physicalLimitKw.toFixed(1)} kW</div>
+                <div className="text-[9px] text-slate-400">{maxA}A×{voltage}V×{phases}φ</div>
+              </div>
+              <div className="rounded border p-2 bg-indigo-50">
+                <div className="text-[10px] text-indigo-600 mb-0.5">Limite SCP</div>
+                <div className="text-lg font-bold text-indigo-900">{appliedLimitKw.toFixed(1)} kW</div>
               </div>
             </div>
 
-            <div className="rounded border p-2 bg-slate-50 mb-2">
-              <div className="text-xs text-slate-500 mb-1">Limite physique</div>
-              <div className="text-xl font-bold">{physicalLimitKw.toFixed(1)} kW</div>
-              <div className="text-[11px] text-slate-500 mt-1">
-                {maxA}A × {voltage}V × {phases} phase{phases > 1 ? 's' : ''}
-              </div>
+            {/* Puissance véhicule */}
+            <div className="rounded border p-2 bg-amber-50 mb-2">
+              <div className="text-[10px] text-amber-700 mb-0.5">Max véhicule @ {Math.round(currentSoc)}%</div>
+              <div className="text-lg font-bold text-amber-900">{vehMaxKwAtSoc(currentSoc).toFixed(1)} kW</div>
+              <div className="text-[9px] text-amber-600">{selectedVehicle?.name || 'Générique'}</div>
             </div>
 
-            <div className="rounded border p-2 bg-indigo-50">
-              <div className="text-xs text-indigo-600 mb-1">Limite appliquée</div>
-              <div className="text-xl font-bold text-indigo-900">
-                {appliedLimitKw.toFixed(1)} kW
-              </div>
-              <div className="text-[11px] text-indigo-600 mt-1">
-                Min(SCP, Physique)
-              </div>
-            </div>
-
-            {selSession?.status === "started" && (
-                <div className="mt-2 rounded border p-2 bg-yellow-50">
-                  <div className="text-xs text-yellow-700 mb-1">Coût estimé (0.40 €/kWh)</div>
+            {(selSession?.status === "charging" || selSession?.status === "started") && (
+                <div className="rounded border p-2 bg-yellow-50">
+                  <div className="text-[10px] text-yellow-700 mb-0.5">Coût (0.40 €/kWh)</div>
                   <div className="text-lg font-bold text-yellow-900">
                     {(totalEnergyKWh * 0.40).toFixed(2)} €
                   </div>
@@ -2488,22 +3074,36 @@ export default function SimuEvseTab() {
             )}
           </div>
 
-          {/* Graphique corrigé */}
-          <div className="col-span-4 rounded border bg-white p-4 shadow-sm">
-            <div className="font-semibold mb-2">Courbe de charge</div>
+          {/* Graphique - Plus grand */}
+          <div className="col-span-5 rounded border bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-semibold">Courbe de charge</div>
+              <div className="text-xs text-slate-500">
+                {selectedVehicle?.name || 'Véhicule'} • {isDCCharging ? 'DC' : 'AC'} • Max {(isDCCharging ? selectedVehicle?.maxPowerKW : selectedVehicle?.acMaxKW) || '?'} kW
+              </div>
+            </div>
             <Chart
-                height={300}
+                height={380}
                 yMax={Math.max(
-                    10,
-                    Math.ceil(Math.max(physicalLimitKw, appliedLimitKw) * 1.3)
+                    20,
+                    Math.ceil(Math.max(
+                      physicalLimitKw,
+                      appliedLimitKw,
+                      vehMaxKwAtSoc(20)
+                    ) * 1.2)
                 )}
                 xLabel="Temps"
                 yLabel="Puissance (kW)"
                 refLines={[
                   {
                     value: appliedLimitKw,
-                    label: `Limite: ${appliedLimitKw.toFixed(1)} kW`,
+                    label: `Limite EVSE: ${appliedLimitKw.toFixed(1)} kW`,
                     color: "#dc2626",
+                  },
+                  {
+                    value: vehMaxKwAtSoc(currentSoc),
+                    label: `Max véhicule: ${vehMaxKwAtSoc(currentSoc).toFixed(1)} kW`,
+                    color: "#f59e0b",
                   },
                   ...(profileState.effectiveLimit.source === "profile"
                       ? [
@@ -2523,24 +3123,24 @@ export default function SimuEvseTab() {
                     width: 3,
                   },
                   {
-                    label: "Courbe véhicule",
-                    color: "#6b7280",
+                    label: "Courbe véhicule (max)",
+                    color: "#f59e0b",
                     dash: "6 3",
                     points: series.expected,
                     width: 2,
-                    opacity: 0.7,
+                    opacity: 0.6,
                   },
                 ]}
             />
           </div>
 
-          {/* Logs */}
+          {/* Logs - Plus grand */}
           <div className="col-span-4 rounded border bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between mb-2">
               <div className="font-semibold">Logs de session</div>
               <div className="flex gap-2">
                 <button
-                    className="px-3 py-1 bg-slate-200 hover:bg-slate-100 rounded text-sm"
+                    className="px-2 py-1 bg-slate-200 hover:bg-slate-100 rounded text-xs"
                     onClick={() => {
                       const txt = logs
                           .map((l) => `[${l.ts}] ${l.line}`)
@@ -2552,7 +3152,7 @@ export default function SimuEvseTab() {
                   Copier
                 </button>
                 <button
-                    className="px-3 py-1 bg-rose-600 text-white hover:bg-rose-500 rounded text-sm"
+                    className="px-2 py-1 bg-rose-600 text-white hover:bg-rose-500 rounded text-xs"
                     onClick={() => setLogs([])}
                 >
                   Effacer
@@ -2560,12 +3160,12 @@ export default function SimuEvseTab() {
               </div>
             </div>
             <div
-                className="bg-[#0b1220] text-[#cde3ff] font-mono text-[12px] p-2 overflow-y-auto rounded"
-                style={{ height: 260 }}
+                className="bg-[#0b1220] text-[#cde3ff] font-mono text-[11px] p-3 overflow-y-auto rounded"
+                style={{ height: 380 }}
             >
               {logs.map((l, i) => (
-                  <div key={i} className="whitespace-pre-wrap break-all">
-                    [{l.ts}] {l.line}
+                  <div key={i} className="whitespace-pre-wrap break-all py-0.5 border-b border-slate-800/30">
+                    <span className="text-slate-500">[{l.ts?.split('T')[1]?.substring(0,8) || l.ts}]</span> {l.line}
                   </div>
               ))}
             </div>
