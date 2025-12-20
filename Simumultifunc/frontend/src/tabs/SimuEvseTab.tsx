@@ -1000,6 +1000,8 @@ export default function SimuEvseTab() {
 
   const [evseType, setEvseType] = useState<"ac-mono" | "ac-bi" | "ac-tri" | "dc">("ac-mono");
   const [maxA, setMaxA] = useState<number>(32);
+  // Mode test: ignorer les limites véhicule pour la puissance physique
+  const [bypassVehicleLimits, setBypassVehicleLimits] = useState<boolean>(false);
 
   const [vehicles, setVehicles] = useState<Array<{
     id: string;
@@ -1259,9 +1261,18 @@ export default function SimuEvseTab() {
   // Puissance max de la borne DC (configurable, typiquement 50-350 kW)
   const [dcMaxPowerKw, setDcMaxPowerKw] = useState<number>(350);
 
-  // Calcul des phases et courant effectifs (min EVSE, véhicule)
+  // Calcul des phases et courant effectifs (min EVSE, véhicule) - sauf en mode bypass
   const effectiveACConfig = useMemo(() => {
     if (isDCCharging) return null;
+
+    // En mode bypass, ignorer les limites véhicule
+    if (bypassVehicleLimits) {
+      return {
+        effectiveKw: (maxA * voltage * phases) / 1000,
+        effectivePhases: phases,
+        effectiveA: maxA
+      };
+    }
 
     // Phases et courant du véhicule (ou valeurs par défaut si non défini)
     const vehicleAcPhases = selectedVehicle?.acPhases ?? 3;
@@ -1274,7 +1285,7 @@ export default function SimuEvseTab() {
       vehicleAcMaxA,
       voltage
     );
-  }, [phases, maxA, voltage, selectedVehicle, isDCCharging]);
+  }, [phases, maxA, voltage, selectedVehicle, isDCCharging, bypassVehicleLimits]);
 
   const physicalLimitKw = useMemo(() => {
     if (isDCCharging) {
@@ -2597,7 +2608,7 @@ export default function SimuEvseTab() {
               <div className="col-span-2">
                 <div className="text-xs mb-1">{isDCCharging ? 'Max (kW)' : 'Max (A)'}</div>
                 <NumericInput
-                    className="w-full border rounded px-2 py-1"
+                    className={`w-full border rounded px-2 py-1 ${bypassVehicleLimits ? 'border-orange-400 bg-orange-50' : ''}`}
                     value={isDCCharging ? dcMaxPowerKw : maxA}
                     onChange={(val) => {
                       if (isDCCharging) {
@@ -2609,6 +2620,19 @@ export default function SimuEvseTab() {
                     min={1}
                     max={isDCCharging ? 500 : 500}
                 />
+                {!isDCCharging && (
+                  <label className="flex items-center gap-1 mt-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bypassVehicleLimits}
+                      onChange={(e) => setBypassVehicleLimits(e.target.checked)}
+                      className="w-3 h-3 accent-orange-500"
+                    />
+                    <span className={`text-[10px] ${bypassVehicleLimits ? 'text-orange-600 font-medium' : 'text-slate-400'}`}>
+                      Mode test (ignorer VE)
+                    </span>
+                  </label>
+                )}
               </div>
 
               <div className="col-span-4">
@@ -2765,6 +2789,7 @@ export default function SimuEvseTab() {
                       acPhases: selectedVehicle.acPhases ?? 3,
                       acMaxA: selectedVehicle.acMaxA ?? 32
                     } : undefined}
+                    externalTestMode={bypassVehicleLimits}
                 />
               </div>
 

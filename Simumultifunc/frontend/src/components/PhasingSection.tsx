@@ -30,6 +30,8 @@ interface PhasingSectionProps {
     };
     /** Limites du véhicule sélectionné */
     vehicleLimits?: VehiclePhasingLimits;
+    /** Mode test externe (optionnel) - si fourni, contrôle le mode test depuis le parent */
+    externalTestMode?: boolean;
 }
 
 // En développement, utiliser le proxy Vite (chaîne vide)
@@ -43,10 +45,14 @@ const PhasingSection: React.FC<PhasingSectionProps> = ({
                                                            disabled = false,
                                                            apiBase = getDefaultApiBase(),
                                                            evseConfig,
-                                                           vehicleLimits
+                                                           vehicleLimits,
+                                                           externalTestMode
                                                        }) => {
     // Mode test: ignore les limites véhicule, utilise uniquement les limites EVSE
-    const [testMode, setTestMode] = useState(false);
+    // Si externalTestMode est fourni, il prend le dessus
+    const [internalTestMode, setInternalTestMode] = useState(false);
+    const testMode = externalTestMode ?? internalTestMode;
+    const setTestMode = setInternalTestMode;
 
     // Calculer les limites effectives basées sur EVSE et véhicule (ou EVSE seul en mode test)
     const effectiveLimits = useMemo(() => {
@@ -161,17 +167,23 @@ const PhasingSection: React.FC<PhasingSectionProps> = ({
                         Effectif: {effectiveLimits.maxPhases}ph / {effectiveLimits.maxCurrentA}A
                     </span>
                 </div>
-                <label className="flex items-center gap-2 cursor-pointer ml-4">
-                    <input
-                        type="checkbox"
-                        checked={testMode}
-                        onChange={(e) => setTestMode(e.target.checked)}
-                        className="w-4 h-4 accent-orange-500"
-                    />
-                    <span className={`font-medium ${testMode ? "text-orange-600" : "text-slate-500"}`}>
-                        Mode test
+                {externalTestMode === undefined ? (
+                    <label className="flex items-center gap-2 cursor-pointer ml-4">
+                        <input
+                            type="checkbox"
+                            checked={testMode}
+                            onChange={(e) => setTestMode(e.target.checked)}
+                            className="w-4 h-4 accent-orange-500"
+                        />
+                        <span className={`font-medium ${testMode ? "text-orange-600" : "text-slate-500"}`}>
+                            Mode test
+                        </span>
+                    </label>
+                ) : (
+                    <span className={`text-xs font-medium ml-4 ${testMode ? "text-orange-600" : "text-slate-400"}`}>
+                        {testMode ? "Mode test actif" : ""}
                     </span>
-                </label>
+                )}
             </div>
 
             <div className="grid grid-cols-3 gap-3">
