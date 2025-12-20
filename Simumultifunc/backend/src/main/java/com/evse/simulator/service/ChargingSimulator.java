@@ -185,16 +185,27 @@ public class ChargingSimulator {
     }
 
     /**
-     * Calcule le courant à partir de la puissance et de la tension.
+     * Calcule le courant par phase à partir de la puissance et de la tension.
      */
     private double calculateCurrent(double powerKw, double voltage, ChargerType chargerType) {
         if (chargerType.isDC()) {
             // DC: I = P / U
             return (powerKw * 1000.0) / voltage;
         } else {
-            // AC: I = P / (U * sqrt(3)) pour triphasé
-            double factor = chargerType.getPhases() == 1 ? 1.0 : Math.sqrt(3);
-            return (powerKw * 1000.0) / (voltage * factor);
+            int phases = chargerType.getPhases();
+            if (phases > 1) {
+                // Triphasé: déterminer si la tension est phase-neutre ou ligne-ligne
+                if (voltage < 300) {
+                    // Tension phase-neutre (ex: 230V) - I = P / (V × phases)
+                    return (powerKw * 1000.0) / (voltage * phases);
+                } else {
+                    // Tension ligne-ligne (ex: 400V) - I = P / (V × √3)
+                    return (powerKw * 1000.0) / (voltage * Math.sqrt(3));
+                }
+            } else {
+                // Monophasé: I = P / V
+                return (powerKw * 1000.0) / voltage;
+            }
         }
     }
 

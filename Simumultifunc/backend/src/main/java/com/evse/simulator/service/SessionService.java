@@ -273,11 +273,24 @@ public class SessionService implements com.evse.simulator.domain.service.Session
         session.setEnergyDeliveredKwh(energyKwh);
         session.setMeterValue((int) (energyKwh * 1000)); // Conversion en Wh
 
-        // Calcul du courant
+        // Calcul du courant par phase
         if (session.getVoltage() > 0) {
-            double current = (powerKw * 1000) / session.getVoltage();
-            if (session.getChargerType().getPhases() > 1) {
-                current /= Math.sqrt(3);
+            double voltage = session.getVoltage();
+            int phases = session.getChargerType().getPhases();
+            double current;
+
+            if (phases > 1) {
+                // Triphasé: déterminer si la tension est phase-neutre ou ligne-ligne
+                if (voltage < 300) {
+                    // Tension phase-neutre (ex: 230V) - I = P / (V × phases)
+                    current = (powerKw * 1000) / (voltage * phases);
+                } else {
+                    // Tension ligne-ligne (ex: 400V) - I = P / (V × √3)
+                    current = (powerKw * 1000) / (voltage * Math.sqrt(3));
+                }
+            } else {
+                // Monophasé: I = P / V
+                current = (powerKw * 1000) / voltage;
             }
             session.setCurrentA(current);
         }
