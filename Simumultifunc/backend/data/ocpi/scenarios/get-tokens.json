@@ -1,0 +1,35 @@
+{
+  "id": "get-tokens",
+  "name": "Get Tokens",
+  "description": "Retrieve tokens from eMSP partner",
+  "category": "integration",
+  "tags": ["tokens", "emsp", "authorization"],
+  "requiredModules": ["TOKENS"],
+  "stopOnFailure": false,
+  "steps": [
+    {
+      "id": "step-1",
+      "name": "Fetch Tokens List",
+      "type": "HTTP_REQUEST",
+      "method": "GET",
+      "endpoint": "${endpoints.tokens}",
+      "timeoutMs": 30000,
+      "assertions": [
+        {
+          "name": "HTTP Status 200",
+          "type": "HTTP_STATUS",
+          "expected": 200,
+          "operator": "eq",
+          "critical": true
+        },
+        {
+          "name": "OCPI Status Success",
+          "type": "OCPI_STATUS",
+          "expected": 1000,
+          "operator": "eq",
+          "critical": true
+        }
+      ]
+    }
+  ]
+}

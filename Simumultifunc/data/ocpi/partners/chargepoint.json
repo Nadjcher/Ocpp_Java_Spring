@@ -1,0 +1,31 @@
+{
+  "id": "chargepoint",
+  "name": "ChargePoint",
+  "countryCode": "US",
+  "partyId": "CPT",
+  "role": "CPO",
+  "version": "2.2.1",
+  "activeEnvironment": "test",
+  "environments": {
+    "test": {
+      "baseUrl": "https://api.test.chargepoint.com",
+      "versionsUrl": "https://api.test.chargepoint.com/ocpi/versions",
+      "tokenB": "test-token-chargepoint-2024"
+    }
+  },
+  "endpoints": {
+    "credentials": "https://api.test.chargepoint.com/ocpi/2.2.1/credentials",
+    "locations": "https://api.test.chargepoint.com/ocpi/2.2.1/locations",
+    "sessions": "https://api.test.chargepoint.com/ocpi/2.2.1/sessions",
+    "cdrs": "https://api.test.chargepoint.com/ocpi/2.2.1/cdrs",
+    "tariffs": "https://api.test.chargepoint.com/ocpi/2.2.1/tariffs",
+    "tokens": "https://api.test.chargepoint.com/ocpi/2.2.1/tokens",
+    "commands": "https://api.test.chargepoint.com/ocpi/2.2.1/commands"
+  },
+  "modules": ["CREDENTIALS", "LOCATIONS", "SESSIONS", "CDRS", "TARIFFS", "TOKENS", "COMMANDS"],
+  "businessDetails": {
+    "name": "ChargePoint Inc.",
+    "website": "https://chargepoint.com"
+  },
+  "active": true
+}

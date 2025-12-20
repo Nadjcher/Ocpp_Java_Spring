@@ -120,25 +120,25 @@ export const STATUS_COLORS: Record<FrontendStatus, { bg: string; text: string; b
  * Icônes par statut
  */
 export function getStatusIcon(status: FrontendStatus, isCharging: boolean = false): string {
-  if (isCharging) return '⚡';
+  if (isCharging) return '[POWER]';
   switch (status) {
-    case 'available': return '✓';
-    case 'preparing': return '🔌';
-    case 'authorized': return '🔑';
-    case 'charging': return '⚡';
-    case 'finishing': return '🏁';
-    case 'reserved': return '🎫';
-    case 'error': return '⚠️';
+    case 'available': return '[OK]';
+    case 'preparing': return '[PLUG]';
+    case 'authorized': return '[LOCK]';
+    case 'charging': return '[POWER]';
+    case 'finishing': return '[TARGET]';
+    case 'reserved': return '[FILE]';
+    case 'error': return '[WARN]';
     case 'disconnected': return '○';
     case 'connecting': return '◐';
-    case 'booted': return '✓';
-    case 'parked': return '🅿️';
-    case 'plugged': return '🔌';
-    case 'authorizing': return '🔑';
-    case 'starting': return '▶️';
-    case 'started': return '⚡';
-    case 'stopping': return '⏸️';
-    case 'stopped': return '⏹️';
+    case 'booted': return '[OK]';
+    case 'parked': return '[BLDG]';
+    case 'plugged': return '[PLUG]';
+    case 'authorizing': return '[LOCK]';
+    case 'starting': return '[SYNC]';
+    case 'started': return '[POWER]';
+    case 'stopping': return '[PAUSE]';
+    case 'stopped': return '[PAUSE]';
     default: return '●';
   }
 }

@@ -5,6 +5,7 @@ import { SmartChargingPanel } from "@/components/SmartChargingPanel";
 import { OCPPChargingProfilesManager } from "@/services/OCPPChargingProfilesManager";
 import PhasingSection from '@/components/PhasingSection';
 import { config, fetchOcppUrls } from '@/config/env';
+import { NumericInput } from "@/components/ui/NumericInput";
 
 // Types extraits dans un fichier dédié
 import type {
@@ -30,7 +31,8 @@ import {
   MAX_POINTS,
   SOC_CHARGE_MULTIPLIER,
   VEHICLE_SCALE,
-  DEFAULT_VEHICLES
+  DEFAULT_VEHICLES,
+  calculateEffectiveACPower
 } from '@/constants/evse.constants';
 
 // Utilitaires extraits dans un fichier dédié
@@ -1010,6 +1012,8 @@ export default function SimuEvseTab() {
     imageUrl?: string;
     maxPowerKW?: number;
     acMaxKW?: number;
+    acPhases?: number;    // Nombre de phases AC supportées
+    acMaxA?: number;      // Courant max par phase en AC
     maxDCPower?: number;
     maxACPower?: number;
   }>>([]);
@@ -1224,12 +1228,16 @@ export default function SimuEvseTab() {
   }, []);
 
   // ========= 8. GESTIONNAIRE OCPP (qui peut maintenant utiliser toasts) =========
+  // Calculer la limite physique initiale selon le type EVSE par défaut
+  const initialPhases = DEFAULT_PHASES[evseType] || 1;
+  const initialMaxPowerW = maxA * DEFAULT_VOLTAGE * initialPhases;
+
   const [profilesManager] = useState(
       () =>
           new OCPPChargingProfilesManager({
-            maxPowerW: 22000,
+            maxPowerW: initialMaxPowerW,
             defaultVoltage: DEFAULT_VOLTAGE,
-            defaultPhases: DEFAULT_PHASES["ac-mono"],
+            defaultPhases: initialPhases,
             onLimitChange: (_connectorId: number, limitW: number, source: any) => {
               const limitKw = limitW / 1000;
               // Utilisation différée pour éviter les problèmes de closure
@@ -1251,16 +1259,38 @@ export default function SimuEvseTab() {
   // Puissance max de la borne DC (configurable, typiquement 50-350 kW)
   const [dcMaxPowerKw, setDcMaxPowerKw] = useState<number>(350);
 
+  // Calcul des phases et courant effectifs (min EVSE, véhicule)
+  const effectiveACConfig = useMemo(() => {
+    if (isDCCharging) return null;
+
+    // Phases et courant du véhicule (ou valeurs par défaut si non défini)
+    const vehicleAcPhases = selectedVehicle?.acPhases ?? 3;
+    const vehicleAcMaxA = selectedVehicle?.acMaxA ?? 32;
+
+    return calculateEffectiveACPower(
+      phases,      // EVSE phases
+      maxA,        // EVSE courant max par phase
+      vehicleAcPhases,
+      vehicleAcMaxA,
+      voltage
+    );
+  }, [phases, maxA, voltage, selectedVehicle, isDCCharging]);
+
   const physicalLimitKw = useMemo(() => {
     if (isDCCharging) {
       // En DC, la puissance est directement en kW (pas de calcul V*A*phases)
       // On utilise le min entre la borne DC et le courant max configuré
       return dcMaxPowerKw;
     }
-    // En AC: P = V * I * phases (pour triphasé) ou P = V * I (mono)
-    const evseKw = (maxA * voltage * phases) / 1000;
-    return evseKw;
-  }, [maxA, voltage, phases, isDCCharging, dcMaxPowerKw]);
+
+    // En AC: utiliser le calcul effectif qui prend en compte min(EVSE, véhicule)
+    if (effectiveACConfig) {
+      return effectiveACConfig.effectiveKw;
+    }
+
+    // Fallback si pas de config
+    return (maxA * voltage * phases) / 1000;
+  }, [maxA, voltage, phases, isDCCharging, dcMaxPowerKw, effectiveACConfig]);
 
   const appliedLimitKw = useMemo(() => {
     const profileLimitKw = profileState.effectiveLimit.limitW / 1000;
@@ -1311,6 +1341,13 @@ export default function SimuEvseTab() {
 
   // Ref pour éviter que refreshSessions écrase la sélection utilisateur
   const userSelectedIdRef = useRef<string | null>(getStoredSelectedId());
+
+  // Mettre à jour la limite physique du profilesManager quand la config EVSE change
+  useEffect(() => {
+    const maxPowerW = physicalLimitKw * 1000;
+    profilesManager.setMaxPowerW(maxPowerW);
+    profilesManager.updateConnectorConfig(1, { voltage, phases });
+  }, [physicalLimitKw, voltage, phases, profilesManager]);
 
   // ========= 10. FONCTIONS ACTIONS =========
   async function refreshSessions() {
@@ -1414,6 +1451,8 @@ export default function SimuEvseTab() {
           maxA,
           // Pour DC, envoyer la puissance max configurée
           ...(evseType === 'dc' ? { maxPowerKw: dcMaxPowerKw } : {}),
+          // Phases véhicule pour que le backend génère les MeterValues correctement
+          ...(selectedVehicle?.acPhases ? { vehicleAcPhases: selectedVehicle.acPhases } : {}),
         }),
       });
 
@@ -2557,18 +2596,18 @@ export default function SimuEvseTab() {
               </div>
               <div className="col-span-2">
                 <div className="text-xs mb-1">{isDCCharging ? 'Max (kW)' : 'Max (A)'}</div>
-                <input
-                    type="number"
+                <NumericInput
                     className="w-full border rounded px-2 py-1"
                     value={isDCCharging ? dcMaxPowerKw : maxA}
-                    onChange={(e) => {
-                      const val = Number(e.target.value || 0);
+                    onChange={(val) => {
                       if (isDCCharging) {
                         setDcMaxPowerKw(val);
                       } else {
                         setMaxA(val);
                       }
                     }}
+                    min={1}
+                    max={isDCCharging ? 500 : 500}
                 />
               </div>
 
@@ -2601,14 +2640,12 @@ export default function SimuEvseTab() {
               <div className="col-span-12 grid grid-cols-12 gap-2 mt-2">
                 <div className="col-span-2">
                   <div className="text-xs mb-1">Période MV (s)</div>
-                  <input
-                      type="number"
-                      min={1}
+                  <NumericInput
                       className="w-full border rounded px-2 py-1"
                       value={mvEvery}
-                      onChange={(e) =>
-                          setMvEvery(Number(e.target.value || 1))
-                      }
+                      onChange={setMvEvery}
+                      min={1}
+                      max={3600}
                   />
                 </div>
                 <div className="col-span-4">
@@ -2675,22 +2712,20 @@ export default function SimuEvseTab() {
                   <div className="text-xs mb-1">SoC (%)</div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-slate-500">Départ</span>
-                    <input
-                        type="number"
+                    <NumericInput
                         className="w-16 border rounded px-2 py-1"
                         value={socStart}
-                        onChange={(e) =>
-                            setSocStart(clamp(Number(e.target.value || 0), 0, 100))
-                        }
+                        onChange={setSocStart}
+                        min={0}
+                        max={100}
                     />
                     <span className="text-xs text-slate-500">Cible</span>
-                    <input
-                        type="number"
+                    <NumericInput
                         className="w-16 border rounded px-2 py-1"
                         value={socTarget}
-                        onChange={(e) =>
-                            setSocTarget(clamp(Number(e.target.value || 0), 0, 100))
-                        }
+                        onChange={setSocTarget}
+                        min={0}
+                        max={100}
                     />
                   </div>
                 </div>
@@ -2722,6 +2757,14 @@ export default function SimuEvseTab() {
                     sessionId={selId}
                     disabled={!selSession || selSession.status === "error"}
                     apiBase={API_BASE}
+                    evseConfig={{
+                      phases: phases,
+                      maxA: maxA
+                    }}
+                    vehicleLimits={selectedVehicle ? {
+                      acPhases: selectedVehicle.acPhases ?? 3,
+                      acMaxA: selectedVehicle.acMaxA ?? 32
+                    } : undefined}
                 />
               </div>
 

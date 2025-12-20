@@ -1,5 +1,6 @@
 package com.evse.simulator.repository;
 
+import com.evse.simulator.model.ExecutionDetail;
 import com.evse.simulator.model.Session;
 import com.evse.simulator.model.TNRScenario;
 import com.evse.simulator.model.VehicleProfile;
@@ -10,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Repository;
 
 import java.io.File;
@@ -30,10 +32,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * dans des fichiers JSON avec sauvegarde automatique.
  * </p>
  */
-@Repository
+@Repository("jsonDataRepository")
+@ConditionalOnProperty(name = "data.use-mongodb", havingValue = "false", matchIfMissing = true)
 @Slf4j
 @RequiredArgsConstructor
-public class JsonFileRepository {
+@org.springframework.context.annotation.Primary
+public class JsonFileRepository implements DataRepository {
 
     private final ObjectMapper objectMapper;
 
@@ -49,15 +53,20 @@ public class JsonFileRepository {
     @Value("${data.tnr-scenarios-file:./data/tnr-scenarios.json}")
     private String tnrScenariosFile;
 
+    @Value("${data.tnr-executions-file:./data/tnr-executions.json}")
+    private String tnrExecutionsFile;
+
     // Caches en mémoire
     private final Map<String, Session> sessionsCache = new ConcurrentHashMap<>();
     private final Map<String, VehicleProfile> vehiclesCache = new ConcurrentHashMap<>();
     private final Map<String, TNRScenario> tnrScenariosCache = new ConcurrentHashMap<>();
+    private final Map<String, ExecutionDetail> tnrExecutionsCache = new ConcurrentHashMap<>();
 
     // Flags de modification
     private volatile boolean sessionsDirty = false;
     private volatile boolean vehiclesDirty = false;
     private volatile boolean tnrScenariosDirty = false;
+    private volatile boolean tnrExecutionsDirty = false;
 
     /**
      * Initialise le repository au démarrage.
@@ -69,8 +78,9 @@ public class JsonFileRepository {
             loadVehicles();
             loadSessions();
             loadTNRScenarios();
-            log.info("JsonFileRepository initialized: {} vehicles, {} sessions, {} TNR scenarios",
-                    vehiclesCache.size(), sessionsCache.size(), tnrScenariosCache.size());
+            loadTNRExecutions();
+            log.info("JsonFileRepository initialized: {} vehicles, {} sessions, {} TNR scenarios, {} TNR executions",
+                    vehiclesCache.size(), sessionsCache.size(), tnrScenariosCache.size(), tnrExecutionsCache.size());
         } catch (Exception e) {
             log.error("Failed to initialize JsonFileRepository", e);
         }
@@ -310,6 +320,76 @@ public class JsonFileRepository {
     }
 
     // =========================================================================
+    // TNR Executions
+    // =========================================================================
+
+    /**
+     * Charge les exécutions TNR depuis le fichier JSON.
+     */
+    private void loadTNRExecutions() {
+        File file = new File(tnrExecutionsFile);
+        if (file.exists()) {
+            try {
+                List<ExecutionDetail> executions = objectMapper.readValue(file,
+                        new TypeReference<List<ExecutionDetail>>() {});
+                executions.forEach(e -> tnrExecutionsCache.put(e.id, e));
+                log.info("Loaded {} TNR executions from {}", executions.size(), tnrExecutionsFile);
+            } catch (Exception e) {
+                log.error("Failed to load TNR executions from {}", tnrExecutionsFile, e);
+            }
+        }
+    }
+
+    /**
+     * Sauvegarde les exécutions TNR dans le fichier JSON.
+     */
+    public synchronized void saveTNRExecutions() {
+        if (!tnrExecutionsDirty) {
+            return;
+        }
+        try {
+            List<ExecutionDetail> executions = new ArrayList<>(tnrExecutionsCache.values());
+            objectMapper.writerWithDefaultPrettyPrinter()
+                    .writeValue(new File(tnrExecutionsFile), executions);
+            tnrExecutionsDirty = false;
+            log.debug("Saved {} TNR executions to {}", executions.size(), tnrExecutionsFile);
+        } catch (Exception e) {
+            log.error("Failed to save TNR executions to {}", tnrExecutionsFile, e);
+        }
+    }
+
+    /**
+     * Récupère toutes les exécutions TNR.
+     */
+    public List<ExecutionDetail> findAllTNRExecutions() {
+        return new ArrayList<>(tnrExecutionsCache.values());
+    }
+
+    /**
+     * Récupère une exécution TNR par ID.
+     */
+    public Optional<ExecutionDetail> findTNRExecutionById(String id) {
+        return Optional.ofNullable(tnrExecutionsCache.get(id));
+    }
+
+    /**
+     * Sauvegarde une exécution TNR.
+     */
+    public ExecutionDetail saveTNRExecution(ExecutionDetail execution) {
+        tnrExecutionsCache.put(execution.id, execution);
+        tnrExecutionsDirty = true;
+        return execution;
+    }
+
+    /**
+     * Supprime une exécution TNR.
+     */
+    public void deleteTNRExecution(String id) {
+        tnrExecutionsCache.remove(id);
+        tnrExecutionsDirty = true;
+    }
+
+    // =========================================================================
     // Auto-save
     // =========================================================================
 
@@ -321,6 +401,7 @@ public class JsonFileRepository {
         saveSessions();
         saveVehicles();
         saveTNRScenarios();
+        saveTNRExecutions();
     }
 
     /**
@@ -330,6 +411,7 @@ public class JsonFileRepository {
         sessionsDirty = true;
         vehiclesDirty = true;
         tnrScenariosDirty = true;
+        tnrExecutionsDirty = true;
         autoSave();
         log.info("Forced save of all data");
     }
@@ -341,9 +423,11 @@ public class JsonFileRepository {
         sessionsCache.clear();
         vehiclesCache.clear();
         tnrScenariosCache.clear();
+        tnrExecutionsCache.clear();
         loadSessions();
         loadVehicles();
         loadTNRScenarios();
+        loadTNRExecutions();
         log.info("Reloaded all data from files");
     }
 }

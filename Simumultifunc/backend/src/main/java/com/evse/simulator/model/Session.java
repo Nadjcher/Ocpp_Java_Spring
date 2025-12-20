@@ -3,6 +3,7 @@ package com.evse.simulator.model;
 import com.evse.simulator.model.enums.ChargerType;
 import com.evse.simulator.model.enums.SessionState;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -27,6 +28,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@Schema(hidden = true)
 public class Session {
 
     /**
@@ -175,6 +177,14 @@ public class Session {
      */
     @Builder.Default
     private double currentA = 0.0;
+
+    /**
+     * Nombre de phases actives pour la charge.
+     * Peut être inférieur à chargerType.getPhases() si le véhicule
+     * ou le test de phasage limite le nombre de phases.
+     * Par défaut, utilise les phases du chargerType.
+     */
+    private Integer activePhases;
 
     /**
      * Température de la batterie en °C.
@@ -432,6 +442,19 @@ public class Session {
     // =========================================================================
     // Méthodes utilitaires
     // =========================================================================
+
+    /**
+     * Retourne le nombre de phases actives pour la génération MeterValues.
+     * Utilise activePhases si configuré, sinon les phases du chargerType.
+     *
+     * @return nombre de phases actives (1, 2 ou 3)
+     */
+    public int getEffectivePhases() {
+        if (activePhases != null && activePhases > 0) {
+            return activePhases;
+        }
+        return chargerType != null ? chargerType.getPhases() : 1;
+    }
 
     /**
      * Ajoute un log avec limitation de taille.

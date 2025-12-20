@@ -1,5 +1,5 @@
 // src/services/OCPPChargingProfilesManager.ts
-// VERSION COMPLÈTE avec support Recurring, validFrom/To, minChargingRate
+// VERSION COMPLÈTE avec support Multi-Sessions, Recurring, validFrom/To, minChargingRate
 
 export type ChargingProfilePurposeType = "ChargePointMaxProfile" | "TxDefaultProfile" | "TxProfile";
 export type ChargingProfileKindType = "Absolute" | "Recurring" | "Relative";
@@ -30,6 +30,10 @@ export interface ChargingProfile {
   recurrencyKind?: RecurrencyKindType;
   validFrom?: string;
   validTo?: string;
+  // Extension pour multi-sessions
+  sessionId?: string;
+  connectorId?: number;
+  appliedAt?: number;
 }
 
 export interface ProfileApplication {
@@ -41,11 +45,22 @@ export interface ProfileApplication {
   timestamp: number;
   nextChangeIn?: number;
   profileDetails?: ChargingProfile;
+  sessionId?: string;
 }
 
 export interface ConnectorConfig {
   voltage: number;
   phases: number;
+}
+
+// Interface pour la gestion des sessions
+export interface SessionChargingState {
+  sessionId: string;
+  transactionId?: number;
+  transactionStartTime?: number;
+  profiles: Map<number, ChargingProfile>;
+  effectiveLimit: ProfileApplication;
+  connectorId: number;
 }
 
 const PURPOSE_PRIORITY: Record<ChargingProfilePurposeType, number> = {
@@ -71,9 +86,17 @@ export class OCPPChargingProfilesManager {
   private timers: Map<number, NodeJS.Timeout[]>;
   private lastAppliedLimit: Map<number, number>;
   private transactionStartTimes: Map<number, number>;
+  private cleanupTimer: NodeJS.Timeout | null = null;
+
+  // Support multi-sessions
+  private sessions: Map<string, SessionChargingState> = new Map();
+  private sessionProfiles: Map<string, Map<number, ChargingProfile>> = new Map();
+  private sessionTimers: Map<string, NodeJS.Timeout[]> = new Map();
 
   public onLimitChange?: (connectorId: number, limitW: number, source: ProfileApplication) => void;
   public onProfileChange?: (event: any) => void;
+  public onProfileExpired?: (profileId: number, connectorId: number) => void;
+  public onSessionLimitChange?: (sessionId: string, limitW: number, source: ProfileApplication) => void;
 
   constructor(init?: {
     maxPowerW?: number;
@@ -96,6 +119,79 @@ export class OCPPChargingProfilesManager {
     const defaultVoltage = init?.defaultVoltage ?? 230;
     const defaultPhases = init?.defaultPhases ?? 1;
     this.updateConnectorConfig(1, { voltage: defaultVoltage, phases: defaultPhases });
+
+    // Démarrer le nettoyage automatique des profils expirés (toutes les 30s)
+    this.startCleanupTimer();
+  }
+
+  /**
+   * Démarre le timer de nettoyage automatique des profils expirés.
+   */
+  private startCleanupTimer() {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+    }
+    this.cleanupTimer = setInterval(() => {
+      this.cleanupExpiredProfiles();
+    }, 30000); // Toutes les 30 secondes
+  }
+
+  /**
+   * Nettoie les profils expirés (validTo < now) et recalcule les limites.
+   */
+  cleanupExpiredProfiles(): number {
+    const now = Date.now();
+    let cleanedCount = 0;
+    const expiredProfiles: Array<{connectorId: number, profileId: number}> = [];
+
+    for (const [connectorId, profilesMap] of this.profiles) {
+      for (const [profileId, profile] of profilesMap) {
+        // Vérifier validTo pour tous les types de profils
+        if (profile.validTo) {
+          const validToMs = Date.parse(profile.validTo);
+          if (validToMs < now) {
+            expiredProfiles.push({ connectorId, profileId });
+          }
+        }
+
+        // Vérifier aussi les profils Absolute avec duration expirée
+        if (profile.chargingProfileKind === "Absolute" && profile.chargingSchedule.duration) {
+          const startMs = profile.chargingSchedule.startSchedule
+            ? Date.parse(profile.chargingSchedule.startSchedule)
+            : now;
+          const endMs = startMs + profile.chargingSchedule.duration * 1000;
+          if (endMs < now) {
+            expiredProfiles.push({ connectorId, profileId });
+          }
+        }
+      }
+    }
+
+    // Supprimer les profils expirés
+    const connectorsToRecalc = new Set<number>();
+    for (const { connectorId, profileId } of expiredProfiles) {
+      const profilesMap = this.profiles.get(connectorId);
+      if (profilesMap?.has(profileId)) {
+        console.log(`[OCPPManager] 🗑️ Nettoyage profil expiré #${profileId} (connecteur ${connectorId})`);
+        profilesMap.delete(profileId);
+        this.clearTimersForProfile(connectorId, profileId);
+        cleanedCount++;
+        connectorsToRecalc.add(connectorId);
+        this.onProfileExpired?.(profileId, connectorId);
+      }
+    }
+
+    // Recalculer les limites pour les connecteurs affectés
+    for (const connectorId of connectorsToRecalc) {
+      this.recalculate(connectorId);
+    }
+
+    if (cleanedCount > 0) {
+      console.log(`[OCPPManager] ✅ ${cleanedCount} profil(s) expiré(s) nettoyé(s)`);
+      this.onProfileChange?.({ type: "CLEANUP", cleanedCount });
+    }
+
+    return cleanedCount;
   }
 
   updateConnectorConfig(connectorId: number, config: ConnectorConfig) {
@@ -114,6 +210,43 @@ export class OCPPChargingProfilesManager {
       phases: newPhases
     });
     this.recalculate(connectorId);
+  }
+
+  /**
+   * Met à jour la puissance maximale physique de la borne.
+   * Doit être appelé quand le type EVSE change.
+   *
+   * @param maxPowerW Puissance max en Watts (calculée selon type: maxA * voltage * phases)
+   */
+  setMaxPowerW(maxPowerW: number) {
+    if (this.maxPowerW === maxPowerW) return;
+
+    console.log(`[OCPPManager] Limite physique mise à jour: ${this.maxPowerW / 1000}kW -> ${maxPowerW / 1000}kW`);
+    this.maxPowerW = maxPowerW;
+
+    // Recalculer toutes les limites
+    for (const connectorId of this.connectors.keys()) {
+      this.recalculate(connectorId);
+    }
+
+    // Recalculer aussi les sessions
+    for (const sessionId of this.sessions.keys()) {
+      this.recalculateSession(sessionId);
+    }
+  }
+
+  /**
+   * Obtient la puissance maximale physique actuelle en Watts.
+   */
+  getMaxPowerW(): number {
+    return this.maxPowerW;
+  }
+
+  /**
+   * Obtient la puissance maximale physique actuelle en kW.
+   */
+  getMaxPowerKw(): number {
+    return this.maxPowerW / 1000;
   }
 
   markTransactionStart(connectorId: number) {
@@ -329,13 +462,21 @@ export class OCPPChargingProfilesManager {
   ): number | null {
     const schedule = profile.chargingSchedule;
 
-    // Vérifier validFrom/validTo pour les profils Recurring
-    if (profile.chargingProfileKind === "Recurring") {
-      if (profile.validFrom && Date.parse(profile.validFrom) > now) {
+    // ═══════════════════════════════════════════════════════════════════
+    // VÉRIFIER validFrom/validTo POUR TOUS LES TYPES DE PROFILS (OCPP 1.6)
+    // ═══════════════════════════════════════════════════════════════════
+    if (profile.validFrom) {
+      const validFromMs = Date.parse(profile.validFrom);
+      if (validFromMs > now) {
+        console.log(`[OCPPManager] Profil #${profile.chargingProfileId}: pas encore valide (validFrom=${profile.validFrom})`);
         return null; // Pas encore valide
       }
-      if (profile.validTo && Date.parse(profile.validTo) < now) {
-        return null; // Plus valide
+    }
+    if (profile.validTo) {
+      const validToMs = Date.parse(profile.validTo);
+      if (validToMs < now) {
+        console.log(`[OCPPManager] Profil #${profile.chargingProfileId}: EXPIRÉ (validTo=${profile.validTo}, now=${new Date(now).toISOString()})`);
+        return null; // Profil expiré
       }
     }
 
@@ -681,15 +822,596 @@ export class OCPPChargingProfilesManager {
     }
   }
 
+  /**
+   * Arrête proprement le manager (cleanup timer, etc.)
+   */
+  destroy() {
+    console.log("[OCPPManager] Destruction du manager");
+
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
+
+    for (const timers of this.timers.values()) {
+      timers.forEach(timer => clearTimeout(timer));
+    }
+
+    // Cleanup session timers
+    for (const timers of this.sessionTimers.values()) {
+      timers.forEach(timer => clearTimeout(timer));
+    }
+
+    this.profiles.clear();
+    this.effective.clear();
+    this.timers.clear();
+    this.sessions.clear();
+    this.sessionProfiles.clear();
+    this.sessionTimers.clear();
+  }
+
+  // ==========================================================================
+  // GESTION MULTI-SESSIONS
+  // ==========================================================================
+
+  /**
+   * Enregistre une nouvelle session de charge.
+   * À appeler quand une session SimuEVSE démarre.
+   */
+  registerSession(sessionId: string, config: {
+    connectorId?: number;
+    voltage?: number;
+    phases?: number;
+    transactionId?: number;
+  } = {}) {
+    const connectorId = config.connectorId ?? 1;
+    const voltage = config.voltage ?? 230;
+    const phases = config.phases ?? 1;
+
+    const state: SessionChargingState = {
+      sessionId,
+      transactionId: config.transactionId,
+      transactionStartTime: config.transactionId ? Date.now() : undefined,
+      profiles: new Map(),
+      effectiveLimit: {
+        profileId: -1,
+        purpose: "ChargePointMaxProfile",
+        stackLevel: -1,
+        limitW: this.maxPowerW,
+        source: "default",
+        timestamp: Date.now(),
+        sessionId
+      },
+      connectorId
+    };
+
+    this.sessions.set(sessionId, state);
+    this.sessionProfiles.set(sessionId, new Map());
+    this.connectors.set(connectorId, { voltage, phases });
+
+    console.log(`[OCPPManager] 📋 Session enregistrée: ${sessionId} (connector=${connectorId}, tx=${config.transactionId})`);
+  }
+
+  /**
+   * Désenregistre une session et supprime tous ses profils TxProfile.
+   * À appeler quand une session SimuEVSE se termine.
+   */
+  unregisterSession(sessionId: string, clearTxProfiles = true) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    // Supprimer les timers de la session
+    const timers = this.sessionTimers.get(sessionId);
+    if (timers) {
+      timers.forEach(timer => clearTimeout(timer));
+      this.sessionTimers.delete(sessionId);
+    }
+
+    // Supprimer les TxProfile liés à cette session (pas les TxDefaultProfile ni ChargePointMaxProfile)
+    if (clearTxProfiles) {
+      const profiles = this.sessionProfiles.get(sessionId);
+      if (profiles) {
+        for (const [profileId, profile] of profiles) {
+          if (profile.chargingProfilePurpose === "TxProfile") {
+            profiles.delete(profileId);
+            console.log(`[OCPPManager] 🗑️ TxProfile #${profileId} supprimé (fin session ${sessionId})`);
+          }
+        }
+      }
+    }
+
+    this.sessions.delete(sessionId);
+    console.log(`[OCPPManager] 📋 Session désenregistrée: ${sessionId}`);
+
+    this.onProfileChange?.({ type: "SESSION_END", sessionId });
+  }
+
+  /**
+   * Marque le début d'une transaction pour une session.
+   * Important pour les profils Relative.
+   */
+  startSessionTransaction(sessionId: string, transactionId: number) {
+    const session = this.sessions.get(sessionId);
+    if (session) {
+      session.transactionId = transactionId;
+      session.transactionStartTime = Date.now();
+      console.log(`[OCPPManager] 🔌 Transaction ${transactionId} démarrée pour session ${sessionId}`);
+    }
+    // Aussi mettre à jour le connecteur pour compatibilité
+    this.markTransactionStart(session?.connectorId ?? 1);
+  }
+
+  /**
+   * Marque la fin d'une transaction pour une session.
+   * Supprime automatiquement les TxProfile liés.
+   */
+  stopSessionTransaction(sessionId: string) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    const transactionId = session.transactionId;
+    session.transactionId = undefined;
+    session.transactionStartTime = undefined;
+
+    // Supprimer les TxProfile liés à cette transaction
+    const profiles = this.sessionProfiles.get(sessionId);
+    if (profiles) {
+      for (const [profileId, profile] of profiles) {
+        if (profile.chargingProfilePurpose === "TxProfile") {
+          if (!profile.transactionId || profile.transactionId === transactionId) {
+            profiles.delete(profileId);
+            console.log(`[OCPPManager] 🗑️ TxProfile #${profileId} supprimé (fin tx ${transactionId})`);
+          }
+        }
+      }
+    }
+
+    this.markTransactionStop(session.connectorId);
+    this.recalculateSession(sessionId);
+
+    console.log(`[OCPPManager] 🔌 Transaction ${transactionId} terminée pour session ${sessionId}`);
+  }
+
+  /**
+   * Applique un profil de charge à une session spécifique.
+   */
+  setSessionChargingProfile(
+    sessionId: string,
+    profile: ChargingProfile
+  ): { status: "Accepted" | "Rejected" } {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      // Auto-register session if not exists
+      this.registerSession(sessionId);
+    }
+
+    const profiles = this.sessionProfiles.get(sessionId) ?? new Map();
+
+    // Validation TxProfile: doit avoir une transaction active
+    if (profile.chargingProfilePurpose === "TxProfile") {
+      const currentSession = this.sessions.get(sessionId);
+      if (!currentSession?.transactionId && !profile.transactionId) {
+        console.warn(`[OCPPManager] ⚠️ TxProfile sans transaction active - session ${sessionId}`);
+        // On accepte quand même mais on log un warning
+      }
+      // Associer le profil à la transaction courante si non spécifié
+      if (!profile.transactionId && currentSession?.transactionId) {
+        profile.transactionId = currentSession.transactionId;
+      }
+    }
+
+    // Supprimer les profils de même purpose avec stackLevel <= au nouveau
+    for (const [id, existingProfile] of profiles) {
+      if (existingProfile.chargingProfilePurpose === profile.chargingProfilePurpose &&
+          existingProfile.stackLevel <= profile.stackLevel) {
+        profiles.delete(id);
+        console.log(`[OCPPManager] Profil #${id} remplacé par #${profile.chargingProfileId}`);
+      }
+    }
+
+    // Ajouter le profil avec métadonnées
+    const enrichedProfile: ChargingProfile = {
+      ...profile,
+      sessionId,
+      connectorId: session?.connectorId ?? 1,
+      appliedAt: Date.now()
+    };
+
+    profiles.set(profile.chargingProfileId, enrichedProfile);
+    this.sessionProfiles.set(sessionId, profiles);
+
+    // Programmer les recalculs pour les périodes
+    this.scheduleSessionRecalculation(sessionId, enrichedProfile);
+
+    console.log(`[OCPPManager] ✅ Profil #${profile.chargingProfileId} appliqué à session ${sessionId}`,
+      `(${profile.chargingProfilePurpose}, stack=${profile.stackLevel})`);
+
+    this.recalculateSession(sessionId);
+
+    this.onProfileChange?.({
+      type: "SET",
+      sessionId,
+      profileId: profile.chargingProfileId,
+      purpose: profile.chargingProfilePurpose,
+      profile: enrichedProfile
+    });
+
+    return { status: "Accepted" };
+  }
+
+  /**
+   * Supprime des profils d'une session selon les critères OCPP.
+   */
+  clearSessionChargingProfile(
+    sessionId: string,
+    criteria?: {
+      id?: number;
+      chargingProfilePurpose?: ChargingProfilePurposeType;
+      stackLevel?: number;
+    }
+  ): { status: "Accepted" | "Unknown"; cleared: number[] } {
+    const profiles = this.sessionProfiles.get(sessionId);
+    if (!profiles) {
+      return { status: "Unknown", cleared: [] };
+    }
+
+    const cleared: number[] = [];
+
+    for (const [profileId, profile] of profiles) {
+      let shouldClear = !criteria; // Si pas de critères, tout supprimer
+
+      if (criteria) {
+        shouldClear = true;
+
+        if (criteria.id !== undefined && profileId !== criteria.id) {
+          shouldClear = false;
+        }
+        if (criteria.chargingProfilePurpose &&
+            profile.chargingProfilePurpose !== criteria.chargingProfilePurpose) {
+          shouldClear = false;
+        }
+        if (criteria.stackLevel !== undefined &&
+            profile.stackLevel !== criteria.stackLevel) {
+          shouldClear = false;
+        }
+      }
+
+      if (shouldClear) {
+        profiles.delete(profileId);
+        cleared.push(profileId);
+        console.log(`[OCPPManager] 🗑️ Profil #${profileId} supprimé de session ${sessionId}`);
+      }
+    }
+
+    if (cleared.length > 0) {
+      this.recalculateSession(sessionId);
+      this.onProfileChange?.({ type: "CLEAR", sessionId, cleared });
+    }
+
+    return {
+      status: cleared.length > 0 ? "Accepted" : "Unknown",
+      cleared
+    };
+  }
+
+  /**
+   * Recalcule la limite effective pour une session.
+   */
+  private recalculateSession(sessionId: string) {
+    const session = this.sessions.get(sessionId);
+    const profiles = this.sessionProfiles.get(sessionId);
+
+    if (!session || !profiles) return;
+
+    const now = Date.now();
+
+    // Filtrer les profils actifs
+    const activeProfiles = Array.from(profiles.values())
+      .filter(p => this.isProfileActive(p, now));
+
+    if (activeProfiles.length === 0) {
+      session.effectiveLimit = {
+        profileId: -1,
+        purpose: "ChargePointMaxProfile",
+        stackLevel: -1,
+        limitW: this.maxPowerW,
+        source: "default",
+        timestamp: now,
+        sessionId
+      };
+      this.onSessionLimitChange?.(sessionId, this.maxPowerW, session.effectiveLimit);
+      return;
+    }
+
+    // Trier par priorité
+    const sortedProfiles = activeProfiles.sort((a, b) => {
+      const purposeDiff = PURPOSE_PRIORITY[b.chargingProfilePurpose] - PURPOSE_PRIORITY[a.chargingProfilePurpose];
+      if (purposeDiff !== 0) return purposeDiff;
+      return b.stackLevel - a.stackLevel;
+    });
+
+    // Prendre le profil le plus prioritaire avec une limite active
+    const config = this.connectors.get(session.connectorId) || { voltage: 230, phases: 1 };
+
+    for (const profile of sortedProfiles) {
+      const limitW = this.computeSessionProfileLimit(sessionId, profile, now);
+      if (limitW !== null) {
+        const newLimit: ProfileApplication = {
+          profileId: profile.chargingProfileId,
+          purpose: profile.chargingProfilePurpose,
+          stackLevel: profile.stackLevel,
+          limitW,
+          source: "profile",
+          timestamp: now,
+          profileDetails: profile,
+          sessionId
+        };
+
+        // Notifier si changement
+        if (session.effectiveLimit.limitW !== limitW) {
+          console.log(`[OCPPManager] Session ${sessionId}: limite ${session.effectiveLimit.limitW}W -> ${limitW}W`);
+          session.effectiveLimit = newLimit;
+          this.onSessionLimitChange?.(sessionId, limitW, newLimit);
+        } else {
+          session.effectiveLimit = newLimit;
+        }
+        return;
+      }
+    }
+
+    // Aucun profil actif
+    session.effectiveLimit = {
+      profileId: -1,
+      purpose: "ChargePointMaxProfile",
+      stackLevel: -1,
+      limitW: this.maxPowerW,
+      source: "default",
+      timestamp: now,
+      sessionId
+    };
+    this.onSessionLimitChange?.(sessionId, this.maxPowerW, session.effectiveLimit);
+  }
+
+  /**
+   * Calcule la limite d'un profil pour une session.
+   */
+  private computeSessionProfileLimit(
+    sessionId: string,
+    profile: ChargingProfile,
+    now: number
+  ): number | null {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+
+    const schedule = profile.chargingSchedule;
+    const config = this.connectors.get(session.connectorId) || { voltage: 230, phases: 1 };
+
+    // Déterminer le temps de début
+    let startMs: number;
+
+    if (profile.chargingProfileKind === "Relative") {
+      // Pour Relative, utiliser le début de transaction
+      if (!session.transactionStartTime) {
+        return null; // Pas de transaction active
+      }
+      startMs = session.transactionStartTime;
+    } else if (profile.chargingProfileKind === "Recurring") {
+      // Pour Recurring, calculer le cycle courant
+      const scheduleStart = schedule.startSchedule ? Date.parse(schedule.startSchedule) : now;
+      if (profile.recurrencyKind === "Daily") {
+        const startOfDay = new Date(now);
+        startOfDay.setHours(0, 0, 0, 0);
+        const scheduleTime = new Date(scheduleStart);
+        startOfDay.setHours(scheduleTime.getHours(), scheduleTime.getMinutes(), scheduleTime.getSeconds());
+        startMs = startOfDay.getTime();
+        if (startMs > now) startMs -= 24 * 60 * 60 * 1000;
+      } else if (profile.recurrencyKind === "Weekly") {
+        const startOfWeek = new Date(now);
+        const day = startOfWeek.getDay();
+        startOfWeek.setDate(startOfWeek.getDate() - day + (day === 0 ? -6 : 1));
+        startOfWeek.setHours(0, 0, 0, 0);
+        startMs = startOfWeek.getTime();
+        if (startMs > now) startMs -= 7 * 24 * 60 * 60 * 1000;
+      } else {
+        startMs = scheduleStart;
+      }
+    } else {
+      // Absolute
+      startMs = schedule.startSchedule ? Date.parse(schedule.startSchedule) : (profile.appliedAt ?? now);
+    }
+
+    const elapsedSec = Math.max(0, Math.floor((now - startMs) / 1000));
+
+    // Pour Recurring avec duration, utiliser modulo
+    let effectiveElapsedSec = elapsedSec;
+    if (profile.chargingProfileKind === "Recurring" && schedule.duration) {
+      effectiveElapsedSec = elapsedSec % schedule.duration;
+    } else if (schedule.duration && elapsedSec > schedule.duration) {
+      return null; // Profil expiré
+    }
+
+    // Trouver la période active
+    const periods = schedule.chargingSchedulePeriod || [];
+    if (periods.length === 0) return null;
+
+    let activePeriod: ChargingSchedulePeriod | null = null;
+    for (const period of periods) {
+      if (period.startPeriod <= effectiveElapsedSec) {
+        activePeriod = period;
+      } else {
+        break;
+      }
+    }
+
+    if (!activePeriod) return null;
+
+    // Convertir en Watts
+    let limitW: number;
+    if (schedule.chargingRateUnit === "W") {
+      limitW = activePeriod.limit;
+    } else {
+      const phases = activePeriod.numberPhases || config.phases || 1;
+      limitW = activePeriod.limit * config.voltage * phases;
+    }
+
+    // Appliquer minChargingRate
+    if (schedule.minChargingRate !== undefined) {
+      const minW = schedule.chargingRateUnit === "W"
+        ? schedule.minChargingRate
+        : schedule.minChargingRate * config.voltage * (config.phases || 1);
+      limitW = Math.max(limitW, minW);
+    }
+
+    return clamp(limitW, 0, this.maxPowerW);
+  }
+
+  /**
+   * Programme les recalculs pour les changements de période d'un profil de session.
+   */
+  private scheduleSessionRecalculation(sessionId: string, profile: ChargingProfile) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    const schedule = profile.chargingSchedule;
+    const now = Date.now();
+
+    // Nettoyer les anciens timers
+    let timers = this.sessionTimers.get(sessionId) || [];
+    this.sessionTimers.set(sessionId, []);
+
+    if (profile.chargingProfileKind === "Relative" && session.transactionStartTime) {
+      for (const period of schedule.chargingSchedulePeriod) {
+        const changeTime = session.transactionStartTime + period.startPeriod * 1000;
+        if (changeTime > now) {
+          const delay = changeTime - now;
+          const timer = setTimeout(() => {
+            console.log(`[OCPPManager] ⏰ Changement période session ${sessionId}`);
+            this.recalculateSession(sessionId);
+          }, delay);
+          timers.push(timer);
+        }
+      }
+    }
+
+    if (timers.length > 0) {
+      this.sessionTimers.set(sessionId, timers);
+    }
+  }
+
+  /**
+   * Obtient l'état complet d'une session.
+   */
+  getSessionState(sessionId: string): {
+    session: SessionChargingState | null;
+    profiles: ChargingProfile[];
+    effectiveLimit: ProfileApplication;
+  } {
+    const session = this.sessions.get(sessionId);
+    const profiles = this.sessionProfiles.get(sessionId);
+    const now = Date.now();
+
+    if (!session) {
+      return {
+        session: null,
+        profiles: [],
+        effectiveLimit: {
+          profileId: -1,
+          purpose: "ChargePointMaxProfile",
+          stackLevel: -1,
+          limitW: this.maxPowerW,
+          source: "default",
+          timestamp: now
+        }
+      };
+    }
+
+    // Filtrer les profils expirés
+    const activeProfiles = Array.from(profiles?.values() || [])
+      .filter(p => this.isProfileActive(p, now));
+
+    return {
+      session,
+      profiles: activeProfiles,
+      effectiveLimit: session.effectiveLimit
+    };
+  }
+
+  /**
+   * Obtient la limite actuelle en Watts pour une session.
+   */
+  getSessionCurrentLimitW(sessionId: string): number {
+    const session = this.sessions.get(sessionId);
+    return session?.effectiveLimit.limitW ?? this.maxPowerW;
+  }
+
+  /**
+   * Obtient la limite actuelle en kW pour une session.
+   */
+  getSessionCurrentLimitKw(sessionId: string): number {
+    return this.getSessionCurrentLimitW(sessionId) / 1000;
+  }
+
+  /**
+   * Liste toutes les sessions enregistrées.
+   */
+  getAllSessions(): string[] {
+    return Array.from(this.sessions.keys());
+  }
+
+  /**
+   * Vérifie si une session existe.
+   */
+  hasSession(sessionId: string): boolean {
+    return this.sessions.has(sessionId);
+  }
+
+  /**
+   * Vérifie si un profil est actif (non expiré).
+   */
+  private isProfileActive(profile: ChargingProfile, now = Date.now()): boolean {
+    // Vérifier validFrom
+    if (profile.validFrom) {
+      const validFromMs = Date.parse(profile.validFrom);
+      if (validFromMs > now) {
+        return false; // Pas encore valide
+      }
+    }
+
+    // Vérifier validTo
+    if (profile.validTo) {
+      const validToMs = Date.parse(profile.validTo);
+      if (validToMs < now) {
+        return false; // Expiré
+      }
+    }
+
+    // Vérifier duration pour les profils Absolute
+    if (profile.chargingProfileKind === "Absolute" && profile.chargingSchedule.duration) {
+      const startMs = profile.chargingSchedule.startSchedule
+        ? Date.parse(profile.chargingSchedule.startSchedule)
+        : now;
+      const endMs = startMs + profile.chargingSchedule.duration * 1000;
+      if (endMs < now) {
+        return false; // Durée expirée
+      }
+    }
+
+    return true;
+  }
+
   getConnectorState(connectorId: number): {
     profiles: ChargingProfile[];
     effectiveLimit: ProfileApplication;
   } {
+    const now = Date.now();
     const effectiveLimit = this.effective.get(connectorId) || this.pickEffectiveProfile(connectorId);
-    const profiles = Array.from(this.profiles.get(connectorId)?.values() || []);
+
+    // Filtrer les profils expirés pour l'affichage
+    const allProfiles = Array.from(this.profiles.get(connectorId)?.values() || []);
+    const activeProfiles = allProfiles.filter(p => this.isProfileActive(p, now));
 
     return {
-      profiles,
+      profiles: activeProfiles,
       effectiveLimit
     };
   }
@@ -699,12 +1421,19 @@ export class OCPPChargingProfilesManager {
     return state.effectiveLimit.limitW;
   }
 
-  getAllProfiles(): ChargingProfile[] {
+  getAllProfiles(includeExpired = false): ChargingProfile[] {
+    const now = Date.now();
     const allProfiles: ChargingProfile[] = [];
     for (const profilesMap of this.profiles.values()) {
       allProfiles.push(...profilesMap.values());
     }
-    return allProfiles;
+
+    if (includeExpired) {
+      return allProfiles;
+    }
+
+    // Filtrer les profils expirés par défaut
+    return allProfiles.filter(p => this.isProfileActive(p, now));
   }
 
   exportState() {

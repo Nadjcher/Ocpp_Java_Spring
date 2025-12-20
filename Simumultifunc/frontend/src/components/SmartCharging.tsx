@@ -60,16 +60,16 @@ export function SmartCharging() {
 
     const handleConnect = async () => {
         if (!selectedSessionId) {
-            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Sélectionnez une session`]);
+            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] [ERR] Sélectionnez une session`]);
             return;
         }
 
         try {
             await api.connectSession(selectedSessionId);
             setScConnected(true);
-            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ Connecté`]);
+            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] [OK] Connecté`]);
         } catch (error) {
-            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Erreur: ${error}`]);
+            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] [ERR] Erreur: ${error}`]);
         }
     };
 
@@ -79,15 +79,15 @@ export function SmartCharging() {
         try {
             await api.disconnectSession(selectedSessionId);
             setScConnected(false);
-            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Déconnecté`]);
+            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] [DISC] Déconnecté`]);
         } catch (error) {
-            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Erreur: ${error}`]);
+            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] [ERR] Erreur: ${error}`]);
         }
     };
 
     const handleSendOCPP = async () => {
         if (!selectedSessionId || !scConnected) {
-            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Non connecté`]);
+            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] [ERR] Non connecté`]);
             return;
         }
 
@@ -109,13 +109,13 @@ export function SmartCharging() {
                 `[${new Date().toLocaleTimeString()}] ← SetChargingProfile Response: ${JSON.stringify(result)}`
             ]);
         } catch (error) {
-            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Erreur: ${error}`]);
+            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] [ERR] Erreur: ${error}`]);
         }
     };
 
     const handleClearProfile = async () => {
         if (!selectedSessionId || !scConnected) {
-            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Non connecté`]);
+            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] [ERR] Non connecté`]);
             return;
         }
 
@@ -132,13 +132,13 @@ export function SmartCharging() {
                 `[${new Date().toLocaleTimeString()}] ← ClearChargingProfile Response: ${JSON.stringify(result)}`
             ]);
         } catch (error) {
-            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Erreur: ${error}`]);
+            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] [ERR] Erreur: ${error}`]);
         }
     };
 
     const handleSendCentral = async () => {
         if (!scEvpId || !scToken) {
-            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ EVP ID et Token requis`]);
+            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] [ERR] EVP ID et Token requis`]);
             return;
         }
 
@@ -157,7 +157,7 @@ export function SmartCharging() {
                 `[${new Date().toLocaleTimeString()}] ← CentralTask Response: ${JSON.stringify(result)}`
             ]);
         } catch (error) {
-            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Erreur: ${error}`]);
+            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] [ERR] Erreur: ${error}`]);
         }
     };
 
@@ -170,9 +170,9 @@ export function SmartCharging() {
         try {
             await api.saveChargingProfile(profile);
             await loadSavedProfiles();
-            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ Profil sauvegardé`]);
+            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] [OK] Profil sauvegardé`]);
         } catch (error) {
-            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ Erreur: ${error}`]);
+            setScLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] [ERR] Erreur: ${error}`]);
         }
     };
 
@@ -252,7 +252,7 @@ export function SmartCharging() {
                         {scConnected ? 'Disconnect' : 'Connect'}
                     </button>
                     <span className="ml-4 text-sm">
-            {scConnected ? '🟢 Connecté' : '🔴 Déconnecté'}
+            {scConnected ? '[CONNECTED]' : '[DISCONNECTED]'}
           </span>
 
                     <hr className="my-6 border-gray-700" />
@@ -444,8 +444,8 @@ export function SmartCharging() {
                         ) : (
                             scLogs.map((log, idx) => (
                                 <div key={idx} className={`mb-1 ${
-                                    log.includes('✅') ? 'text-green-400' :
-                                        log.includes('❌') ? 'text-red-400' :
+                                    log.includes('[OK]') ? 'text-green-400' :
+                                        log.includes('[ERR]') ? 'text-red-400' :
                                             log.includes('←') ? 'text-blue-400' :
                                                 log.includes('→') ? 'text-yellow-400' :
                                                     'text-gray-300'

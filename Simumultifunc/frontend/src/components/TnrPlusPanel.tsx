@@ -109,7 +109,7 @@ function SelectExec({label, value, onChange, items}: {label:string; value:string
                 <option value="">— choisir —</option>
                 {items.map(x => (
                     <option key={x.executionId} value={x.executionId}>
-                        {x.executionId} — {x.scenarioId} {x.passed ? "✅" : "❌"}
+                        {x.executionId} — {x.scenarioId} {x.passed ? "[OK]" : "[ERR]"}
                     </option>
                 ))}
             </select>

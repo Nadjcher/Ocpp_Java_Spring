@@ -1,0 +1,35 @@
+{
+  "id": "get-tariffs",
+  "name": "Get Tariffs",
+  "description": "Retrieve tariffs from partner",
+  "category": "integration",
+  "tags": ["tariffs", "pricing"],
+  "requiredModules": ["TARIFFS"],
+  "stopOnFailure": false,
+  "steps": [
+    {
+      "id": "step-1",
+      "name": "Fetch Tariffs List",
+      "type": "HTTP_REQUEST",
+      "method": "GET",
+      "endpoint": "${endpoints.tariffs}",
+      "timeoutMs": 30000,
+      "assertions": [
+        {
+          "name": "HTTP Status 200",
+          "type": "HTTP_STATUS",
+          "expected": 200,
+          "operator": "eq",
+          "critical": true
+        },
+        {
+          "name": "OCPI Status Success",
+          "type": "OCPI_STATUS",
+          "expected": 1000,
+          "operator": "eq",
+          "critical": true
+        }
+      ]
+    }
+  ]
+}

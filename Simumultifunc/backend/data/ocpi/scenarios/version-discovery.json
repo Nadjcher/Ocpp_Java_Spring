@@ -1,0 +1,17 @@
+{
+  "id": "version-discovery",
+  "name": "Version Discovery",
+  "description": "Discover OCPI versions and endpoints from partner",
+  "category": "smoke",
+  "tags": ["versions", "discovery", "basic"],
+  "requiredModules": ["CREDENTIALS"],
+  "stopOnFailure": true,
+  "steps": [
+    {
+      "id": "step-1",
+      "name": "Get Versions",
+      "type": "VERSION_DISCOVERY",
+      "timeoutMs": 10000
+    }
+  ]
+}

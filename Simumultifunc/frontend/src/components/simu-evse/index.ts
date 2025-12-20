@@ -9,4 +9,8 @@ export { ChargeDisplay } from './ChargeDisplay';
 export { Chart } from './Chart';
 export { Connector } from './Connector';
 export { Cable } from './Cable';
+export type { CableState } from './Cable';
 export { ChargingProfileCard } from './ChargingProfileCard';
+export { VehicleCard } from './VehicleCard';
+export { EVSEStation } from './EVSEStation';
+export { ChargingCable } from './ChargingCable';

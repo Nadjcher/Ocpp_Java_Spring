@@ -1,0 +1,36 @@
+{
+  "id": "shell-recharge",
+  "name": "Shell Recharge",
+  "countryCode": "NL",
+  "partyId": "SHR",
+  "role": "EMSP",
+  "version": "2.2.1",
+  "activeEnvironment": "test",
+  "environments": {
+    "test": {
+      "baseUrl": "https://ocpi.test.shellrecharge.com",
+      "versionsUrl": "https://ocpi.test.shellrecharge.com/ocpi/versions",
+      "tokenB": "test-token-shell-recharge-2024"
+    },
+    "pp": {
+      "baseUrl": "https://ocpi.pp.shellrecharge.com",
+      "versionsUrl": "https://ocpi.pp.shellrecharge.com/ocpi/versions",
+      "tokenB": "pp-token-shell-recharge-2024"
+    }
+  },
+  "endpoints": {
+    "credentials": "https://ocpi.test.shellrecharge.com/ocpi/2.2.1/credentials",
+    "locations": "https://ocpi.test.shellrecharge.com/ocpi/2.2.1/locations",
+    "sessions": "https://ocpi.test.shellrecharge.com/ocpi/2.2.1/sessions",
+    "cdrs": "https://ocpi.test.shellrecharge.com/ocpi/2.2.1/cdrs",
+    "tariffs": "https://ocpi.test.shellrecharge.com/ocpi/2.2.1/tariffs",
+    "tokens": "https://ocpi.test.shellrecharge.com/ocpi/2.2.1/tokens",
+    "commands": "https://ocpi.test.shellrecharge.com/ocpi/2.2.1/commands"
+  },
+  "modules": ["CREDENTIALS", "LOCATIONS", "SESSIONS", "CDRS", "TARIFFS", "TOKENS", "COMMANDS"],
+  "businessDetails": {
+    "name": "Shell Recharge Solutions B.V.",
+    "website": "https://shellrecharge.com"
+  },
+  "active": true
+}

@@ -1,0 +1,37 @@
+{
+  "id": "ionity",
+  "name": "IONITY",
+  "countryCode": "DE",
+  "partyId": "ION",
+  "role": "CPO",
+  "version": "2.2.1",
+  "activeEnvironment": "test",
+  "environments": {
+    "test": {
+      "baseUrl": "https://api.test.ionity.eu",
+      "versionsUrl": "https://api.test.ionity.eu/ocpi/versions",
+      "tokenB": "test-token-ionity-2024"
+    },
+    "pp": {
+      "baseUrl": "https://api.pp.ionity.eu",
+      "versionsUrl": "https://api.pp.ionity.eu/ocpi/versions",
+      "tokenB": "pp-token-ionity-2024"
+    }
+  },
+  "endpoints": {
+    "credentials": "https://api.test.ionity.eu/ocpi/2.2.1/credentials",
+    "locations": "https://api.test.ionity.eu/ocpi/2.2.1/locations",
+    "sessions": "https://api.test.ionity.eu/ocpi/2.2.1/sessions",
+    "cdrs": "https://api.test.ionity.eu/ocpi/2.2.1/cdrs",
+    "tariffs": "https://api.test.ionity.eu/ocpi/2.2.1/tariffs",
+    "tokens": "https://api.test.ionity.eu/ocpi/2.2.1/tokens",
+    "commands": "https://api.test.ionity.eu/ocpi/2.2.1/commands",
+    "chargingprofiles": "https://api.test.ionity.eu/ocpi/2.2.1/chargingprofiles"
+  },
+  "modules": ["CREDENTIALS", "LOCATIONS", "SESSIONS", "CDRS", "TARIFFS", "TOKENS", "COMMANDS", "CHARGING_PROFILES"],
+  "businessDetails": {
+    "name": "IONITY GmbH",
+    "website": "https://ionity.eu"
+  },
+  "active": true
+}

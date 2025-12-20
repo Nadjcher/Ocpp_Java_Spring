@@ -130,20 +130,43 @@ public enum ChargerType {
 
     /**
      * Convertit une chaîne en ChargerType.
+     * Supporte les formats: "ac-mono", "ac_mono", "AC_MONO", etc.
      */
     public static ChargerType fromValue(String value) {
         if (value == null) {
             return AC_TRI;
         }
+
+        // Normaliser: remplacer les tirets par des underscores et mettre en majuscules
+        String normalized = value.toUpperCase().replace("-", "_");
+
         for (ChargerType type : values()) {
-            if (type.value.equalsIgnoreCase(value) || type.name().equalsIgnoreCase(value)) {
+            if (type.value.equalsIgnoreCase(normalized) ||
+                type.name().equalsIgnoreCase(normalized) ||
+                type.value.equalsIgnoreCase(value) ||
+                type.name().equalsIgnoreCase(value)) {
                 return type;
             }
         }
-        // Fallback pour compatibilité
-        if (value.toUpperCase().contains("DC")) {
+
+        // Fallback pour compatibilité avec formats courts
+        if (normalized.contains("DC")) {
+            if (normalized.contains("150")) return DC_150;
+            if (normalized.contains("350")) return DC_350;
+            if (normalized.contains("50")) return DC_50;
             return DC;
         }
+        if (normalized.contains("MONO") || normalized.equals("AC_1") || normalized.equals("AC1")) {
+            return AC_MONO;
+        }
+        if (normalized.contains("BI") || normalized.equals("AC_2") || normalized.equals("AC2")) {
+            return AC_BI;
+        }
+        if (normalized.contains("TRI") || normalized.contains("43")) {
+            return normalized.contains("43") ? AC_TRI_43 : AC_TRI;
+        }
+
+        // Fallback par défaut
         return AC_TRI;
     }
 

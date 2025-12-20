@@ -1,0 +1,89 @@
+{
+  "id": "full-smoke-test",
+  "name": "Full Smoke Test",
+  "description": "Complete smoke test for all OCPI modules",
+  "category": "smoke",
+  "tags": ["smoke", "full", "all-modules"],
+  "requiredModules": ["CREDENTIALS"],
+  "stopOnFailure": false,
+  "steps": [
+    {
+      "id": "step-1",
+      "name": "Version Discovery",
+      "type": "VERSION_DISCOVERY",
+      "timeoutMs": 15000
+    },
+    {
+      "id": "step-2",
+      "name": "Get Locations",
+      "type": "HTTP_REQUEST",
+      "method": "GET",
+      "endpoint": "${endpoints.locations}",
+      "dependsOn": "step-1",
+      "timeoutMs": 30000,
+      "assertions": [
+        {
+          "name": "HTTP Status OK",
+          "type": "HTTP_STATUS",
+          "expected": 200,
+          "operator": "eq",
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": "step-3",
+      "name": "Get Sessions",
+      "type": "HTTP_REQUEST",
+      "method": "GET",
+      "endpoint": "${endpoints.sessions}",
+      "dependsOn": "step-1",
+      "timeoutMs": 30000,
+      "assertions": [
+        {
+          "name": "HTTP Status OK",
+          "type": "HTTP_STATUS",
+          "expected": 200,
+          "operator": "eq",
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": "step-4",
+      "name": "Get Tariffs",
+      "type": "HTTP_REQUEST",
+      "method": "GET",
+      "endpoint": "${endpoints.tariffs}",
+      "dependsOn": "step-1",
+      "timeoutMs": 30000,
+      "assertions": [
+        {
+          "name": "HTTP Status OK",
+          "type": "HTTP_STATUS",
+          "expected": 200,
+          "operator": "eq",
+          "critical": false
+        }
+      ]
+    },
+    {
+      "id": "step-5",
+      "name": "Get CDRs",
+      "type": "HTTP_REQUEST",
+      "method": "GET",
+      "endpoint": "${endpoints.cdrs}",
+      "dependsOn": "step-1",
+      "timeoutMs": 30000,
+      "assertions": [
+        {
+          "name": "HTTP Status OK",
+          "type": "HTTP_STATUS",
+          "expected": 200,
+          "operator": "eq",
+          "critical": false
+        }
+      ]
+    }
+  ]
+}

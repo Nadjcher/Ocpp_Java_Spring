@@ -100,13 +100,13 @@ const getSeverityColor = (severity: Severity) => {
 
 const getAnomalyIcon = (type: AnomalyType) => {
     const icons = {
-        UNCONTROLLABLE_EVSE: "⚡",
-        UNDERPERFORMING: "📉",
-        REGULATION_OSCILLATION: "〰️",
-        PHASE_IMBALANCE: "⚖️",
-        ENERGY_DRIFT: "📊",
-        SETPOINT_VIOLATION: "🎯",
-        STATISTICAL_OUTLIER: "🔔"
+        UNCONTROLLABLE_EVSE: "[POWER]",
+        UNDERPERFORMING: "[CHART]",
+        REGULATION_OSCILLATION: "[SYNC]",
+        PHASE_IMBALANCE: "[CHART]",
+        ENERGY_DRIFT: "[CHART]",
+        SETPOINT_VIOLATION: "[TARGET]",
+        STATISTICAL_OUTLIER: "[WARN]"
     };
     return icons[type];
 };
@@ -151,7 +151,7 @@ const AnomalyCard: React.FC<{ anomaly: AnomalyResult }> = ({ anomaly }) => (
         {anomaly.recommendation && (
             <div className="mt-3 p-3 bg-white rounded border">
                 <p className="text-sm text-gray-700">
-                    <strong>💡 Recommandation:</strong> {anomaly.recommendation}
+                    <strong>[TIP] Recommandation:</strong> {anomaly.recommendation}
                 </p>
             </div>
         )}
@@ -203,8 +203,8 @@ const PredictionCard: React.FC<{ prediction: EnergyPrediction }> = ({ prediction
                         prediction.efficiencyTrend === 'STABLE' ? 'text-blue-600' :
                             'text-red-600'
                 }`}>
-                    {prediction.efficiencyTrend === 'IMPROVING' ? '📈' :
-                        prediction.efficiencyTrend === 'STABLE' ? '➡️' : '📉'}
+                    {prediction.efficiencyTrend === 'IMPROVING' ? '[CHART]' :
+                        prediction.efficiencyTrend === 'STABLE' ? '[SYNC]' : '[CHART]'}
                 </div>
                 <div className="text-xs text-gray-600">Tendance</div>
             </div>
@@ -427,12 +427,12 @@ export default function MLAnalysisTab() {
             newAnomalies
                 .filter(a => a.severity === 'CRITICAL')
                 .forEach(anomaly => {
-                    console.warn(`🚨 Anomalie critique détectée:`, anomaly);
+                    console.warn(`[WARN] Anomalie critique détectée:`, anomaly);
                     // Ici on pourrait ajouter des notifications toast
                     if ('Notification' in window && Notification.permission === 'granted') {
                         new Notification('Anomalie Critique Détectée', {
                             body: `${anomaly.type}: ${anomaly.description}`,
-                            icon: '🚨'
+                            icon: '/favicon.ico'
                         });
                     }
                 });
@@ -495,7 +495,7 @@ export default function MLAnalysisTab() {
                         ws.close();
                         return;
                     }
-                    console.log('✅ Connected to ML WebSocket');
+                    console.log('[OK] Connected to ML WebSocket');
                     setWsStatus('connected');
                     wsRetryCount.current = 0; // Reset retry count on successful connection
                 };
@@ -508,7 +508,7 @@ export default function MLAnalysisTab() {
                         if (data.type === 'CONNECTION') {
                             console.log('WebSocket handshake:', data.message);
                         } else if (data.type === 'ML_ANOMALY') {
-                            console.log('🔔 Nouvelle anomalie reçue:', data.data);
+                            console.log('[WARN] Nouvelle anomalie reçue:', data.data);
 
                             // Ajouter l'anomalie à la liste (dédupliquée par ID)
                             setAnomalies(prev => {
@@ -523,9 +523,9 @@ export default function MLAnalysisTab() {
                             if ((data.data.severity === 'CRITICAL' || data.data.severity === 'HIGH') &&
                                 'Notification' in window &&
                                 Notification.permission === 'granted') {
-                                new Notification('🚨 Anomalie Détectée', {
+                                new Notification('[WARN] Anomalie Détectée', {
                                     body: `${data.data.type}: ${data.data.description}`,
-                                    icon: '🚨'
+                                    icon: '/favicon.ico'
                                 });
                             }
                         }
@@ -536,13 +536,13 @@ export default function MLAnalysisTab() {
 
                 ws.onerror = (error) => {
                     if (!isMounted) return;
-                    console.error('❌ WebSocket error:', error);
+                    console.error('[ERR] WebSocket error:', error);
                     setWsStatus('failed');
                 };
 
                 ws.onclose = () => {
                     if (!isMounted) return;
-                    console.log('🔌 WebSocket disconnected');
+                    console.log('[PLUG] WebSocket disconnected');
                     setWsStatus('disconnected');
                     wsRef.current = null;
 
@@ -605,7 +605,7 @@ export default function MLAnalysisTab() {
         setImportStatus("Import en cours...");
         try {
             const result = await importERRData(file);
-            setImportStatus(`✅ Import réussi: ${result.imported} échantillons`);
+            setImportStatus(`[OK] Import réussi: ${result.imported} échantillons`);
 
             // Relancer l'entraînement automatiquement
             if (result.imported > 0) {
@@ -616,7 +616,7 @@ export default function MLAnalysisTab() {
             }
         } catch (error) {
             console.error('Erreur import ERR:', error);
-            setImportStatus(`❌ Erreur: ${error}`);
+            setImportStatus(`[ERR] Erreur: ${error}`);
         }
     };
 
@@ -626,10 +626,10 @@ export default function MLAnalysisTab() {
             await trainModels();
             const status = await getModelStatus();
             setModelStatus(status);
-            setImportStatus("✅ Entraînement terminé avec succès!");
+            setImportStatus("[OK] Entraînement terminé avec succès!");
         } catch (error) {
             console.error('Erreur entraînement:', error);
-            setImportStatus(`❌ Erreur entraînement: ${error}`);
+            setImportStatus(`[ERR] Erreur entraînement: ${error}`);
         } finally {
             setIsTraining(false);
         }
@@ -677,14 +677,14 @@ export default function MLAnalysisTab() {
 
             // Afficher les stats
             setImportStatus(
-                `✅ Analyse terminée: ${results.anomalies.length} anomalies détectées, ` +
+                `[OK] Analyse terminée: ${results.anomalies.length} anomalies détectées, ` +
                 `Efficacité moyenne: ${(results.statistics.avgEfficiency * 100).toFixed(1)}%`
             );
 
             return results;
         } catch (error) {
             console.error('Erreur analyse ERR:', error);
-            setImportStatus(`❌ Erreur: ${error}`);
+            setImportStatus(`[ERR] Erreur: ${error}`);
             throw error;
         }
     };
@@ -705,8 +705,8 @@ export default function MLAnalysisTab() {
                         isAnalyzing ? 'bg-blue-100 text-blue-800 animate-pulse' :
                             activeSessions.length > 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                     }`}>
-                        {isAnalyzing ? '🔄 Analyse en cours...' :
-                            activeSessions.length > 0 ? '✅ Prêt' : '⏸️ En attente'}
+                        {isAnalyzing ? '[SYNC] Analyse en cours...' :
+                            activeSessions.length > 0 ? '[OK] Prêt' : '[PAUSE] En attente'}
                     </div>
                     <span className="text-sm text-gray-600">
                         {activeSessions.length} session{activeSessions.length !== 1 ? 's' : ''} active{activeSessions.length !== 1 ? 's' : ''}
@@ -791,7 +791,7 @@ export default function MLAnalysisTab() {
                                 disabled={isTraining}
                                 className="w-full px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                             >
-                                {isTraining ? '⏳ Entraînement...' : '🧠 Entraîner les modèles'}
+                                {isTraining ? '[TIMER] Entraînement...' : '[TARGET] Entraîner les modèles'}
                             </button>
 
                             {importStatus && (

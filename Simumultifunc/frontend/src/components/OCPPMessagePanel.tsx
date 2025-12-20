@@ -1,87 +1,103 @@
 // frontend/src/components/OCPPMessagePanel.tsx
-import React, { useState, useEffect } from 'react';
-import { useAppStore } from '@/store/useAppStore';
-import { MessageSquare, Send, ArrowUp, ArrowDown, Filter } from 'lucide-react';
+import React, { useState } from 'react';
 
-export function OCPPMessagePanel() {
-    const { ocppMessages } = useAppStore();
-    const [filter, setFilter] = useState('all');
-    const [searchTerm, setSearchTerm] = useState('');
-
-    const filteredMessages = ocppMessages.filter(msg => {
-        if (filter !== 'all' && msg.direction !== filter) return false;
-        if (searchTerm && !JSON.stringify(msg).toLowerCase().includes(searchTerm.toLowerCase())) return false;
-        return true;
-    });
-
-    return (
-        <div className="h-full flex flex-col bg-white rounded-lg shadow">
-            {/* Header */}
-            <div className="p-4 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                    <h2 className="text-xl font-bold flex items-center gap-2">
-                        <MessageSquare className="text-blue-600" />
-                        Messages OCPP
-                    </h2>
-
-                    <div className="flex items-center gap-3">
-                        <input
-                            type="text"
-                            placeholder="Rechercher..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="px-3 py-1 border rounded"
-                        />
-
-                        <select
-                            value={filter}
-                            onChange={(e) => setFilter(e.target.value)}
-                            className="px-3 py-1 border rounded"
-                        >
-                            <option value="all">Tous</option>
-                            <option value="SENT">Envoyés</option>
-                            <option value="RECEIVED">Reçus</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-
-            {/* Messages List */}
-            <div className="flex-1 overflow-auto p-4">
-                <div className="space-y-2">
-                    {filteredMessages.map((message, index) => (
-                        <div
-                            key={index}
-                            className={`p-3 rounded border ${
-                                message.direction === 'SENT'
-                                    ? 'bg-blue-50 border-blue-200'
-                                    : 'bg-green-50 border-green-200'
-                            }`}
-                        >
-                            <div className="flex items-start justify-between">
-                                <div className="flex items-center gap-2">
-                                    {message.direction === 'SENT' ? (
-                                        <ArrowUp className="text-blue-600" size={16} />
-                                    ) : (
-                                        <ArrowDown className="text-green-600" size={16} />
-                                    )}
-                                    <span className="font-medium">{message.action}</span>
-                                    <span className="text-xs text-gray-500">
-                    {new Date(message.timestamp).toLocaleTimeString()}
-                  </span>
-                                </div>
-                                <span className="text-xs bg-gray-200 px-2 py-1 rounded">
-                  {message.sessionId}
-                </span>
-                            </div>
-
-                            <div className="mt-2 text-sm font-mono bg-white p-2 rounded">
-                                <pre>{JSON.stringify(message.payload, null, 2)}</pre>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        </div>
-    );
+interface OCPPMessage {
+  id: string;
+  direction: 'SENT' | 'RECEIVED';
+  action: string;
+  payload: unknown;
+  timestamp: string;
+  sessionId?: string;
 }
+
+interface OCPPMessagePanelProps {
+  messages?: OCPPMessage[];
+  maxMessages?: number;
+  sessionId?: string;
+}
+
+export function OCPPMessagePanel({
+  messages = [],
+  maxMessages = 100,
+  sessionId
+}: OCPPMessagePanelProps) {
+  const [filter, setFilter] = useState('');
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  const filteredMessages = messages
+    .filter(m => !sessionId || m.sessionId === sessionId)
+    .filter(m => !filter || m.action.toLowerCase().includes(filter.toLowerCase()))
+    .slice(-maxMessages);
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div className="p-3 border-b border-gray-200 bg-gray-50">
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Filter by action..."
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+            className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded"
+          />
+          <span className="text-xs text-gray-500">
+            {filteredMessages.length} messages
+          </span>
+        </div>
+      </div>
+
+      <div className="max-h-96 overflow-y-auto">
+        {filteredMessages.length === 0 ? (
+          <div className="p-4 text-center text-gray-500 text-sm">
+            No OCPP messages yet
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {filteredMessages.map((msg, idx) => (
+              <div
+                key={msg.id || idx}
+                className={`p-2 text-xs cursor-pointer hover:bg-gray-50 ${
+                  msg.direction === 'SENT' ? 'bg-blue-50/30' : 'bg-green-50/30'
+                }`}
+                onClick={() => toggleExpand(msg.id || String(idx))}
+              >
+                <div className="flex items-center gap-2">
+                  <span className={`font-mono px-1.5 py-0.5 rounded text-[10px] ${
+                    msg.direction === 'SENT'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-green-100 text-green-700'
+                  }`}>
+                    {msg.direction === 'SENT' ? 'TX' : 'RX'}
+                  </span>
+                  <span className="font-medium text-gray-800">{msg.action}</span>
+                  <span className="text-gray-400 ml-auto">
+                    {new Date(msg.timestamp).toLocaleTimeString()}
+                  </span>
+                </div>
+                {expandedIds.has(msg.id || String(idx)) && (
+                  <pre className="mt-2 p-2 bg-gray-800 text-gray-100 rounded text-[10px] overflow-x-auto">
+                    {JSON.stringify(msg.payload, null, 2)}
+                  </pre>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default OCPPMessagePanel;

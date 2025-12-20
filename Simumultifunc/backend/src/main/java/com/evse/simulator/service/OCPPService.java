@@ -5,11 +5,13 @@ import com.evse.simulator.exception.OCPPException;
 import com.evse.simulator.exception.SessionNotFoundException;
 import com.evse.simulator.model.*;
 import com.evse.simulator.model.enums.*;
+import com.evse.simulator.model.enums.ChargerType;
 import com.evse.simulator.ocpp.handler.*;
 import com.evse.simulator.ocpp.v16.Ocpp16MessageRouter;
 import com.evse.simulator.websocket.OCPPWebSocketClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -35,17 +37,23 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
     private final OcppHandlerRegistry handlerRegistry;
     private final ChargingProfileManager chargingProfileManager;
     private final Ocpp16MessageRouter messageRouter;
+    private final com.evse.simulator.domain.service.TNRService tnrService;
+    private final com.evse.simulator.domain.service.SmartChargingService smartChargingService;
 
     public OCPPService(SessionService sessionService,
                        BroadcastService broadcaster,
                        OcppHandlerRegistry handlerRegistry,
                        ChargingProfileManager chargingProfileManager,
-                       Ocpp16MessageRouter messageRouter) {
+                       Ocpp16MessageRouter messageRouter,
+                       @Lazy com.evse.simulator.domain.service.TNRService tnrService,
+                       com.evse.simulator.domain.service.SmartChargingService smartChargingService) {
         this.sessionService = sessionService;
         this.broadcaster = broadcaster;
         this.handlerRegistry = handlerRegistry;
         this.chargingProfileManager = chargingProfileManager;
         this.messageRouter = messageRouter;
+        this.tnrService = tnrService;
+        this.smartChargingService = smartChargingService;
     }
 
     @Value("${ocpp.heartbeat-interval:30000}")
@@ -108,16 +116,24 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
 
             URI uri = new URI(wsUrl);
 
+            // Determine OCPP subprotocol based on session configuration
+            String ocppVersion = session.getOcppVersion() != null ? session.getOcppVersion() : "1.6";
+            String subprotocol = ocppVersion.startsWith("2") ? "ocpp2.0.1" : "ocpp1.6";
+
             // Créer le client WebSocket avec le gestionnaire de profils de charge et le routeur OCPP 1.6
-            OCPPWebSocketClient client = new OCPPWebSocketClient(uri, session, this, chargingProfileManager, messageRouter);
+            // The subprotocol is passed to the constructor for proper WebSocket handshake negotiation
+            // Le broadcaster permet au client de diffuser les mises à jour de session après les handlers
+            OCPPWebSocketClient client = new OCPPWebSocketClient(uri, session, this, chargingProfileManager, messageRouter, subprotocol, broadcaster);
+
+            // Injecter le service TNR pour l'enregistrement des événements
+            client.setTnrService(tnrService);
 
             // Ajouter le token d'authentification si présent
             if (session.getBearerToken() != null && !session.getBearerToken().isBlank()) {
                 client.addHeader("Authorization", "Bearer " + session.getBearerToken());
             }
 
-            // Subprotocole OCPP 1.6
-            client.addHeader("Sec-WebSocket-Protocol", "ocpp1.6");
+            log.info("Connecting session {} with OCPP subprotocol: {}", sessionId, subprotocol);
 
             clients.put(sessionId, client);
 
@@ -485,6 +501,9 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
         // Ajouter un log visible pour le message envoyé
         sessionService.addLog(sessionId, LogEntry.info("OCPP", ">> Sent " + action.getValue() + " " + toJson(payload)));
 
+        // Enregistrer l'événement CALL sortant pour TNR (important pour le replay!)
+        recordOutgoingCall(sessionId, messageId, action.getValue(), payload);
+
         // Stocker le future pour la réponse
         pendingRequests.put(messageId, future);
 
@@ -502,6 +521,27 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
         log.debug("Sent {} to session {}: {}", action, sessionId, json);
 
         return future;
+    }
+
+    /**
+     * Enregistre un CALL sortant pour TNR.
+     * Permet de capturer les CALLs client pour un replay complet.
+     */
+    private void recordOutgoingCall(String sessionId, String messageId, String action, Map<String, Object> payload) {
+        if (tnrService != null && tnrService.isRecording()) {
+            com.evse.simulator.model.TNREvent event = new com.evse.simulator.model.TNREvent();
+            event.setTimestamp(System.currentTimeMillis());
+            event.setSessionId(sessionId);
+            event.setType("ocpp_call");
+            event.setAction(action);
+            event.setPayload(java.util.Map.of(
+                "direction", "outgoing",
+                "messageId", messageId,
+                "payload", payload
+            ));
+            tnrService.recordEvent(event);
+            log.debug("TNR: Recorded outgoing CALL {} [{}]", action, messageId);
+        }
     }
 
     /**
@@ -648,6 +688,7 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
 
     /**
      * Simule la progression de la charge.
+     * Applique les limites Smart Charging si un profil est actif.
      */
     private void simulateCharging(String sessionId) {
         sessionService.findSession(sessionId).ifPresent(session -> {
@@ -655,17 +696,57 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
 
             double soc = session.getSoc();
             double targetSoc = session.getTargetSoc();
-            double powerKw = session.getCurrentPowerKw();
 
-            if (powerKw <= 0) {
-                powerKw = Math.min(session.getMaxPowerKw(), 11.0); // 11 kW par défaut
+            // Déterminer la puissance maximale selon le type de chargeur
+            ChargerType chargerType = session.getChargerType();
+            double chargerMaxPower = chargerType != null ? chargerType.getMaxPowerKw() : 22.0;
+            double sessionMaxPower = session.getMaxPowerKw();
+
+            // Utiliser le min entre la capacité du chargeur et la limite de session
+            double effectiveMaxPower = Math.min(chargerMaxPower, sessionMaxPower > 0 ? sessionMaxPower : chargerMaxPower);
+
+            // Calculer la puissance selon la courbe de charge
+            double powerKw;
+            if (chargerType != null && chargerType.isDC()) {
+                // Courbe DC réaliste
+                if (soc < 20) {
+                    powerKw = effectiveMaxPower * 0.9; // Montée en charge
+                } else if (soc < 50) {
+                    powerKw = effectiveMaxPower; // Pleine puissance
+                } else if (soc < 80) {
+                    powerKw = effectiveMaxPower * (1.0 - (soc - 50) / 100); // Dégressif
+                } else {
+                    powerKw = effectiveMaxPower * 0.3 * (1.0 - (soc - 80) / 40); // Très réduit
+                }
+            } else {
+                // Courbe AC - réduction à haut SoC
+                if (soc > 90) {
+                    powerKw = effectiveMaxPower * 0.25;
+                } else if (soc > 80) {
+                    powerKw = effectiveMaxPower * 0.5;
+                } else {
+                    powerKw = effectiveMaxPower;
+                }
             }
 
-            // Réduction de puissance à haut SoC
-            if (soc > 80) {
-                powerKw *= 0.5;
-            } else if (soc > 90) {
-                powerKw *= 0.25;
+            // ═══════════════════════════════════════════════════════════════════
+            // APPLIQUER LA LIMITE SMART CHARGING (SCP)
+            // ═══════════════════════════════════════════════════════════════════
+            String limitedBy = "vehicle/evse";
+            try {
+                double scpLimit = smartChargingService.getCurrentLimit(sessionId);
+                log.info("[SIM] Session {}: Calculated power={} kW, SCP limit={} kW",
+                    sessionId, powerKw, scpLimit);
+
+                if (scpLimit < powerKw) {
+                    log.info("[SIM] Session {}: APPLYING SCP limit {} kW (was {} kW)",
+                        sessionId, scpLimit, powerKw);
+                    powerKw = scpLimit;
+                    limitedBy = "scp";
+                    session.setScpLimitKw(scpLimit);
+                }
+            } catch (Exception e) {
+                log.warn("[SIM] Session {}: Error getting SCP limit: {}", sessionId, e.getMessage());
             }
 
             // Calcul de l'énergie pour l'intervalle réel (en secondes, cohérent avec le scheduler)
@@ -688,6 +769,10 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
             }
 
             double newEnergy = session.getEnergyDeliveredKwh() + energyKwh;
+
+            log.info("[SIM] Session {}: SoC={}%, power={} kW, energy={} kWh, limitedBy={}",
+                sessionId, String.format("%.1f", newSoc), String.format("%.2f", powerKw),
+                String.format("%.3f", newEnergy), limitedBy);
 
             sessionService.updateChargingData(sessionId, newSoc, powerKw, newEnergy);
         });

@@ -249,6 +249,94 @@ th {
     animation: slide-up 0.3s ease-out;
 }
 
+/* ===== Animations EVSE/EV Connector ===== */
+@keyframes connector-pulse {
+    0%, 100% {
+        transform: translate(-50%, -50%) scale(1);
+        opacity: 1;
+    }
+    50% {
+        transform: translate(-50%, -50%) scale(1.03);
+        opacity: 0.95;
+    }
+}
+
+@keyframes connector-glow {
+    0%, 100% {
+        filter: drop-shadow(0 0 8px rgba(16,185,129,0.7));
+    }
+    50% {
+        filter: drop-shadow(0 0 20px rgba(16,185,129,1));
+    }
+}
+
+@keyframes charging-pulse {
+    0%, 100% {
+        opacity: 0.7;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.05);
+    }
+}
+
+@keyframes energy-flow {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: -80; }
+}
+
+@keyframes vehicle-arrive {
+    from {
+        opacity: 0;
+        transform: translateX(100px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes vehicle-leave {
+    from {
+        opacity: 1;
+        transform: translateX(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateX(100px);
+    }
+}
+
+@keyframes cable-connect {
+    from {
+        stroke-dashoffset: 1000;
+    }
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+.animate-connector-pulse {
+    animation: connector-pulse 1.5s ease-in-out infinite;
+}
+
+.animate-connector-glow {
+    animation: connector-glow 2s ease-in-out infinite;
+}
+
+.animate-charging-pulse {
+    animation: charging-pulse 2s ease-in-out infinite;
+}
+
+.animate-vehicle-arrive {
+    animation: vehicle-arrive 0.5s ease-out forwards;
+}
+
+.animate-vehicle-leave {
+    animation: vehicle-leave 0.5s ease-in forwards;
+}
+
 /* ===== Dark mode cards (pour les composants sombres) ===== */
 .dark-card {
     @apply bg-gray-800 rounded-lg p-4 text-white;

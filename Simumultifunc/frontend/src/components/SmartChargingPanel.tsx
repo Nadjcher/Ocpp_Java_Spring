@@ -1,31 +1,54 @@
 // src/components/SmartChargingPanel.tsx
+// Support Multi-Sessions pour SimuEVSE
 
-import React, { useState, useEffect } from 'react';
-import { Settings, Plus, Trash2, Send, Calendar, Zap, Clock, ChevronDown, ChevronUp, Copy, Download } from 'lucide-react';
-import { OCPPChargingProfilesManager, ChargingProfile, ChargingSchedulePeriod } from '../services/OCPPChargingProfilesManager';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Settings, Plus, Trash2, Send, Calendar, Zap, Clock, ChevronDown, ChevronUp, Copy, Download, Users } from 'lucide-react';
+import { OCPPChargingProfilesManager, ChargingProfile, ChargingSchedulePeriod, ChargingProfilePurposeType } from '../services/OCPPChargingProfilesManager';
+
+interface SessionInfo {
+    id: string;
+    cpId?: string;
+    isCharging?: boolean;
+    txId?: number | null;
+}
 
 interface SmartChargingPanelProps {
     profilesManager: OCPPChargingProfilesManager;
     onSendProfile?: (connectorId: number, profile: ChargingProfile) => void;
     onClearProfile?: (criteria: any) => void;
     sessionId?: string;
+    // Multi-sessions support
+    sessions?: SessionInfo[];
+    selectedSessionId?: string;
+    onSessionSelect?: (sessionId: string) => void;
+    onSendSessionProfile?: (sessionId: string, profile: ChargingProfile) => void;
+    onClearSessionProfile?: (sessionId: string, criteria: any) => void;
 }
 
 export const SmartChargingPanel: React.FC<SmartChargingPanelProps> = ({
                                                                           profilesManager,
                                                                           onSendProfile,
                                                                           onClearProfile,
-                                                                          sessionId
+                                                                          sessionId: propSessionId,
+                                                                          sessions = [],
+                                                                          selectedSessionId: propSelectedSessionId,
+                                                                          onSessionSelect,
+                                                                          onSendSessionProfile,
+                                                                          onClearSessionProfile
                                                                       }) => {
     // État du panneau
     const [expanded, setExpanded] = useState(true);
     const [activeTab, setActiveTab] = useState<'create' | 'active' | 'history'>('create');
 
+    // Session sélectionnée
+    const [localSelectedSessionId, setLocalSelectedSessionId] = useState<string | undefined>(propSelectedSessionId || propSessionId);
+    const selectedSessionId = propSelectedSessionId || localSelectedSessionId;
+
     // Configuration du profil
     const [connectorId, setConnectorId] = useState(1);
     const [profileId, setProfileId] = useState(Date.now() % 10000);
     const [stackLevel, setStackLevel] = useState(0);
-    const [profilePurpose, setProfilePurpose] = useState<'ChargePointMaxProfile' | 'TxDefaultProfile' | 'TxProfile'>('TxProfile');
+    const [profilePurpose, setProfilePurpose] = useState<ChargingProfilePurposeType>('TxProfile');
     const [profileKind, setProfileKind] = useState<'Absolute' | 'Recurring' | 'Relative'>('Absolute');
     const [recurrencyKind, setRecurrencyKind] = useState<'Daily' | 'Weekly'>('Daily');
     const [validFrom, setValidFrom] = useState('');
@@ -42,22 +65,55 @@ export const SmartChargingPanel: React.FC<SmartChargingPanelProps> = ({
     const [nextChange, setNextChange] = useState<number | undefined>(undefined);
     const [logs, setLogs] = useState<string[]>([]);
 
+    // Mode session ou connecteur
+    const useSessionMode = sessions.length > 0 || !!selectedSessionId;
+
+    // Mise à jour de la session sélectionnée quand les props changent
+    useEffect(() => {
+        if (propSelectedSessionId) {
+            setLocalSelectedSessionId(propSelectedSessionId);
+        }
+    }, [propSelectedSessionId]);
+
     // Mise à jour périodique de l'état
     useEffect(() => {
         const updateState = () => {
-            const state = profilesManager.getConnectorState(connectorId);
-            setCurrentLimit({
-                limitW: state.effectiveLimit.limitW,
-                source: state.effectiveLimit.source
-            });
-            setActiveProfiles(state.profiles);
-            setNextChange(state.effectiveLimit.nextChangeIn);
+            if (useSessionMode && selectedSessionId) {
+                // Mode session
+                const state = profilesManager.getSessionState(selectedSessionId);
+                setCurrentLimit({
+                    limitW: state.effectiveLimit.limitW,
+                    source: state.effectiveLimit.source
+                });
+                setActiveProfiles(state.profiles);
+                setNextChange(state.effectiveLimit.nextChangeIn);
+            } else {
+                // Mode connecteur (legacy)
+                const state = profilesManager.getConnectorState(connectorId);
+                setCurrentLimit({
+                    limitW: state.effectiveLimit.limitW,
+                    source: state.effectiveLimit.source
+                });
+                setActiveProfiles(state.profiles);
+                setNextChange(state.effectiveLimit.nextChangeIn);
+            }
         };
 
         updateState();
         const interval = setInterval(updateState, 1000);
         return () => clearInterval(interval);
-    }, [profilesManager, connectorId]);
+    }, [profilesManager, connectorId, selectedSessionId, useSessionMode]);
+
+    // Changer de session
+    const handleSessionChange = (newSessionId: string) => {
+        setLocalSelectedSessionId(newSessionId);
+        onSessionSelect?.(newSessionId);
+    };
+
+    // Trouver la session sélectionnée
+    const selectedSession = useMemo(() => {
+        return sessions.find(s => s.id === selectedSessionId);
+    }, [sessions, selectedSessionId]);
 
     // Gestion des périodes
     const addSchedulePeriod = () => {
@@ -100,29 +156,63 @@ export const SmartChargingPanel: React.FC<SmartChargingPanelProps> = ({
 
     const handleSendProfile = () => {
         const profile = buildProfile();
-        const result = profilesManager.setChargingProfile(connectorId, profile);
 
-        if (result.status === 'Accepted') {
-            const logEntry = `[${new Date().toLocaleTimeString()}] ✅ Profile ${profile.chargingProfileId} appliqué (${profilePurpose}, stack ${stackLevel})`;
-            setLogs(prev => [...prev.slice(-49), logEntry]);
-            setProfileId(Date.now() % 10000); // Nouveau ID pour le prochain
+        let result;
+        let targetLabel: string;
 
-            if (onSendProfile) {
+        if (useSessionMode && selectedSessionId) {
+            // Mode session: appliquer à la session
+            result = profilesManager.setSessionChargingProfile(selectedSessionId, profile);
+            targetLabel = `session ${selectedSession?.cpId || selectedSessionId}`;
+
+            if (result.status === 'Accepted' && onSendSessionProfile) {
+                onSendSessionProfile(selectedSessionId, profile);
+            }
+        } else {
+            // Mode connecteur (legacy)
+            result = profilesManager.setChargingProfile(connectorId, profile);
+            targetLabel = `connecteur ${connectorId}`;
+
+            if (result.status === 'Accepted' && onSendProfile) {
                 onSendProfile(connectorId, profile);
             }
+        }
+
+        if (result.status === 'Accepted') {
+            const logEntry = `[${new Date().toLocaleTimeString()}] [OK] Profile #${profile.chargingProfileId} appliqué à ${targetLabel} (${profilePurpose}, stack ${stackLevel})`;
+            setLogs(prev => [...prev.slice(-49), logEntry]);
+            setProfileId(Date.now() % 10000); // Nouveau ID pour le prochain
         }
     };
 
     const handleClearProfile = (profileIdToClear?: number) => {
-        const criteria = profileIdToClear ? { id: profileIdToClear } : { connectorId };
-        const result = profilesManager.clearChargingProfile(criteria);
+        let result;
+        let targetLabel: string;
 
-        const logEntry = `[${new Date().toLocaleTimeString()}] 🗑️ ${result.cleared.length} profil(s) supprimé(s)`;
-        setLogs(prev => [...prev.slice(-49), logEntry]);
+        if (useSessionMode && selectedSessionId) {
+            // Mode session: supprimer de la session
+            const criteria = profileIdToClear
+                ? { id: profileIdToClear }
+                : undefined;
+            result = profilesManager.clearSessionChargingProfile(selectedSessionId, criteria);
+            targetLabel = `session ${selectedSession?.cpId || selectedSessionId}`;
 
-        if (onClearProfile) {
-            onClearProfile(criteria);
+            if (onClearSessionProfile) {
+                onClearSessionProfile(selectedSessionId, criteria || {});
+            }
+        } else {
+            // Mode connecteur (legacy)
+            const criteria = profileIdToClear ? { id: profileIdToClear } : { connectorId };
+            result = profilesManager.clearChargingProfile(criteria);
+            targetLabel = `connecteur ${connectorId}`;
+
+            if (onClearProfile) {
+                onClearProfile(criteria);
+            }
         }
+
+        const logEntry = `[${new Date().toLocaleTimeString()}] [DEL] ${result.cleared.length} profil(s) supprimé(s) de ${targetLabel}`;
+        setLogs(prev => [...prev.slice(-49), logEntry]);
     };
 
     const exportProfiles = () => {
@@ -156,6 +246,28 @@ export const SmartChargingPanel: React.FC<SmartChargingPanelProps> = ({
                             <p className="text-sm text-white/80">OCPP 1.6 Charging Profiles Manager</p>
                         </div>
                     </div>
+
+                    {/* Sélecteur de session (mode multi-sessions) */}
+                    {sessions.length > 0 && (
+                        <div className="flex items-center gap-2 mx-4">
+                            <Users className="w-4 h-4 text-white/70" />
+                            <select
+                                value={selectedSessionId || ''}
+                                onChange={(e) => handleSessionChange(e.target.value)}
+                                className="bg-white/20 text-white text-sm rounded-lg px-3 py-1.5 border border-white/30 focus:outline-none focus:ring-2 focus:ring-white/50"
+                            >
+                                <option value="" className="text-gray-800">Sélectionner une session...</option>
+                                {sessions.map(session => (
+                                    <option key={session.id} value={session.id} className="text-gray-800">
+                                        {session.cpId || session.id.slice(0, 8)}
+                                        {session.isCharging ? ' ⚡' : ''}
+                                        {session.txId ? ` (tx:${session.txId})` : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+
                     <button
                         onClick={() => setExpanded(!expanded)}
                         className="p-2 hover:bg-white/10 rounded-lg transition-colors"

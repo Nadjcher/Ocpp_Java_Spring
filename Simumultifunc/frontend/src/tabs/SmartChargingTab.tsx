@@ -4,6 +4,7 @@ import {
     useChargingProfileStore,
     type ChargingProfile as StoreChargingProfile,
     type EffectiveLimit,
+    type ClearChargingProfileCriteria,
     formatLimit,
     getPurposeColor
 } from "@/store/chargingProfileStore";
@@ -30,6 +31,7 @@ export default function SmartChargingTab() {
         addProfile,
         removeProfile,
         clearProfiles,
+        clearProfilesByCriteria,
         updateEffectiveLimit,
         updateCompositeSchedule,
         profilesMap,
@@ -41,6 +43,7 @@ export default function SmartChargingTab() {
             addProfile: state.addProfile,
             removeProfile: state.removeProfile,
             clearProfiles: state.clearProfiles,
+            clearProfilesByCriteria: state.clearProfilesByCriteria,
             updateEffectiveLimit: state.updateEffectiveLimit,
             updateCompositeSchedule: state.updateCompositeSchedule,
             profilesMap: state.profiles,
@@ -63,10 +66,13 @@ export default function SmartChargingTab() {
     const wsRef = useRef<WsRef>({ ws: null, open: false });
     const [urlBase, setUrlBase] = useState(config.ocppUrls.test);
     const [cpId, setCpId] = useState(config.defaults.cpId);
-    const [evpId, setEvpId] = useState("EVP-FLOW-001"); // info visuelle
+    const [evpId, setEvpId] = useState("EVP-FLOW-001"); // EVP-ID pour Central Task
     const [status, setStatus] = useState<"Déconnecté" | "Connexion…" | "Connecté">(
         "Déconnecté"
     );
+    const [centralTaskEnv, setCentralTaskEnv] = useState<"pp" | "test">("pp");
+    const [centralTaskLoading, setCentralTaskLoading] = useState(false);
+    const [customBearerToken, setCustomBearerToken] = useState(""); // Token manuel pour env Test
 
     // Affichage
     const [showGraph, setShowGraph] = useState(true);
@@ -152,18 +158,28 @@ export default function SmartChargingTab() {
                     appendLog(`>>> [CALLRESULT] SetChargingProfile -> Accepted`);
                 }
 
-                // Traiter ClearChargingProfile du serveur
+                // Traiter ClearChargingProfile du serveur - supporte TOUS les critères OCPP 1.6
                 if (action === "ClearChargingProfile") {
-                    if (payload?.id) {
-                        removeProfile(SMART_CHARGING_SESSION_ID, payload.id);
-                    } else if (payload?.chargingProfilePurpose) {
-                        clearProfiles(SMART_CHARGING_SESSION_ID, payload.chargingProfilePurpose);
-                    }
+                    // Construire les critères depuis le payload OCPP
+                    const criteria: ClearChargingProfileCriteria = {
+                        id: payload?.id,
+                        connectorId: payload?.connectorId,
+                        chargingProfilePurpose: payload?.chargingProfilePurpose,
+                        stackLevel: payload?.stackLevel
+                    };
+
+                    // Utiliser clearProfilesByCriteria qui gère tous les cas:
+                    // - ID spécifique
+                    // - Critères combinés (connectorId, purpose, stackLevel)
+                    // - Clear-all si aucun critère
+                    const removedCount = clearProfilesByCriteria(SMART_CHARGING_SESSION_ID, criteria);
                     recalculateEffectiveLimit();
 
-                    const response = [3, msgId, { status: "Accepted" }];
+                    // Répondre selon OCPP 1.6: Accepted si profils supprimés, Unknown sinon
+                    const status = removedCount > 0 ? "Accepted" : "Unknown";
+                    const response = [3, msgId, { status }];
                     wsRef.current.ws?.send(JSON.stringify(response));
-                    appendLog(`>>> [CALLRESULT] ClearChargingProfile -> Accepted`);
+                    appendLog(`>>> [CALLRESULT] ClearChargingProfile -> ${status} (${removedCount} profil(s) supprimé(s))`);
                 }
             }
 
@@ -199,7 +215,7 @@ export default function SmartChargingTab() {
         } catch (e) {
             appendLog(`<<< ${data}`);
         }
-    }, [addProfile, removeProfile, clearProfiles, updateCompositeSchedule, connectorId]);
+    }, [addProfile, clearProfilesByCriteria, updateCompositeSchedule, connectorId]);
 
     // Recalculer la limite effective localement
     const recalculateEffectiveLimit = useCallback(() => {
@@ -434,21 +450,40 @@ export default function SmartChargingTab() {
         const ws = ensureOpen();
         if (!ws) return appendLog("Connecte-toi d'abord.");
         const msgId = nextId();
-        const payload: any = { connectorId };
-        // on utilise profileId comme identifiant optionnel
-        if (profileId) payload.id = profileId;
-        // optionnellement filtrer par purpose
+
+        // Construire le payload ClearChargingProfile selon OCPP 1.6
+        // Tous les critères sont optionnels et combinés en AND
+        const payload: any = {};
+
+        // connectorId est toujours inclus (requis par OCPP 1.6)
+        payload.connectorId = connectorId;
+
+        // ID spécifique (si profileId > 0)
+        if (profileId > 0) {
+            payload.id = profileId;
+        }
+
+        // Purpose (toujours inclus pour filtrage)
         payload.chargingProfilePurpose = purpose;
+
+        // stackLevel (si > 0)
+        if (stackLevel > 0) {
+            payload.stackLevel = stackLevel;
+        }
+
         ws.send(JSON.stringify([2, msgId, "ClearChargingProfile", payload]));
         appendLog(`>>> ClearChargingProfile ${msgId}\n${JSON.stringify(payload, null, 2)}`);
 
-        // Supprimer également du store local
-        if (profileId) {
-            removeProfile(SMART_CHARGING_SESSION_ID, profileId);
-        } else {
-            clearProfiles(SMART_CHARGING_SESSION_ID, purpose);
-        }
+        // Supprimer également du store local avec les mêmes critères
+        const criteria: ClearChargingProfileCriteria = {
+            id: profileId > 0 ? profileId : undefined,
+            connectorId: connectorId,
+            chargingProfilePurpose: purpose,
+            stackLevel: stackLevel > 0 ? stackLevel : undefined
+        };
+        const removedCount = clearProfilesByCriteria(SMART_CHARGING_SESSION_ID, criteria);
         recalculateEffectiveLimit();
+        appendLog(`[Local] ${removedCount} profil(s) supprimé(s) du store local`);
     }
 
     function sendGetComposite() {
@@ -472,6 +507,96 @@ export default function SmartChargingTab() {
         clearProfiles(SMART_CHARGING_SESSION_ID);
         recalculateEffectiveLimit();
         appendLog("[Local] Tous les profils locaux ont été supprimés");
+    }
+
+    // =========================================================================
+    // Central Task API - Envoyer le profil via CSMS
+    // =========================================================================
+
+    async function sendViaCentralTask() {
+        if (!evpId.trim()) {
+            appendLog("❗ EVP-ID requis pour Central Task");
+            return;
+        }
+        if (periods.length === 0) {
+            appendLog("❗ Ajoutez au moins une période");
+            return;
+        }
+        // En env Test, un token manuel est requis
+        if (centralTaskEnv === "test" && !customBearerToken.trim()) {
+            appendLog("❗ Token Bearer requis pour l'environnement Test");
+            return;
+        }
+
+        setCentralTaskLoading(true);
+        appendLog(`>>> [CentralTask] Envoi SetChargingProfile via CSMS (${centralTaskEnv.toUpperCase()})...`);
+
+        try {
+            const response = await fetch(`/api/smart-charging/central-task/set-profile?env=${centralTaskEnv}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    evpId: evpId.trim(),
+                    connectorId,
+                    csChargingProfiles: setChargingProfilePayload.csChargingProfiles,
+                    customToken: centralTaskEnv === "test" ? customBearerToken.trim() : undefined
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.status === 'sent') {
+                appendLog(`<<< [CentralTask] Envoyé avec succès à ${result.centralTaskUrl}`);
+                appendLog(`<<< [CentralTask] Réponse: ${JSON.stringify(result.response, null, 2)}`);
+            } else {
+                appendLog(`❗ [CentralTask] Erreur: ${result.error || 'Erreur inconnue'}`);
+            }
+        } catch (e: any) {
+            appendLog(`❗ [CentralTask] Erreur: ${e?.message || e}`);
+        } finally {
+            setCentralTaskLoading(false);
+        }
+    }
+
+    async function clearViaCentralTask() {
+        if (!evpId.trim()) {
+            appendLog("❗ EVP-ID requis pour Central Task");
+            return;
+        }
+        // En env Test, un token manuel est requis
+        if (centralTaskEnv === "test" && !customBearerToken.trim()) {
+            appendLog("❗ Token Bearer requis pour l'environnement Test");
+            return;
+        }
+
+        setCentralTaskLoading(true);
+        appendLog(`>>> [CentralTask] Envoi ClearChargingProfile via CSMS (${centralTaskEnv.toUpperCase()})...`);
+
+        try {
+            const response = await fetch(`/api/smart-charging/central-task/clear-profile?env=${centralTaskEnv}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    evpId: evpId.trim(),
+                    connectorId,
+                    chargingProfilePurpose: purpose,
+                    customToken: centralTaskEnv === "test" ? customBearerToken.trim() : undefined
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.status === 'sent') {
+                appendLog(`<<< [CentralTask] ClearChargingProfile envoyé avec succès`);
+                appendLog(`<<< [CentralTask] Réponse: ${JSON.stringify(result.response, null, 2)}`);
+            } else {
+                appendLog(`❗ [CentralTask] Erreur: ${result.error || 'Erreur inconnue'}`);
+            }
+        } catch (e: any) {
+            appendLog(`❗ [CentralTask] Erreur: ${e?.message || e}`);
+        } finally {
+            setCentralTaskLoading(false);
+        }
     }
 
     return (
@@ -752,6 +877,77 @@ export default function SmartChargingTab() {
                     <button className="btn ml8" onClick={sendGetComposite}>
                         GetCompositeSchedule
                     </button>
+                </div>
+
+                {/* Section Central Task API */}
+                <div className="mt16 p12 surface" style={{ borderRadius: 8, border: '1px solid #3b82f6' }}>
+                    <div className="row mb8">
+                        <span style={{ fontWeight: 600, color: '#3b82f6' }}>
+                            Central Task API (CSMS → Borne)
+                        </span>
+                        <span className="muted ml8" style={{ fontSize: '11px' }}>
+                            Envoyer le profil via le CSMS au lieu de directement à la borne
+                        </span>
+                    </div>
+                    <div className="row">
+                        <label className="mr8">Env:</label>
+                        <select
+                            value={centralTaskEnv}
+                            onChange={(e) => setCentralTaskEnv(e.target.value as "pp" | "test")}
+                            style={{ width: 80 }}
+                        >
+                            <option value="pp">PP (Token Cognito auto)</option>
+                            <option value="test">Test (Token manuel)</option>
+                        </select>
+                        <label className="ml16 mr8">EVP-ID:</label>
+                        <input
+                            value={evpId}
+                            onChange={(e) => setEvpId(e.target.value)}
+                            placeholder="EVP-xxx"
+                            style={{ width: 180 }}
+                        />
+                    </div>
+                    {/* Champ Bearer Token pour env Test */}
+                    {centralTaskEnv === "test" && (
+                        <div className="row mt8">
+                            <label className="mr8" style={{ color: '#f59e0b' }}>Bearer Token:</label>
+                            <input
+                                type="password"
+                                value={customBearerToken}
+                                onChange={(e) => setCustomBearerToken(e.target.value)}
+                                placeholder="Entrez le token Bearer pour l'env Test"
+                                style={{ flex: 1, maxWidth: 400 }}
+                            />
+                            <span className="ml8 muted" style={{ fontSize: '10px' }}>
+                                (Requis pour env Test)
+                            </span>
+                        </div>
+                    )}
+                    <div className="row mt8">
+                        <button
+                            className="btn"
+                            onClick={sendViaCentralTask}
+                            disabled={centralTaskLoading || !evpId.trim() || periods.length === 0 || (centralTaskEnv === "test" && !customBearerToken.trim())}
+                            style={{ background: '#3b82f6' }}
+                        >
+                            {centralTaskLoading ? '...' : 'Envoyer via CSMS'}
+                        </button>
+                        <button
+                            className="btn ml8 warning"
+                            onClick={clearViaCentralTask}
+                            disabled={centralTaskLoading || !evpId.trim() || (centralTaskEnv === "test" && !customBearerToken.trim())}
+                        >
+                            {centralTaskLoading ? '...' : 'Clear via CSMS'}
+                        </button>
+                    </div>
+                    <div className="mt8 muted" style={{ fontSize: '10px' }}>
+                        L'EVP-ID est l'identifiant interne de la borne dans le système TTE (différent du CP-ID OCPP).
+                        {centralTaskEnv === "pp" ? (
+                            <> En PP, le token Cognito est obtenu automatiquement.</>
+                        ) : (
+                            <> En Test, vous devez fournir un token Bearer valide.</>
+                        )}
+                    </div>
                 </div>
             </div>
 

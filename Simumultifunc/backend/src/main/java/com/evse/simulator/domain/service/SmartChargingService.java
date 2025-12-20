@@ -15,6 +15,11 @@ public interface SmartChargingService {
     // Profile Management
     String setChargingProfile(String sessionId, ChargingProfile profile);
 
+    /**
+     * Applique un profil de charge avec connectorId explicite.
+     */
+    String setChargingProfile(int connectorId, String sessionId, ChargingProfile profile);
+
     String clearChargingProfile(String sessionId, Integer chargingProfileId,
                                Integer stackLevel, ChargingProfilePurpose purpose);
 

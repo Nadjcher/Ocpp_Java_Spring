@@ -5,7 +5,7 @@ import com.evse.simulator.exception.SessionNotFoundException;
 import com.evse.simulator.model.*;
 import com.evse.simulator.model.enums.ChargerType;
 import com.evse.simulator.model.enums.SessionState;
-import com.evse.simulator.repository.JsonFileRepository;
+import com.evse.simulator.repository.DataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class SessionService implements com.evse.simulator.domain.service.SessionService {
 
-    private final JsonFileRepository repository;
+    private final DataRepository repository;
     private final BroadcastService broadcaster;
 
     // =========================================================================

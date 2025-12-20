@@ -1,6 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { config } from "@/config/env";
+import { NumericInput } from "@/components/ui/NumericInput";
 
 interface PhasingConfig {
     evsePhases: number;
@@ -8,10 +9,27 @@ interface PhasingConfig {
     powerPerPhase: number;
 }
 
+/**
+ * Configuration des limites du véhicule pour le phasage
+ */
+interface VehiclePhasingLimits {
+    /** Nombre de phases AC supportées par le chargeur embarqué (1, 2, ou 3) */
+    acPhases: number;
+    /** Courant max par phase du chargeur embarqué (A) */
+    acMaxA: number;
+}
+
 interface PhasingSectionProps {
     sessionId: string | null;
     disabled?: boolean;
     apiBase?: string;
+    /** Configuration EVSE actuelle */
+    evseConfig?: {
+        phases: number;
+        maxA: number;
+    };
+    /** Limites du véhicule sélectionné */
+    vehicleLimits?: VehiclePhasingLimits;
 }
 
 // En développement, utiliser le proxy Vite (chaîne vide)
@@ -23,12 +41,42 @@ const getDefaultApiBase = () => {
 const PhasingSection: React.FC<PhasingSectionProps> = ({
                                                            sessionId,
                                                            disabled = false,
-                                                           apiBase = getDefaultApiBase()
+                                                           apiBase = getDefaultApiBase(),
+                                                           evseConfig,
+                                                           vehicleLimits
                                                        }) => {
+    // Mode test: ignore les limites véhicule, utilise uniquement les limites EVSE
+    const [testMode, setTestMode] = useState(false);
+
+    // Calculer les limites effectives basées sur EVSE et véhicule (ou EVSE seul en mode test)
+    const effectiveLimits = useMemo(() => {
+        const evsePhases = evseConfig?.phases ?? 3;
+        const evseMaxA = evseConfig?.maxA ?? 32;
+        const vehiclePhases = vehicleLimits?.acPhases ?? 3;
+        const vehicleMaxA = vehicleLimits?.acMaxA ?? 32;
+
+        // En mode test, on utilise uniquement les limites EVSE
+        if (testMode) {
+            return {
+                maxPhases: evsePhases,
+                maxCurrentA: evseMaxA,
+                evsePhases,
+                vehiclePhases
+            };
+        }
+
+        return {
+            maxPhases: Math.min(evsePhases, vehiclePhases),
+            maxCurrentA: Math.min(evseMaxA, vehicleMaxA),
+            evsePhases,
+            vehiclePhases
+        };
+    }, [evseConfig, vehicleLimits, testMode]);
+
     const [phasingConfig, setPhasingConfig] = useState<PhasingConfig>({
-        evsePhases: 3,
-        vehicleActivePhases: 3,
-        powerPerPhase: 16
+        evsePhases: effectiveLimits.evsePhases,
+        vehicleActivePhases: effectiveLimits.maxPhases,
+        powerPerPhase: Math.min(16, effectiveLimits.maxCurrentA)
     });
 
     const [loading, setLoading] = useState(false);
@@ -54,41 +102,101 @@ const PhasingSection: React.FC<PhasingSectionProps> = ({
         setLoading(false);
     };
 
-    // Validation pour empêcher véhicule > EVSE
+    // Synchroniser quand les configs EVSE ou véhicule changent (sauf en mode test pour powerPerPhase)
     useEffect(() => {
-        if (phasingConfig.vehicleActivePhases > phasingConfig.evsePhases) {
+        setPhasingConfig(prev => {
+            const newEvsePhases = effectiveLimits.evsePhases;
+            const newVehiclePhases = Math.min(prev.vehicleActivePhases, effectiveLimits.maxPhases);
+            // En mode test, ne pas forcer le powerPerPhase au max
+            const newPowerPerPhase = testMode
+                ? prev.powerPerPhase
+                : Math.min(prev.powerPerPhase, effectiveLimits.maxCurrentA);
+
+            if (prev.evsePhases !== newEvsePhases ||
+                prev.vehicleActivePhases !== newVehiclePhases ||
+                prev.powerPerPhase !== newPowerPerPhase) {
+                return {
+                    evsePhases: newEvsePhases,
+                    vehicleActivePhases: newVehiclePhases,
+                    powerPerPhase: newPowerPerPhase
+                };
+            }
+            return prev;
+        });
+    }, [effectiveLimits, testMode]);
+
+    // Validation pour empêcher véhicule > min(EVSE, véhicule limite) - désactivé pour powerPerPhase en mode test
+    useEffect(() => {
+        if (phasingConfig.vehicleActivePhases > effectiveLimits.maxPhases) {
             setPhasingConfig(prev => ({
                 ...prev,
-                vehicleActivePhases: prev.evsePhases
+                vehicleActivePhases: effectiveLimits.maxPhases
             }));
         }
-    }, [phasingConfig.evsePhases]);
+        // En mode test, on ne force pas la limite sur powerPerPhase
+        if (!testMode && phasingConfig.powerPerPhase > effectiveLimits.maxCurrentA) {
+            setPhasingConfig(prev => ({
+                ...prev,
+                powerPerPhase: effectiveLimits.maxCurrentA
+            }));
+        }
+    }, [phasingConfig.evsePhases, effectiveLimits, testMode]);
 
     return (
         <div className="rounded border bg-white p-4 shadow-sm">
             <div className="font-semibold mb-3 text-purple-700">
-                ⚡ Test Régulation par Phasage
+                [POWER] Test Régulation par Phasage
+            </div>
+
+            {/* Indicateur des limites effectives + Mode test */}
+            <div className="mb-3 text-xs text-slate-500 bg-slate-50 p-2 rounded flex items-center justify-between">
+                <div className="flex gap-4">
+                    <span>EVSE: {effectiveLimits.evsePhases}ph / {evseConfig?.maxA ?? 32}A</span>
+                    <span>•</span>
+                    <span className={testMode ? "line-through text-slate-400" : ""}>
+                        Véhicule: {effectiveLimits.vehiclePhases}ph / {vehicleLimits?.acMaxA ?? 32}A
+                    </span>
+                    <span>•</span>
+                    <span className="font-medium text-purple-600">
+                        Effectif: {effectiveLimits.maxPhases}ph / {effectiveLimits.maxCurrentA}A
+                    </span>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer ml-4">
+                    <input
+                        type="checkbox"
+                        checked={testMode}
+                        onChange={(e) => setTestMode(e.target.checked)}
+                        className="w-4 h-4 accent-orange-500"
+                    />
+                    <span className={`font-medium ${testMode ? "text-orange-600" : "text-slate-500"}`}>
+                        Mode test
+                    </span>
+                </label>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
                 <div>
-                    <div className="text-xs mb-1 text-slate-600">EVSE Phases</div>
+                    <div className="text-xs mb-1 text-slate-600">
+                        EVSE Phases
+                        <span className="text-slate-400 ml-1">(config)</span>
+                    </div>
                     <select
-                        className="w-full border rounded px-2 py-1 text-sm"
+                        className="w-full border rounded px-2 py-1 text-sm bg-slate-100"
                         value={phasingConfig.evsePhases}
-                        onChange={(e) => setPhasingConfig({
-                            ...phasingConfig,
-                            evsePhases: parseInt(e.target.value)
-                        })}
-                        disabled={disabled || loading}
+                        disabled={true}
+                        title="Phases EVSE configurées (lecture seule)"
                     >
                         <option value="1">Mono (1ph)</option>
+                        <option value="2">Bi (2ph)</option>
                         <option value="3">Tri (3ph)</option>
                     </select>
                 </div>
 
                 <div>
-                    <div className="text-xs mb-1 text-slate-600">Véhicule Phases</div>
+                    <div className="text-xs mb-1 text-slate-600">
+                        Phases Actives
+                        <span className="text-slate-400 ml-1">(max {effectiveLimits.maxPhases})</span>
+                    </div>
                     <select
                         className="w-full border rounded px-2 py-1 text-sm"
                         value={phasingConfig.vehicleActivePhases}
@@ -99,27 +207,33 @@ const PhasingSection: React.FC<PhasingSectionProps> = ({
                         disabled={disabled || loading}
                     >
                         <option value="1">1 phase</option>
-                        {phasingConfig.evsePhases >= 2 &&
+                        {effectiveLimits.maxPhases >= 2 &&
                             <option value="2">2 phases</option>
                         }
-                        {phasingConfig.evsePhases >= 3 &&
+                        {effectiveLimits.maxPhases >= 3 &&
                             <option value="3">3 phases</option>
                         }
                     </select>
                 </div>
 
                 <div>
-                    <div className="text-xs mb-1 text-slate-600">Courant/phase (A)</div>
-                    <input
-                        type="number"
-                        min="6"
-                        max="63"
-                        className="w-full border rounded px-2 py-1 text-sm"
+                    <div className="text-xs mb-1 text-slate-600">
+                        Courant/phase
+                        <span className={`ml-1 ${testMode ? "text-orange-500" : "text-slate-400"}`}>
+                            {testMode ? "(libre)" : `(max ${effectiveLimits.maxCurrentA}A)`}
+                        </span>
+                    </div>
+                    <NumericInput
+                        min={6}
+                        max={testMode ? undefined : effectiveLimits.maxCurrentA}
+                        className={`w-full border rounded px-2 py-1 text-sm ${testMode ? "border-orange-400" : ""}`}
                         value={phasingConfig.powerPerPhase}
-                        onChange={(e) => setPhasingConfig({
-                            ...phasingConfig,
-                            powerPerPhase: parseInt(e.target.value) || 16
-                        })}
+                        onChange={(value) => {
+                            setPhasingConfig({
+                                ...phasingConfig,
+                                powerPerPhase: value
+                            });
+                        }}
                         disabled={disabled || loading}
                     />
                 </div>
@@ -143,14 +257,32 @@ const PhasingSection: React.FC<PhasingSectionProps> = ({
                             : 'bg-purple-600 text-white hover:bg-purple-700'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                 >
-                    {loading ? 'Application...' : applied ? '✓ Appliqué' : 'Appliquer Phasage'}
+                    {loading ? 'Application...' : applied ? '[OK] Appliqué' : 'Appliquer Phasage'}
                 </button>
             </div>
 
-            <div className="mt-2 text-xs text-slate-500 bg-purple-50 p-2 rounded">
-                Configure le nombre de phases actives pour tester la régulation SCP.
-                Le véhicule simulera {phasingConfig.vehicleActivePhases} phase(s) active(s)
-                avec {phasingConfig.powerPerPhase}A par phase.
+            <div className={`mt-2 text-xs p-2 rounded ${testMode ? "bg-orange-50 text-orange-700" : "bg-purple-50 text-slate-500"}`}>
+                {testMode && (
+                    <div className="mb-1 font-medium text-orange-600">
+                        Mode test actif - Limites véhicule ignorées (EVSE uniquement)
+                    </div>
+                )}
+                <div className="mb-1">
+                    Test régulation phasage: le véhicule simulera{' '}
+                    <span className={`font-medium ${testMode ? "text-orange-700" : "text-purple-700"}`}>
+                        {phasingConfig.vehicleActivePhases} phase(s)
+                    </span>
+                    {' '}avec{' '}
+                    <span className={`font-medium ${testMode ? "text-orange-700" : "text-purple-700"}`}>
+                        {phasingConfig.powerPerPhase}A/phase
+                    </span>
+                </div>
+                {!testMode && effectiveLimits.vehiclePhases < effectiveLimits.evsePhases && (
+                    <div className="text-amber-600 mt-1">
+                        Véhicule limité à {effectiveLimits.vehiclePhases}ph
+                        (chargeur embarqué: {vehicleLimits?.acMaxA ?? 32}A max)
+                    </div>
+                )}
             </div>
         </div>
     );

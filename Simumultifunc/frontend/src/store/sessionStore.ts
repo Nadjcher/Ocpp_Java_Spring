@@ -205,17 +205,21 @@ export const useSessionStore = create<SessionStore>()(
                     });
                     if (response.ok) {
                         const data = await response.json();
-                        set(state => ({
-                            sessions: state.sessions.map(s =>
-                                s.id === sessionId
-                                    ? { ...s, lastKeepalive: new Date().toISOString(), isConnected: data.connected }
-                                    : s
-                            )
-                        }));
-                        console.debug('[Keepalive] Session', sessionId, 'updated');
+                        if (data.status === 'ok') {
+                            set(state => ({
+                                sessions: state.sessions.map(s =>
+                                    s.id === sessionId
+                                        ? { ...s, lastKeepalive: new Date().toISOString(), isConnected: data.connected }
+                                        : s
+                                )
+                            }));
+                            console.debug('[Keepalive] Session', sessionId, 'updated');
+                        }
+                        // Silently ignore "session not found" errors - session may exist only locally
                     }
                 } catch (error) {
-                    console.warn('[Keepalive] Failed for session', sessionId, error);
+                    // Network errors are expected when backend is not running
+                    console.debug('[Keepalive] Network error for session', sessionId);
                 }
             },
 
@@ -279,18 +283,21 @@ export const useSessionStore = create<SessionStore>()(
             },
 
             setBackgrounded: async (sessionId: string, backgrounded: boolean) => {
+                // Update local state immediately
+                set(state => ({
+                    sessions: state.sessions.map(s =>
+                        s.id === sessionId ? { ...s, backgrounded } : s
+                    )
+                }));
+                // Try to sync with backend (ignore errors for local-only sessions)
                 try {
                     await fetch(`/api/sessions/${sessionId}/backgrounded?backgrounded=${backgrounded}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' }
                     });
-                    set(state => ({
-                        sessions: state.sessions.map(s =>
-                            s.id === sessionId ? { ...s, backgrounded } : s
-                        )
-                    }));
                 } catch (error) {
-                    console.warn('[SessionStore] Failed to set backgrounded:', error);
+                    // Silently ignore - session may only exist locally
+                    console.debug('[SessionStore] Could not sync backgrounded state:', sessionId);
                 }
             },
 

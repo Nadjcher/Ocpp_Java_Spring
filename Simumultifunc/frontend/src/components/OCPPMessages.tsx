@@ -96,7 +96,7 @@ export function OCPPMessages() {
 
     const handleConnect = async () => {
         if (!selectedSessionId) {
-            setMsgResponse(prev => prev + '\n❌ Sélectionnez une session\n');
+            setMsgResponse(prev => prev + '\n[ERR] Sélectionnez une session\n');
             return;
         }
 
@@ -104,9 +104,9 @@ export function OCPPMessages() {
             await api.connectSession(selectedSessionId);
             setMsgConnected(true);
             const timestamp = new Date().toLocaleTimeString();
-            setMsgResponse(prev => prev + `\n[${timestamp}] ✅ Connecté avec succès\n`);
+            setMsgResponse(prev => prev + `\n[${timestamp}] [OK] Connecté avec succès\n`);
         } catch (error) {
-            setMsgResponse(prev => prev + `\n❌ Erreur: ${error}\n`);
+            setMsgResponse(prev => prev + `\n[ERR] Erreur: ${error}\n`);
         }
     };
 
@@ -117,9 +117,9 @@ export function OCPPMessages() {
             await api.disconnectSession(selectedSessionId);
             setMsgConnected(false);
             const timestamp = new Date().toLocaleTimeString();
-            setMsgResponse(prev => prev + `\n[${timestamp}] ❌ Déconnecté\n`);
+            setMsgResponse(prev => prev + `\n[${timestamp}] [DISC] Déconnecté\n`);
         } catch (error) {
-            setMsgResponse(prev => prev + `\n❌ Erreur: ${error}\n`);
+            setMsgResponse(prev => prev + `\n[ERR] Erreur: ${error}\n`);
         }
     };
 
@@ -142,7 +142,7 @@ export function OCPPMessages() {
                 `\n[${responseTime}] <<< RECV ${msgAction}Response\n${JSON.stringify(result, null, 2)}\n`
             );
         } catch (error) {
-            setMsgResponse(prev => prev + `\n❌ Erreur: ${error}\n`);
+            setMsgResponse(prev => prev + `\n[ERR] Erreur: ${error}\n`);
         }
     };
 
@@ -200,7 +200,7 @@ export function OCPPMessages() {
                         {msgConnected ? 'Disconnect' : 'Connect'}
                     </button>
                     <span className="ml-4 text-sm">
-            {msgConnected ? '🟢 Connecté' : '🔴 Déconnecté'}
+            {msgConnected ? '[CONNECTED]' : '[DISCONNECTED]'}
           </span>
 
                     <hr className="my-6 border-gray-700" />

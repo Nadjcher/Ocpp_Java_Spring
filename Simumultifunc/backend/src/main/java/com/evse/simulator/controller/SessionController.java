@@ -1,12 +1,15 @@
 package com.evse.simulator.controller;
 
 import com.evse.simulator.domain.service.OCPPService;
+import com.evse.simulator.dto.request.session.CreateSessionRequest;
 import com.evse.simulator.model.Session;
+import com.evse.simulator.model.enums.ChargerType;
 import com.evse.simulator.model.enums.ConnectorStatus;
 import com.evse.simulator.model.enums.SessionState;
 import com.evse.simulator.service.SessionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -20,11 +23,11 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Contrôleur REST pour la gestion des sessions de charge.
+ * Controleur REST pour la gestion des sessions de charge.
  */
 @RestController
 @RequestMapping("/api/sessions")
-@Tag(name = "Sessions", description = "Gestion des sessions de charge EVSE")
+@Tag(name = "Sessions", description = "Gestion des sessions de charge EVSE - CRUD et actions")
 @RequiredArgsConstructor
 @Slf4j
 @CrossOrigin
@@ -38,35 +41,97 @@ public class SessionController {
     // =========================================================================
 
     @GetMapping
-    @Operation(summary = "Liste toutes les sessions")
-    public ResponseEntity<List<Session>> getAllSessions() {
-        return ResponseEntity.ok(sessionService.getAllSessions());
+    @Operation(summary = "Liste des sessions")
+    public ResponseEntity<List<Map<String, Object>>> getAllSessions() {
+        List<Map<String, Object>> summaries = sessionService.getAllSessions().stream()
+                .map(this::toSummary)
+                .toList();
+        return ResponseEntity.ok(summaries);
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Récupère une session par ID")
-    public ResponseEntity<Session> getSession(
-            @Parameter(description = "ID de la session") @PathVariable String id) {
-        return ResponseEntity.ok(sessionService.getSession(id));
+    @Operation(summary = "Details d'une session")
+    public ResponseEntity<Map<String, Object>> getSession(
+            @Parameter(description = "ID session", example = "sess-123")
+            @PathVariable String id) {
+        Session s = sessionService.getSession(id);
+        return ResponseEntity.ok(toDetail(s));
+    }
+
+    private Map<String, Object> toSummary(Session s) {
+        return Map.of(
+                "id", s.getId(),
+                "cpId", s.getCpId(),
+                "status", s.getStatus(),
+                "soc", (int) s.getSoc(),
+                "powerKw", s.getCurrentPowerKw(),
+                "connected", s.isConnected(),
+                "charging", s.isCharging()
+        );
+    }
+
+    private Map<String, Object> toDetail(Session s) {
+        return Map.ofEntries(
+                Map.entry("id", s.getId()),
+                Map.entry("cpId", s.getCpId()),
+                Map.entry("url", s.getUrl() != null ? s.getUrl() : ""),
+                Map.entry("status", s.getStatus()),
+                Map.entry("soc", (int) s.getSoc()),
+                Map.entry("targetSoc", (int) s.getTargetSoc()),
+                Map.entry("powerKw", s.getCurrentPowerKw()),
+                Map.entry("maxPowerKw", s.getMaxPowerKw()),
+                Map.entry("energyKwh", s.getEnergyDeliveredKwh()),
+                Map.entry("connected", s.isConnected()),
+                Map.entry("charging", s.isCharging()),
+                Map.entry("connectorId", s.getConnectorId()),
+                Map.entry("idTag", s.getIdTag() != null ? s.getIdTag() : ""),
+                Map.entry("transactionId", s.getTransactionId() != null ? s.getTransactionId() : "")
+        );
     }
 
     @PostMapping
-    @Operation(summary = "Crée une nouvelle session")
-    public ResponseEntity<Session> createSession(@Valid @RequestBody Session session) {
+    @Operation(summary = "Creer une session")
+    public ResponseEntity<Map<String, Object>> createSession(
+            @Valid @RequestBody CreateSessionRequest request) {
+        // Convertir DTO en Session
+        Session session = Session.builder()
+                .url(request.csmsUrl())
+                .cpId(request.cpId())
+                .title(request.cpId())
+                .connectorId(request.connectorId())
+                .vehicleProfile(request.vehicleId())
+                .chargerType(request.chargerType() != null ? ChargerType.valueOf(request.chargerType()) : ChargerType.AC_TRI)
+                .idTag(request.idTag())
+                .soc(request.initialSoc())
+                .targetSoc(request.targetSoc())
+                .bearerToken(request.bearerToken())
+                .build();
+
         Session created = sessionService.createSession(session);
-        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+        return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
+                "id", created.getId(),
+                "cpId", created.getCpId(),
+                "status", created.getStatus(),
+                "message", "Session creee"
+        ));
     }
 
     @PutMapping("/{id}")
-    @Operation(summary = "Met à jour une session")
-    public ResponseEntity<Session> updateSession(
+    @Operation(summary = "Mettre a jour une session")
+    public ResponseEntity<Map<String, Object>> updateSession(
             @PathVariable String id,
-            @RequestBody Session updates) {
-        return ResponseEntity.ok(sessionService.updateSession(id, updates));
+            @RequestBody Map<String, Object> updates) {
+        Session session = sessionService.getSession(id);
+        // Appliquer les updates
+        if (updates.containsKey("idTag")) session.setIdTag((String) updates.get("idTag"));
+        if (updates.containsKey("targetSoc")) session.setTargetSoc(((Number) updates.get("targetSoc")).doubleValue());
+        if (updates.containsKey("maxPowerKw")) session.setMaxPowerKw(((Number) updates.get("maxPowerKw")).doubleValue());
+        Session updated = sessionService.updateSession(id, session);
+        return ResponseEntity.ok(Map.of("id", id, "status", "updated"));
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Supprime une session")
+    @Operation(summary = "Supprimer une session")
     public ResponseEntity<Void> deleteSession(@PathVariable String id) {
         sessionService.deleteSession(id);
         return ResponseEntity.noContent().build();
@@ -77,7 +142,7 @@ public class SessionController {
     // =========================================================================
 
     @PostMapping("/{id}/connect")
-    @Operation(summary = "Connecte une session au CSMS")
+    @Operation(summary = "Connecter au CSMS")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> connect(@PathVariable String id) {
         return ocppService.connect(id)
                 .thenApply(connected -> {
@@ -98,7 +163,7 @@ public class SessionController {
     }
 
     @PostMapping("/{id}/disconnect")
-    @Operation(summary = "Déconnecte une session du CSMS")
+    @Operation(summary = "Deconnecter du CSMS")
     public ResponseEntity<Map<String, Object>> disconnect(@PathVariable String id) {
         ocppService.disconnect(id);
         return ResponseEntity.ok(Map.of(
@@ -112,9 +177,8 @@ public class SessionController {
     // =========================================================================
 
     @PostMapping("/{id}/boot")
-    @Operation(summary = "Envoie BootNotification")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> sendBootNotification(
-            @PathVariable String id) {
+    @Operation(summary = "BootNotification")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> sendBootNotification(@PathVariable String id) {
         return ocppService.sendBootNotification(id)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.badRequest()
@@ -122,9 +186,8 @@ public class SessionController {
     }
 
     @PostMapping("/{id}/authorize")
-    @Operation(summary = "Envoie Authorize")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> sendAuthorize(
-            @PathVariable String id) {
+    @Operation(summary = "Authorize")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> sendAuthorize(@PathVariable String id) {
         return ocppService.sendAuthorize(id)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.badRequest()
@@ -132,9 +195,8 @@ public class SessionController {
     }
 
     @PostMapping("/{id}/start")
-    @Operation(summary = "Envoie StartTransaction")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> sendStartTransaction(
-            @PathVariable String id) {
+    @Operation(summary = "StartTransaction")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> sendStartTransaction(@PathVariable String id) {
         return ocppService.sendStartTransaction(id)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.badRequest()
@@ -142,9 +204,8 @@ public class SessionController {
     }
 
     @PostMapping("/{id}/stop")
-    @Operation(summary = "Envoie StopTransaction")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> sendStopTransaction(
-            @PathVariable String id) {
+    @Operation(summary = "StopTransaction")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> sendStopTransaction(@PathVariable String id) {
         return ocppService.sendStopTransaction(id)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.badRequest()
@@ -152,9 +213,10 @@ public class SessionController {
     }
 
     @PostMapping("/{id}/status")
-    @Operation(summary = "Envoie StatusNotification")
+    @Operation(summary = "StatusNotification")
     public CompletableFuture<ResponseEntity<Map<String, Object>>> sendStatusNotification(
             @PathVariable String id,
+            @Parameter(schema = @Schema(allowableValues = {"Available", "Preparing", "Charging", "Finishing", "Faulted"}))
             @RequestParam(defaultValue = "Available") String status) {
         ConnectorStatus connectorStatus = ConnectorStatus.fromValue(status);
         return ocppService.sendStatusNotification(id, connectorStatus)
@@ -164,9 +226,8 @@ public class SessionController {
     }
 
     @PostMapping("/{id}/metervalues")
-    @Operation(summary = "Envoie MeterValues")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> sendMeterValues(
-            @PathVariable String id) {
+    @Operation(summary = "MeterValues")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> sendMeterValues(@PathVariable String id) {
         return ocppService.sendMeterValues(id)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.badRequest()
@@ -174,9 +235,8 @@ public class SessionController {
     }
 
     @PostMapping("/{id}/heartbeat")
-    @Operation(summary = "Envoie Heartbeat")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> sendHeartbeat(
-            @PathVariable String id) {
+    @Operation(summary = "Heartbeat")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> sendHeartbeat(@PathVariable String id) {
         return ocppService.sendHeartbeat(id)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(ex -> ResponseEntity.badRequest()
@@ -188,12 +248,14 @@ public class SessionController {
     // =========================================================================
 
     @PatchMapping("/{id}/state")
-    @Operation(summary = "Met à jour l'état d'une session")
-    public ResponseEntity<Session> updateState(
+    @Operation(summary = "Modifier l'etat")
+    public ResponseEntity<Map<String, Object>> updateState(
             @PathVariable String id,
+            @Parameter(schema = @Schema(allowableValues = {"Available", "Preparing", "Charging", "Finishing", "Faulted"}))
             @RequestParam String state) {
         SessionState sessionState = SessionState.fromValue(state);
-        return ResponseEntity.ok(sessionService.updateState(id, sessionState));
+        Session s = sessionService.updateState(id, sessionState);
+        return ResponseEntity.ok(Map.of("id", id, "state", s.getStatus()));
     }
 
     // =========================================================================
@@ -201,19 +263,19 @@ public class SessionController {
     // =========================================================================
 
     @GetMapping("/connected")
-    @Operation(summary = "Liste les sessions connectées")
-    public ResponseEntity<List<Session>> getConnectedSessions() {
-        return ResponseEntity.ok(sessionService.getConnectedSessions());
+    @Operation(summary = "Sessions connectees")
+    public ResponseEntity<List<Map<String, Object>>> getConnectedSessions() {
+        return ResponseEntity.ok(sessionService.getConnectedSessions().stream().map(this::toSummary).toList());
     }
 
     @GetMapping("/charging")
-    @Operation(summary = "Liste les sessions en charge")
-    public ResponseEntity<List<Session>> getChargingSessions() {
-        return ResponseEntity.ok(sessionService.getChargingSessions());
+    @Operation(summary = "Sessions en charge")
+    public ResponseEntity<List<Map<String, Object>>> getChargingSessions() {
+        return ResponseEntity.ok(sessionService.getChargingSessions().stream().map(this::toSummary).toList());
     }
 
     @GetMapping("/count")
-    @Operation(summary = "Compte les sessions")
+    @Operation(summary = "Comptage sessions")
     public ResponseEntity<Map<String, Object>> countSessions() {
         return ResponseEntity.ok(Map.of(
                 "total", sessionService.countSessions(),
@@ -226,7 +288,7 @@ public class SessionController {
     // =========================================================================
 
     @PostMapping("/{id}/keepalive")
-    @Operation(summary = "Met à jour le keepalive d'une session (heartbeat HTTP)")
+    @Operation(summary = "Keepalive HTTP")
     public ResponseEntity<Map<String, Object>> keepalive(@PathVariable String id) {
         try {
             Session session = sessionService.keepalive(id);
@@ -243,13 +305,12 @@ public class SessionController {
     }
 
     @PostMapping("/{id}/voluntary-stop")
-    @Operation(summary = "Marque une session pour arrêt volontaire")
+    @Operation(summary = "Arret volontaire")
     public ResponseEntity<Map<String, Object>> voluntaryStop(
             @PathVariable String id,
-            @RequestParam(defaultValue = "User requested disconnect") String reason) {
+            @RequestParam(defaultValue = "User request") String reason) {
         try {
             Session session = sessionService.setVoluntaryStop(id, reason);
-            // Déconnecte effectivement la session après le marquage
             ocppService.disconnect(id);
             return ResponseEntity.ok(Map.of(
                     "status", "stopped",
@@ -264,7 +325,7 @@ public class SessionController {
     }
 
     @PostMapping("/{id}/clear-voluntary-stop")
-    @Operation(summary = "Annule le flag d'arrêt volontaire pour permettre la reconnexion")
+    @Operation(summary = "Annuler arret volontaire")
     public ResponseEntity<Map<String, Object>> clearVoluntaryStop(@PathVariable String id) {
         try {
             Session session = sessionService.clearVoluntaryStop(id);
@@ -280,7 +341,7 @@ public class SessionController {
     }
 
     @PostMapping("/{id}/backgrounded")
-    @Operation(summary = "Marque une session comme en arrière-plan ou visible")
+    @Operation(summary = "Mode arriere-plan")
     public ResponseEntity<Map<String, Object>> setBackgrounded(
             @PathVariable String id,
             @RequestParam boolean backgrounded) {
@@ -298,14 +359,14 @@ public class SessionController {
     }
 
     @GetMapping("/reconnectable")
-    @Operation(summary = "Liste les sessions qui peuvent être reconnectées")
-    public ResponseEntity<List<Session>> getReconnectableSessions() {
-        return ResponseEntity.ok(sessionService.getReconnectableSessions());
+    @Operation(summary = "Sessions reconnectables")
+    public ResponseEntity<List<Map<String, Object>>> getReconnectableSessions() {
+        return ResponseEntity.ok(sessionService.getReconnectableSessions().stream().map(this::toSummary).toList());
     }
 
     @GetMapping("/stale")
-    @Operation(summary = "Liste les sessions abandonnées (pas de keepalive)")
-    public ResponseEntity<List<Session>> getStaleSessions() {
-        return ResponseEntity.ok(sessionService.getStaleSessions());
+    @Operation(summary = "Sessions abandonnees")
+    public ResponseEntity<List<Map<String, Object>>> getStaleSessions() {
+        return ResponseEntity.ok(sessionService.getStaleSessions().stream().map(this::toSummary).toList());
     }
 }

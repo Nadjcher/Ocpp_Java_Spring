@@ -1,0 +1,42 @@
+{
+  "id": "totalenergies-test",
+  "name": "TotalEnergies (Test)",
+  "countryCode": "FR",
+  "partyId": "TTE",
+  "role": "CPO",
+  "version": "2.2.1",
+  "activeEnvironment": "test",
+  "environments": {
+    "test": {
+      "baseUrl": "https://evplatform.evcharge-test.totalenergies.com",
+      "versionsUrl": "https://evplatform.evcharge-test.totalenergies.com/ocpi/versions",
+      "tokenB": "test-token-tte-2024",
+      "cognito": {
+        "tokenUrl": "https://tte-pool-prod.auth.eu-central-1.amazoncognito.com/oauth2/token",
+        "clientId": "",
+        "clientSecret": ""
+      }
+    },
+    "pp": {
+      "baseUrl": "https://evplatform.evcharge-pp.totalenergies.com",
+      "versionsUrl": "https://evplatform.evcharge-pp.totalenergies.com/ocpi/versions",
+      "tokenB": "pp-token-tte-2024"
+    }
+  },
+  "endpoints": {
+    "credentials": "https://evplatform.evcharge-test.totalenergies.com/ocpi/cpo/2.2.1/credentials",
+    "locations": "https://evplatform.evcharge-test.totalenergies.com/ocpi/cpo/2.2.1/locations",
+    "sessions": "https://evplatform.evcharge-test.totalenergies.com/ocpi/cpo/2.2.1/sessions",
+    "cdrs": "https://evplatform.evcharge-test.totalenergies.com/ocpi/cpo/2.2.1/cdrs",
+    "tariffs": "https://evplatform.evcharge-test.totalenergies.com/ocpi/cpo/2.2.1/tariffs",
+    "tokens": "https://evplatform.evcharge-test.totalenergies.com/ocpi/cpo/2.2.1/tokens",
+    "commands": "https://evplatform.evcharge-test.totalenergies.com/ocpi/cpo/2.2.1/commands",
+    "chargingprofiles": "https://evplatform.evcharge-test.totalenergies.com/ocpi/cpo/2.2.1/chargingprofiles"
+  },
+  "modules": ["CREDENTIALS", "LOCATIONS", "SESSIONS", "CDRS", "TARIFFS", "TOKENS", "COMMANDS", "CHARGING_PROFILES"],
+  "businessDetails": {
+    "name": "TotalEnergies Charging Services",
+    "website": "https://ev.totalenergies.com"
+  },
+  "active": true
+}

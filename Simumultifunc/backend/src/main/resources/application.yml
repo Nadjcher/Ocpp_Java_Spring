@@ -20,6 +20,12 @@ spring:
     name: evse-simulator
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
+  # Exclude MongoDB auto-configuration by default (enable with USE_MONGODB=true)
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.mongo.MongoAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.mongo.MongoDataAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.mongo.MongoRepositoriesAutoConfiguration
   # Graceful shutdown timeout
   lifecycle:
     timeout-per-shutdown-phase: 30s
@@ -28,6 +34,15 @@ spring:
   threads:
     virtual:
       enabled: ${VIRTUAL_THREADS_ENABLED:false}
+  # =============================================================================
+  # MongoDB Configuration
+  # =============================================================================
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/evse_simulator}
+      database: ${MONGODB_DATABASE:evse_simulator}
+      # Connection pool settings
+      auto-index-creation: true
   jackson:
     serialization:
       write-dates-as-timestamps: false
@@ -148,10 +163,15 @@ performance:
 # Data Storage Configuration
 # =============================================================================
 data:
+  # Set to true to use MongoDB, false for JSON file storage
+  # Default: false (JSON file storage) - set USE_MONGODB=true to enable MongoDB
+  use-mongodb: ${USE_MONGODB:false}
+  # JSON file storage paths (used when use-mongodb=false)
   path: ./data
   vehicles-file: ${data.path}/vehicles.json
   sessions-file: ${data.path}/sessions.json
   tnr-scenarios-file: ${data.path}/tnr-scenarios.json
+  tnr-executions-file: ${data.path}/tnr-executions.json
   auto-save-interval: 30000
   max-log-entries: 500
   max-chart-points: 500
@@ -199,9 +219,35 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
     enabled: true
-    operations-sorter: alpha
+    # Tri des operations par methode HTTP
+    operations-sorter: method
+    # Tri des tags par ordre alphabetique
     tags-sorter: alpha
+    # Afficher la duree des requetes
+    display-request-duration: true
+    # Barre de filtre
+    filter: true
+    # Afficher les extensions
+    show-extensions: true
+    # Sections collapsees par defaut
+    doc-expansion: none
+    # Profondeur d'expansion des modeles
+    default-models-expand-depth: 1
+    default-model-expand-depth: 2
+    # Essayer les requetes
+    try-it-out-enabled: true
+    # Syntaxe du schema JSON
+    syntax-highlight:
+      activated: true
+      theme: monokai
+  # Types de contenu par defaut
+  default-consumes-media-type: application/json
+  default-produces-media-type: application/json
+  # Ne pas montrer les endpoints actuator
   show-actuator: false
+  # Cache des definitions OpenAPI
+  cache:
+    disabled: false
 
 # =============================================================================
 # Logging
@@ -234,3 +280,14 @@ tte:
   api:
     base-url: ${TTE_API_URL:https://api.total-ev-charge.com}
     timeout-seconds: 30
+
+# =============================================================================
+# OCPI Test Configuration
+# =============================================================================
+ocpi:
+  partners:
+    directory: ${OCPI_PARTNERS_DIR:./data/ocpi/partners}
+  tests:
+    scenarios-directory: ${OCPI_SCENARIOS_DIR:./data/ocpi/scenarios}
+    results-directory: ${OCPI_RESULTS_DIR:./data/ocpi/results}
+    auto-save-interval: 30000

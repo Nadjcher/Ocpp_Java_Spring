@@ -202,6 +202,36 @@ export const perf = {
 };
 
 /* =============================== TNR ==================================== */
+export type TnrTemplate = {
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    tags: string[];
+    template: boolean;
+};
+
+export type TnrTolerances = {
+    socPercent: number;
+    energyKwh: number;
+    powerKw: number;
+    durationSec: number;
+    timestampMs: number;
+};
+
+export type TemplateParams = {
+    name?: string;
+    cpId?: string;
+    connectorId?: number;
+    vehicleId?: string;
+    idTag?: string;
+    initialSoc?: number;
+    targetSoc?: number;
+    chargerType?: string;
+    tags?: string[];
+    author?: string;
+};
+
 export const tnr = {
     // Méthodes principales
     list: () => http<any[]>("/api/tnr"),
@@ -259,4 +289,63 @@ export const tnr = {
         if (!res.ok) throw new Error(`Import failed: ${res.status}`);
         return res.json();
     }),
+
+    // Templates
+    templates: () => http<TnrTemplate[]>("/api/tnr/templates"),
+
+    getTemplate: (templateId: string) => http<TnrTemplate>("/api/tnr/templates/" + templateId),
+
+    instantiateTemplate: (templateId: string, params: TemplateParams) =>
+        http<any>("/api/tnr/templates/" + templateId + "/instantiate", {
+            method: "POST",
+            body: JSON.stringify(params),
+        }),
+
+    runTemplate: (templateId: string, params: TemplateParams) =>
+        http<any>("/api/tnr/templates/" + templateId + "/run", {
+            method: "POST",
+            body: JSON.stringify(params),
+        }),
+
+    // Validation avec tolérances
+    validate: (executionId: string, scenarioId?: string) =>
+        http<any>(`/api/tnr/validate/${executionId}${scenarioId ? `?scenarioId=${scenarioId}` : ''}`, {
+            method: "POST",
+        }),
+
+    tolerancePresets: () => http<Record<string, TnrTolerances>>("/api/tnr/tolerances/presets"),
+
+    // Engine endpoints
+    engineScenarios: () => http<any[]>("/api/tnr/engine/scenarios"),
+
+    runScenario: (scenarioId: string) =>
+        http<any>("/api/tnr/engine/run/" + scenarioId, { method: "POST" }),
+
+    engineStatus: () => http<any>("/api/tnr/engine/status"),
+
+    // Recording (nouveau système)
+    startRecording: (scenarioName?: string) =>
+        http<{ executionId: string; scenarioName: string; status: string }>(
+            `/api/tnr/recording/start${scenarioName ? `?scenarioName=${encodeURIComponent(scenarioName)}` : ''}`,
+            { method: "POST" }
+        ),
+
+    stopRecording: () => http<any>("/api/tnr/recording/stop", { method: "POST" }),
+
+    recordingStatus: () => http<any>("/api/tnr/recording/status"),
+
+    recordingEvents: (limit?: number) =>
+        http<any[]>(`/api/tnr/recording/events${limit ? `?limit=${limit}` : ''}`),
+
+    recordedExecutions: () => http<any[]>("/api/tnr/recording/executions"),
+
+    getRecordedExecution: (executionId: string) =>
+        http<any>("/api/tnr/recording/executions/" + executionId),
+
+    // Comparison
+    compare: (baselineId: string, comparedId: string, options?: any) =>
+        http<any>("/api/tnr/compare", {
+            method: "POST",
+            body: JSON.stringify({ baselineId, comparedId, options }),
+        }),
 };

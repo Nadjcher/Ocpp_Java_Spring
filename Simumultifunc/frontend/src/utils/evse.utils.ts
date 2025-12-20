@@ -111,14 +111,53 @@ export const getAllVehicles = (): Vehicle[] => DEFAULT_VEHICLES;
 /**
  * Calcule la puissance de charge maximale d'un véhicule selon son SoC
  * Simule la courbe de charge typique des véhicules électriques
- * @param vehicleId - ID du véhicule (non utilisé actuellement)
+ * Utilise les caractéristiques réelles du véhicule sélectionné
+ * @param vehicleId - ID du véhicule
  * @param soc - État de charge actuel (0-100)
+ * @param isDC - True pour charge DC, False pour AC (défaut: true)
  * @returns Puissance maximale en kW
  */
-export const calcVehPowerKW = (vehicleId: string, soc: number): number => {
-  if (soc < 20) return 50;  // Charge rapide en dessous de 20%
-  if (soc < 80) return 35;  // Charge modérée entre 20% et 80%
-  return 7;                  // Charge lente au-dessus de 80% (préservation batterie)
+export const calcVehPowerKW = (vehicleId: string, soc: number, isDC: boolean = true): number => {
+  // Trouver le véhicule dans la liste
+  const vehicle = DEFAULT_VEHICLES.find(v => v.id === vehicleId);
+
+  // Puissance max du véhicule (DC ou AC selon le type de charge)
+  const maxPowerKW = vehicle
+    ? (isDC
+        ? (vehicle.maxPowerKW ?? vehicle.maxDCPower ?? 50)
+        : (vehicle.acMaxKW ?? vehicle.maxACPower ?? 11))
+    : (isDC ? 50 : 11);
+
+  // Courbe de charge réaliste selon le SoC
+  // Les véhicules réduisent la puissance à mesure que la batterie se remplit
+  let factor: number;
+  if (soc < 10) {
+    // Préchauffage batterie - 80% de la puissance max
+    factor = 0.80;
+  } else if (soc < 20) {
+    // Montée en puissance - 95% de la puissance max
+    factor = 0.95;
+  } else if (soc < 50) {
+    // Plateau optimal - 100% de la puissance max
+    factor = 1.0;
+  } else if (soc < 60) {
+    // Début de réduction - 90%
+    factor = 0.90;
+  } else if (soc < 70) {
+    // Réduction progressive - 75%
+    factor = 0.75;
+  } else if (soc < 80) {
+    // Réduction plus marquée - 55%
+    factor = 0.55;
+  } else if (soc < 90) {
+    // Charge lente pour préserver la batterie - 30%
+    factor = 0.30;
+  } else {
+    // Fin de charge très lente - 15%
+    factor = 0.15;
+  }
+
+  return Math.max(3, maxPowerKW * factor); // Minimum 3 kW
 };
 
 // =========================================================================

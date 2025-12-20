@@ -355,12 +355,34 @@ public class ChargingProfileManager {
      * Vérifie si un profil est valide (dans sa période de validité).
      */
     private boolean isProfileValid(ChargingProfile profile, LocalDateTime now) {
+        // Vérifier validFrom
         if (profile.getValidFrom() != null && now.isBefore(profile.getValidFrom())) {
             return false;
         }
+
+        // Vérifier validTo
         if (profile.getValidTo() != null && now.isAfter(profile.getValidTo())) {
+            log.debug("[SCP] Profil #{} expiré (validTo={})", profile.getChargingProfileId(), profile.getValidTo());
             return false;
         }
+
+        // Vérifier duration pour les profils Absolute
+        if (profile.getChargingProfileKind() == ChargingProfileKind.ABSOLUTE) {
+            ChargingSchedule schedule = profile.getChargingSchedule();
+            if (schedule != null && schedule.getDuration() != null) {
+                LocalDateTime scheduleStart = schedule.getStartSchedule() != null
+                        ? schedule.getStartSchedule()
+                        : profile.getAppliedAt();
+                if (scheduleStart != null) {
+                    LocalDateTime scheduleEnd = scheduleStart.plusSeconds(schedule.getDuration());
+                    if (now.isAfter(scheduleEnd)) {
+                        log.debug("[SCP] Profil #{} expiré (duration terminée)", profile.getChargingProfileId());
+                        return false;
+                    }
+                }
+            }
+        }
+
         return true;
     }
 
@@ -533,6 +555,50 @@ public class ChargingProfileManager {
         profiles.clear();
         effectiveLimitsCache.clear();
         log.info("[SCP] ChargingProfileManager reset");
+    }
+
+    /**
+     * Nettoie les profils expirés de toutes les sessions.
+     * Appelé périodiquement par le scheduler.
+     *
+     * @return Nombre de profils nettoyés
+     */
+    @org.springframework.scheduling.annotation.Scheduled(fixedRate = 30000)
+    public int cleanupExpiredProfiles() {
+        LocalDateTime now = LocalDateTime.now();
+        int cleanedCount = 0;
+
+        for (Map.Entry<String, Map<Integer, List<ChargingProfile>>> sessionEntry : profiles.entrySet()) {
+            String sessionId = sessionEntry.getKey();
+
+            for (Map.Entry<Integer, List<ChargingProfile>> connectorEntry : sessionEntry.getValue().entrySet()) {
+                int connectorId = connectorEntry.getKey();
+                List<ChargingProfile> profileList = connectorEntry.getValue();
+
+                // Identifier les profils expirés
+                List<ChargingProfile> expiredProfiles = profileList.stream()
+                        .filter(p -> !isProfileValid(p, now))
+                        .collect(Collectors.toList());
+
+                if (!expiredProfiles.isEmpty()) {
+                    for (ChargingProfile expired : expiredProfiles) {
+                        log.info("[SCP] 🗑️ Nettoyage profil expiré #{} (session={}, connector={})",
+                                expired.getChargingProfileId(), sessionId, connectorId);
+                    }
+                    profileList.removeAll(expiredProfiles);
+                    cleanedCount += expiredProfiles.size();
+
+                    // Invalider le cache pour ce connecteur
+                    effectiveLimitsCache.remove(sessionId + ":" + connectorId);
+                }
+            }
+        }
+
+        if (cleanedCount > 0) {
+            log.info("[SCP] ✅ {} profil(s) expiré(s) nettoyé(s)", cleanedCount);
+        }
+
+        return cleanedCount;
     }
 
     // =========================================================================

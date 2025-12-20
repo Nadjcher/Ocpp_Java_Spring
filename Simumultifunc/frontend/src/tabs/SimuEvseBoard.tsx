@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE } from "@/lib/apiBase";
 import { useTNR } from "@/contexts/TNRContext";
 import { config } from "@/config/env";
+import { NumericInput } from "@/components/ui/NumericInput";
 import {
   loadVehicleProfiles,
   getAllVehicles,
@@ -312,11 +313,11 @@ function Cable({
       const dx = Math.abs(x2 - x1);
       const dy = Math.abs(y2 - y1);
       const dist = Math.sqrt(dx * dx + dy * dy);
-      const s = clamp(dist * sag, 60, 200);
-      const cx1 = x1 + dx * 0.28;
+      const s = clamp(dist * sag, 10, 80);
+      const cx1 = x1 + dx * 0.35;
       const cy1 = y1 + s + drop;
-      const cx2 = x2 - dx * 0.28;
-      const cy2 = y2 + s * 0.85 + drop;
+      const cx2 = x2 - dx * 0.35;
+      const cy2 = y2 + s + drop;
       const d = `M ${x1},${y1} C ${cx1},${cy1} ${cx2},${cy2} ${x2},${y2}`;
       setDims({ w: rc.width, h: rc.height, d });
       requestAnimationFrame(() => {
@@ -779,7 +780,7 @@ function SessionCard({
               </div>
               <div>
                 <div className="text-xs mb-1">Max (A)</div>
-                <input type="number" className="w-full border rounded px-2 py-1" value={maxA} onChange={(e) => setMaxA(Number(e.target.value || 0))} />
+                <NumericInput className="w-full border rounded px-2 py-1" value={maxA} onChange={setMaxA} min={1} max={500} />
               </div>
             </div>
 
@@ -790,18 +791,18 @@ function SessionCard({
               </div>
               <div>
                 <div className="text-xs mb-1">MV période (s)</div>
-                <input type="number" min={1} className="w-full border rounded px-2 py-1" value={mvEvery} onChange={(e) => setMvEvery(Number(e.target.value || 1))} />
+                <NumericInput className="w-full border rounded px-2 py-1" value={mvEvery} onChange={setMvEvery} min={1} max={3600} />
               </div>
             </div>
 
             <div className="mt-2 grid grid-cols-2 gap-2">
               <div>
                 <div className="text-xs mb-1">SoC départ (%)</div>
-                <input type="number" className="w-full border rounded px-2 py-1" value={socStart} onChange={(e) => setSocStart(clamp(Number(e.target.value || 0), 0, 100))} />
+                <NumericInput className="w-full border rounded px-2 py-1" value={socStart} onChange={setSocStart} min={0} max={100} />
               </div>
               <div>
                 <div className="text-xs mb-1">SoC cible (%)</div>
-                <input type="number" className="w-full border rounded px-2 py-1" value={socTarget} onChange={(e) => setSocTarget(clamp(Number(e.target.value || 0), 0, 100))} />
+                <NumericInput className="w-full border rounded px-2 py-1" value={socTarget} onChange={setSocTarget} min={0} max={100} />
               </div>
             </div>
 
@@ -904,7 +905,7 @@ function SessionCard({
 
               {/* Câble */}
               {isParked && isPlugged && (
-                <Cable containerRef={containerRef} aRef={portA} bRef={portB} show charging={s.status === "started"} sag={0.46} drop={26} />
+                <Cable containerRef={containerRef} aRef={portA} bRef={portB} show charging={s.status === "started"} sag={0.15} drop={5} />
               )}
             </div>
 

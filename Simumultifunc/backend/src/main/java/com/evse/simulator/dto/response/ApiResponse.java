@@ -1,75 +1,49 @@
 package com.evse.simulator.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import io.swagger.v3.oas.annotations.media.Schema;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 /**
- * Réponse API générique.
- *
- * @param <T> type des données
+ * Reponse API standard.
  */
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
+@Schema(description = "Reponse API standard")
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class ApiResponse<T> {
+public record ApiResponse<T>(
 
-    /**
-     * Succès de l'opération.
-     */
-    @Builder.Default
-    private boolean success = true;
+    @Schema(description = "Succes", example = "true")
+    boolean success,
 
-    /**
-     * Message descriptif.
-     */
-    private String message;
+    @Schema(description = "Message", example = "Operation reussie")
+    String message,
 
-    /**
-     * Données de la réponse.
-     */
-    private T data;
+    @Schema(description = "Donnees")
+    T data,
 
-    /**
-     * Horodatage de la réponse.
-     */
-    @Builder.Default
-    private LocalDateTime timestamp = LocalDateTime.now();
+    @Schema(description = "Erreur (si echec)")
+    String error,
 
-    /**
-     * Crée une réponse de succès avec des données.
-     */
-    public static <T> ApiResponse<T> success(T data) {
-        return ApiResponse.<T>builder()
-                .success(true)
-                .data(data)
-                .build();
+    @Schema(description = "Timestamp")
+    String timestamp
+) {
+    public static <T> ApiResponse<T> ok(T data) {
+        return new ApiResponse<>(true, "OK", data, null, Instant.now().toString());
     }
 
-    /**
-     * Crée une réponse de succès avec un message.
-     */
-    public static <T> ApiResponse<T> success(String message, T data) {
-        return ApiResponse.<T>builder()
-                .success(true)
-                .message(message)
-                .data(data)
-                .build();
+    public static <T> ApiResponse<T> ok(String message, T data) {
+        return new ApiResponse<>(true, message, data, null, Instant.now().toString());
     }
 
-    /**
-     * Crée une réponse d'erreur.
-     */
-    public static <T> ApiResponse<T> error(String message) {
-        return ApiResponse.<T>builder()
-                .success(false)
-                .message(message)
-                .build();
+    public static <T> ApiResponse<T> ok(String message) {
+        return new ApiResponse<>(true, message, null, null, Instant.now().toString());
+    }
+
+    public static <T> ApiResponse<T> error(String error) {
+        return new ApiResponse<>(false, null, null, error, Instant.now().toString());
+    }
+
+    public static <T> ApiResponse<T> error(String message, String error) {
+        return new ApiResponse<>(false, message, null, error, Instant.now().toString());
     }
 }

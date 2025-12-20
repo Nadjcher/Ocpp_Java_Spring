@@ -2,8 +2,13 @@ package com.evse.simulator.controller;
 
 import com.evse.simulator.domain.service.MetricsService;
 import com.evse.simulator.domain.service.OCPPService;
+import com.evse.simulator.dto.response.HealthStatusResponse;
 import com.evse.simulator.service.SessionService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.info.BuildProperties;
@@ -13,17 +18,18 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
 /**
- * Contrôleur REST pour les endpoints de santé.
+ * Controleur REST pour les endpoints de sante.
  */
 @RestController
 @RequestMapping("/api")
-@Tag(name = "Health", description = "État de santé de l'application")
+@Tag(name = "Health", description = "Etat de sante de l'application")
 @RequiredArgsConstructor
 @CrossOrigin
 public class HealthController {
@@ -36,21 +42,28 @@ public class HealthController {
     private final LocalDateTime startTime = LocalDateTime.now();
 
     @GetMapping("/health")
-    @Operation(summary = "Vérifie l'état de santé de l'application")
+    @Operation(
+            summary = "Etat de sante",
+            description = "Retourne l'etat de sante global avec informations sur les sessions, WebSocket et systeme"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Systeme operationnel",
+                    content = @Content(schema = @Schema(implementation = HealthStatusResponse.class))),
+            @ApiResponse(responseCode = "503", description = "Systeme degrade")
+    })
     public ResponseEntity<Map<String, Object>> health() {
         Map<String, Object> health = new LinkedHashMap<>();
 
         health.put("status", "UP");
         health.put("timestamp", LocalDateTime.now());
         health.put("uptime", getUptime());
+        health.put("uptimeSeconds", getUptimeSeconds());
 
         // Version info
         Map<String, String> version = new LinkedHashMap<>();
         version.put("name", "EVSE Simulator");
-        buildProperties.ifPresent(props -> {
-            version.put("version", props.getVersion());
-            version.put("artifact", props.getArtifact());
-        });
+        version.put("version", buildProperties.map(BuildProperties::getVersion).orElse("2.0.0"));
+        buildProperties.ifPresent(props -> version.put("artifact", props.getArtifact()));
         health.put("application", version);
 
         // Sessions info
@@ -72,6 +85,7 @@ public class HealthController {
         system.put("freeMemoryMb", runtime.freeMemory() / (1024 * 1024));
         system.put("totalMemoryMb", runtime.totalMemory() / (1024 * 1024));
         system.put("maxMemoryMb", runtime.maxMemory() / (1024 * 1024));
+        system.put("usedMemoryMb", (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024));
         system.put("activeThreads", Thread.activeCount());
         health.put("system", system);
 
@@ -79,17 +93,21 @@ public class HealthController {
     }
 
     @GetMapping("/info")
-    @Operation(summary = "Informations sur l'application")
+    @Operation(
+            summary = "Informations application",
+            description = "Retourne les informations sur l'application, version, endpoints disponibles"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Informations retournees")
+    })
     public ResponseEntity<Map<String, Object>> info() {
         Map<String, Object> info = new LinkedHashMap<>();
 
         info.put("name", "EVSE Simulator Backend");
         info.put("description", "Spring Boot backend for EVSE OCPP 1.6 simulator");
+        info.put("version", buildProperties.map(BuildProperties::getVersion).orElse("2.0.0"));
 
-        buildProperties.ifPresent(props -> {
-            info.put("version", props.getVersion());
-            info.put("buildTime", props.getTime());
-        });
+        buildProperties.ifPresent(props -> info.put("buildTime", props.getTime()));
 
         info.put("ocppVersion", "1.6");
         info.put("maxSessions", 25000);
@@ -105,13 +123,25 @@ public class HealthController {
         endpoints.put("actuator", "/actuator");
         info.put("endpoints", endpoints);
 
+        // Tags disponibles
+        Map<String, String> apiGroups = new LinkedHashMap<>();
+        apiGroups.put("core", "Sessions, Smart Charging, Vehicles, OCPP");
+        apiGroups.put("testing", "TNR, OCPI, Performance");
+        info.put("apiGroups", apiGroups);
+
         return ResponseEntity.ok(info);
     }
 
     @GetMapping("/ready")
-    @Operation(summary = "Vérifie si l'application est prête")
+    @Operation(
+            summary = "Readiness check",
+            description = "Verifie si l'application est prete a recevoir du trafic (Kubernetes probe)"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Application prete"),
+            @ApiResponse(responseCode = "503", description = "Application non prete")
+    })
     public ResponseEntity<Map<String, Object>> ready() {
-        // Vérifier que tous les services sont initialisés
         boolean ready = true;
         Map<String, Boolean> checks = new LinkedHashMap<>();
 
@@ -133,6 +163,7 @@ public class HealthController {
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("ready", ready);
+        response.put("status", ready ? "UP" : "DOWN");
         response.put("checks", checks);
         response.put("timestamp", LocalDateTime.now());
 
@@ -141,8 +172,23 @@ public class HealthController {
                 ResponseEntity.status(503).body(response);
     }
 
+    @GetMapping("/live")
+    @Operation(
+            summary = "Liveness check",
+            description = "Verifie si l'application est en vie (Kubernetes probe)"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Application en vie")
+    })
+    public ResponseEntity<Map<String, Object>> live() {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("status", "UP");
+        response.put("timestamp", LocalDateTime.now());
+        return ResponseEntity.ok(response);
+    }
+
     private String getUptime() {
-        java.time.Duration duration = java.time.Duration.between(startTime, LocalDateTime.now());
+        Duration duration = Duration.between(startTime, LocalDateTime.now());
         long days = duration.toDays();
         long hours = duration.toHours() % 24;
         long minutes = duration.toMinutes() % 60;
@@ -157,5 +203,9 @@ public class HealthController {
         } else {
             return String.format("%ds", seconds);
         }
+    }
+
+    private long getUptimeSeconds() {
+        return Duration.between(startTime, LocalDateTime.now()).getSeconds();
     }
 }

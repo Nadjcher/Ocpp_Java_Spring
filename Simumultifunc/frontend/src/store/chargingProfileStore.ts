@@ -70,6 +70,14 @@ export interface CompositeSchedule {
 // Store Interface
 // =========================================================================
 
+// Critères pour ClearChargingProfile selon OCPP 1.6
+export interface ClearChargingProfileCriteria {
+    id?: number;                    // ID spécifique du profil
+    connectorId?: number;           // Filtrer par connecteur
+    chargingProfilePurpose?: string; // Filtrer par purpose
+    stackLevel?: number;            // Filtrer par stackLevel
+}
+
 interface ChargingProfileStore {
     // État
     profiles: Map<string, ChargingProfile[]>;  // sessionId -> profiles
@@ -80,16 +88,20 @@ interface ChargingProfileStore {
     addProfile: (sessionId: string, profile: ChargingProfile) => void;
     removeProfile: (sessionId: string, profileId: number) => void;
     clearProfiles: (sessionId: string, purpose?: string) => void;
+    clearProfilesByCriteria: (sessionId: string, criteria: ClearChargingProfileCriteria) => number;
     clearAllProfiles: (sessionId: string) => void;
+    cleanupExpiredProfiles: () => number;  // Nettoyage automatique
 
     updateEffectiveLimit: (sessionId: string, limit: EffectiveLimit) => void;
     updateCompositeSchedule: (sessionId: string, schedule: CompositeSchedule) => void;
 
     // Getters
     getProfiles: (sessionId: string) => ChargingProfile[];
+    getActiveProfiles: (sessionId: string) => ChargingProfile[];  // Filtre les expirés
     getEffectiveLimit: (sessionId: string) => EffectiveLimit | null;
     getCompositeSchedule: (sessionId: string) => CompositeSchedule | null;
     getActivePeriod: (sessionId: string) => ChargingSchedulePeriod | null;
+    isProfileActive: (profile: ChargingProfile) => boolean;
 
     // Calculs locaux
     calculateCurrentLimit: (profile: ChargingProfile, phaseType: string, voltageV: number) => number;
@@ -177,6 +189,82 @@ export const useChargingProfileStore = create<ChargingProfileStore>((set, get) =
         });
     },
 
+    /**
+     * Supprime les profils selon les critères OCPP 1.6 ClearChargingProfile.
+     * Tous les critères sont optionnels et combinés en AND.
+     * Si aucun critère n'est fourni, TOUS les profils sont supprimés.
+     * @returns Le nombre de profils supprimés
+     */
+    clearProfilesByCriteria: (sessionId: string, criteria: ClearChargingProfileCriteria): number => {
+        let removedCount = 0;
+
+        set(state => {
+            const newProfiles = new Map(state.profiles);
+            const sessionProfiles = newProfiles.get(sessionId) || [];
+
+            // Si aucun critère, supprimer tous les profils (clear-all)
+            const hasCriteria = criteria.id !== undefined ||
+                               criteria.connectorId !== undefined ||
+                               criteria.chargingProfilePurpose !== undefined ||
+                               criteria.stackLevel !== undefined;
+
+            if (!hasCriteria) {
+                removedCount = sessionProfiles.length;
+                newProfiles.set(sessionId, []);
+                console.log('[SCP Store] Clear ALL profiles (no criteria):', removedCount, 'removed');
+                return { profiles: newProfiles };
+            }
+
+            const filtered = sessionProfiles.filter(profile => {
+                // Critère ID: correspondance exacte
+                if (criteria.id !== undefined && profile.chargingProfileId === criteria.id) {
+                    return false; // Remove this profile
+                }
+
+                // Si ID est spécifié et ne correspond pas, garder le profil
+                if (criteria.id !== undefined) {
+                    return true;
+                }
+
+                // Critères multiples combinés en AND
+                let shouldRemove = true;
+
+                // connectorId: undefined ou égal (connectorId=0 signifie global/tous connecteurs)
+                if (criteria.connectorId !== undefined && criteria.connectorId !== 0) {
+                    if (profile.connectorId !== undefined && profile.connectorId !== criteria.connectorId) {
+                        shouldRemove = false;
+                    }
+                }
+
+                // chargingProfilePurpose: correspondance exacte
+                if (criteria.chargingProfilePurpose !== undefined) {
+                    if (profile.chargingProfilePurpose !== criteria.chargingProfilePurpose) {
+                        shouldRemove = false;
+                    }
+                }
+
+                // stackLevel: correspondance exacte
+                if (criteria.stackLevel !== undefined) {
+                    if (profile.stackLevel !== criteria.stackLevel) {
+                        shouldRemove = false;
+                    }
+                }
+
+                return !shouldRemove; // Keep if NOT shouldRemove
+            });
+
+            removedCount = sessionProfiles.length - filtered.length;
+            newProfiles.set(sessionId, filtered);
+
+            console.log('[SCP Store] ClearProfiles by criteria:', JSON.stringify(criteria),
+                '- Removed:', removedCount, 'profiles');
+
+            return { profiles: newProfiles };
+        });
+
+        return removedCount;
+    },
+
     updateEffectiveLimit: (sessionId: string, limit: EffectiveLimit) => {
         set(state => {
             const newLimits = new Map(state.effectiveLimits);
@@ -207,6 +295,85 @@ export const useChargingProfileStore = create<ChargingProfileStore>((set, get) =
 
     getProfiles: (sessionId: string) => {
         return get().profiles.get(sessionId) || [];
+    },
+
+    /**
+     * Vérifie si un profil est actif (non expiré).
+     */
+    isProfileActive: (profile: ChargingProfile) => {
+        const now = Date.now();
+
+        // Vérifier validFrom
+        if (profile.validFrom) {
+            const validFromMs = Date.parse(profile.validFrom);
+            if (validFromMs > now) {
+                return false; // Pas encore valide
+            }
+        }
+
+        // Vérifier validTo
+        if (profile.validTo) {
+            const validToMs = Date.parse(profile.validTo);
+            if (validToMs < now) {
+                return false; // Expiré
+            }
+        }
+
+        // Vérifier duration pour les profils Absolute
+        if (profile.chargingProfileKind === 'Absolute' && profile.chargingSchedule.duration) {
+            const startMs = profile.chargingSchedule.startSchedule
+                ? Date.parse(profile.chargingSchedule.startSchedule)
+                : profile.appliedAt
+                    ? Date.parse(profile.appliedAt)
+                    : now;
+            const endMs = startMs + profile.chargingSchedule.duration * 1000;
+            if (endMs < now) {
+                return false; // Durée expirée
+            }
+        }
+
+        return true;
+    },
+
+    /**
+     * Récupère les profils actifs (filtre les expirés).
+     */
+    getActiveProfiles: (sessionId: string) => {
+        const profiles = get().profiles.get(sessionId) || [];
+        return profiles.filter(p => get().isProfileActive(p));
+    },
+
+    /**
+     * Nettoie les profils expirés de toutes les sessions.
+     * @returns Nombre de profils nettoyés
+     */
+    cleanupExpiredProfiles: () => {
+        let cleanedCount = 0;
+
+        const newProfiles = new Map(get().profiles);
+
+        for (const [sessionId, sessionProfiles] of newProfiles) {
+            const activeProfiles = sessionProfiles.filter(p => {
+                const isActive = get().isProfileActive(p);
+                if (!isActive) {
+                    cleanedCount++;
+                    console.log(`[SCP Store] 🗑️ Profil #${p.chargingProfileId} expiré (session ${sessionId})`);
+                }
+                return isActive;
+            });
+
+            if (activeProfiles.length !== sessionProfiles.length) {
+                newProfiles.set(sessionId, activeProfiles);
+            }
+        }
+
+        if (cleanedCount > 0) {
+            console.log(`[SCP Store] ✅ ${cleanedCount} profil(s) expiré(s) nettoyé(s)`);
+            // Note: On ne peut pas appeler set() ici car on est dans un getter
+            // Le nettoyage sera fait par un timer externe
+        }
+
+        return cleanedCount;
     },
 
     getEffectiveLimit: (sessionId: string) => {

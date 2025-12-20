@@ -39,13 +39,20 @@ export default function SimulGPMTab() {
   const [error, setError] = useState<string | null>(null);
   const chartDataRef = useRef<ChartPoint[]>([]);
 
-  // Charger les sessions depuis l'API
+  // Charger les sessions depuis l'API (exclure les sessions de performance)
   const loadSessions = useCallback(async () => {
     try {
       const data = await fetchJSON<SessionData[]>('/api/simu');
-      setSessions(data || []);
+      // Filtrer les sessions de performance - garder uniquement les sessions EVSE
+      // Les sessions de perf ont un id qui commence par "perf-"
+      const evseOnlySessions = (data || []).filter(s => {
+        const id = s.id?.toLowerCase() || '';
+        // Exclure les sessions dont l'id commence par "perf-"
+        return !id.startsWith('perf-');
+      });
+      setSessions(evseOnlySessions);
       setError(null);
-      return data || [];
+      return evseOnlySessions;
     } catch (e: any) {
       console.error('Error loading sessions:', e);
       setError(e.message || 'Erreur de chargement');

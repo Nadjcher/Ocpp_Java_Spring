@@ -13,6 +13,8 @@ import SmartChargingTab from "./tabs/SmartChargingTab";
 import OCPPMessagesTab from "./tabs/OCPPMessagesTab";
 import MLAnalysisTab from "./tabs/MLAnalysisTab";
 import SchedulerTab from "./tabs/SchedulerTab";
+import OCPITab from "./tabs/OCPITab";
+import SettingsTab from "./tabs/SettingsTab";
 import { MultiSessionDashboard } from "./components/session";
 import { TokenStatusIndicator } from "./components/tte/TokenStatusIndicator";
 import "@/styles/buttons.css";
@@ -25,7 +27,9 @@ type TabKey =
     | "smart-charging"
     | "ocpp-messages"
     | "ml-analysis"
-    | "scheduler";
+    | "scheduler"
+    | "ocpi"
+    | "settings";
 
 const TABS: { key: TabKey; label: string }[] = [
     { key: "simul-gpm", label: "Simul GPM (Multi)" },
@@ -36,6 +40,8 @@ const TABS: { key: TabKey; label: string }[] = [
     { key: "ocpp-messages", label: "OCPP Messages" },
     { key: "ml-analysis", label: "ML Analysis" },
     { key: "scheduler", label: "Scheduler" },
+    { key: "ocpi", label: "OCPI Tests" },
+    { key: "settings", label: "Settings (TTE)" },
 ];
 
 export default function App() {
@@ -80,6 +86,8 @@ export default function App() {
                                 {active === "ocpp-messages" && <OCPPMessagesTab />}
                                 {active === "ml-analysis" && <MLAnalysisTab />}
                                 {active === "scheduler" && <SchedulerTab />}
+                                {active === "ocpi" && <OCPITab />}
+                                {active === "settings" && <SettingsTab />}
                             </main>
                         </div>
                     </div>

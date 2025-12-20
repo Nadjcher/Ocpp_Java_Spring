@@ -213,8 +213,6 @@ public class TNRService implements com.evse.simulator.domain.service.TNRService 
 
         // Convertir les événements en étapes
         List<TNRStep> steps = new ArrayList<>();
-        Long firstTimestamp = events.isEmpty() ? null : events.get(0).getTimestamp();
-
         for (int i = 0; i < events.size(); i++) {
             TNREvent event = events.get(i);
             TNRStep step = new TNRStep();
@@ -224,33 +222,9 @@ public class TNRService implements com.evse.simulator.domain.service.TNRService 
             // Mapper le type d'événement vers le type de step
             step.setType(mapEventTypeToStepType(event.getType()));
             step.setAction(event.getAction());
-
-            // Enrichir le payload avec le timestamp pour permettre le replay en temps réel
-            Object payload = event.getPayload();
-            if (event.getTimestamp() != null) {
-                Map<String, Object> enrichedPayload = new LinkedHashMap<>();
-                enrichedPayload.put("timestamp", event.getTimestamp());
-                if (payload instanceof Map) {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> originalPayload = (Map<String, Object>) payload;
-                    enrichedPayload.putAll(originalPayload);
-                } else if (payload != null) {
-                    enrichedPayload.put("data", payload);
-                }
-                step.setPayload(enrichedPayload);
-            } else {
-                step.setPayload(payload);
-            }
-
+            step.setPayload(event.getPayload());
             step.setTimeoutMs(30000);
-
-            // Calculer le délai depuis l'événement précédent pour le mode realtime
-            if (i > 0 && event.getTimestamp() != null && events.get(i - 1).getTimestamp() != null) {
-                long delay = event.getTimestamp() - events.get(i - 1).getTimestamp();
-                step.setDelayMs(Math.max(0, delay));
-            } else {
-                step.setDelayMs(0);
-            }
+            step.setDelayMs(0);
 
             // Extraire l'URL et cpId depuis l'événement de connexion
             if ("connection".equals(event.getType()) && "connect".equals(event.getAction())) {
@@ -396,28 +370,30 @@ public class TNRService implements com.evse.simulator.domain.service.TNRService 
     // =========================================================================
 
     /**
-     * Exécute un scénario de test avec les options par défaut (mode fast).
+     * Exécute un scénario de test avec mode et vitesse.
+     *
+     * @param scenarioId ID du scénario
+     * @param mode mode d'exécution (ex: "normal", "fast", "slow")
+     * @param speed multiplicateur de vitesse
+     * @return CompletableFuture avec le résultat
+     */
+    @Async("taskExecutor")
+    public CompletableFuture<TNRResult> runScenario(String scenarioId, String mode, double speed) {
+        // Pour l'instant, délègue à la version simple
+        // TODO: implémenter la gestion du mode et de la vitesse
+        log.info("Running scenario {} in mode {} at speed {}x", scenarioId, mode, speed);
+        return runScenario(scenarioId);
+    }
+
+    /**
+     * Exécute un scénario de test.
      *
      * @param scenarioId ID du scénario
      * @return CompletableFuture avec le résultat
      */
     @Async("taskExecutor")
     public CompletableFuture<TNRResult> runScenario(String scenarioId) {
-        return runScenario(scenarioId, "fast", 1.0);
-    }
-
-    /**
-     * Exécute un scénario de test avec contrôle du timing.
-     *
-     * @param scenarioId ID du scénario
-     * @param mode Mode d'exécution: "fast" (pas de délai), "realtime" (timing original), "instant" (alias de fast)
-     * @param speed Multiplicateur de vitesse (1.0 = temps réel, 2.0 = 2x plus rapide, 0.5 = 2x plus lent)
-     * @return CompletableFuture avec le résultat
-     */
-    @Async("taskExecutor")
-    public CompletableFuture<TNRResult> runScenario(String scenarioId, String mode, double speed) {
         TNRScenario scenario = getScenario(scenarioId);
-        log.info("Running TNR scenario {} with mode={}, speed={}", scenarioId, mode, speed);
 
         if (runningTests.containsKey(scenarioId)) {
             return CompletableFuture.failedFuture(
@@ -439,10 +415,6 @@ public class TNRService implements com.evse.simulator.domain.service.TNRService 
 
         runningTests.put(scenarioId, result);
 
-        // Déterminer si on doit respecter le timing original
-        boolean useRealtime = "realtime".equalsIgnoreCase(mode);
-        double effectiveSpeed = speed > 0 ? speed : 1.0;
-
         try {
             // Créer ou récupérer la session de test
             Session testSession = getOrCreateTestSession(scenario.getConfig());
@@ -452,25 +424,10 @@ public class TNRService implements com.evse.simulator.domain.service.TNRService 
             int passedSteps = 0;
             int failedSteps = 0;
 
-            // Variables pour le calcul du timing en mode realtime
-            long lastStepTimestamp = 0;
-
             // Exécuter chaque étape
             for (int i = 0; i < scenario.getSteps().size(); i++) {
                 TNRStep step = scenario.getSteps().get(i);
-                result.getLogs().add("Executing step " + (i + 1) + "/" + scenario.getSteps().size() + ": " + step.getName());
-
-                // Calculer le délai en mode realtime
-                if (useRealtime && i > 0) {
-                    long stepDelay = calculateStepDelay(step, lastStepTimestamp, effectiveSpeed);
-                    if (stepDelay > 0) {
-                        result.getLogs().add("  ⏳ Waiting " + stepDelay + "ms (realtime mode, speed=" + effectiveSpeed + "x)");
-                        Thread.sleep(stepDelay);
-                    }
-                }
-
-                // Mettre à jour le timestamp pour le prochain calcul
-                lastStepTimestamp = getStepTimestamp(step);
+                result.getLogs().add("Executing step " + (i + 1) + ": " + step.getName());
 
                 StepResult stepResult = executeStep(step, testSession, scenario.getConfig());
                 stepResults.add(stepResult);
@@ -478,7 +435,7 @@ public class TNRService implements com.evse.simulator.domain.service.TNRService 
 
                 if (stepResult.isPassed()) {
                     passedSteps++;
-                    result.getLogs().add("  ✓ Step passed in " + stepResult.getDurationMs() + "ms");
+                    result.getLogs().add("  ✓ Step passed");
                 } else {
                     failedSteps++;
                     result.getLogs().add("  ✗ Step failed: " + stepResult.getMessage());
@@ -792,79 +749,6 @@ public class TNRService implements com.evse.simulator.domain.service.TNRService 
                     .durationMs(System.currentTimeMillis() - startTime)
                     .build();
         }
-    }
-
-    /**
-     * Calcule le délai à appliquer avant l'exécution d'un step en mode realtime.
-     * Le délai est calculé à partir du timestamp du payload de l'événement.
-     *
-     * @param step Le step à exécuter
-     * @param lastTimestamp Timestamp du step précédent
-     * @param speed Multiplicateur de vitesse
-     * @return Délai en millisecondes
-     */
-    private long calculateStepDelay(TNRStep step, long lastTimestamp, double speed) {
-        if (lastTimestamp == 0) {
-            return 0;
-        }
-
-        long currentTimestamp = getStepTimestamp(step);
-        if (currentTimestamp == 0) {
-            // Pas de timestamp, utiliser le delayMs configuré ou un délai par défaut
-            long configuredDelay = step.getDelayMs();
-            return configuredDelay > 0 ? (long) (configuredDelay / speed) : 0;
-        }
-
-        long timeDiff = currentTimestamp - lastTimestamp;
-        if (timeDiff <= 0) {
-            return 0;
-        }
-
-        // Appliquer le multiplicateur de vitesse
-        long adjustedDelay = (long) (timeDiff / speed);
-
-        // Limiter le délai max à 30 secondes pour éviter les attentes trop longues
-        return Math.min(adjustedDelay, 30000);
-    }
-
-    /**
-     * Extrait le timestamp d'un step à partir de son payload.
-     * Le timestamp peut être dans le payload sous différentes formes.
-     *
-     * @param step Le step
-     * @return Timestamp en millisecondes ou 0 si non trouvé
-     */
-    @SuppressWarnings("unchecked")
-    private long getStepTimestamp(TNRStep step) {
-        if (step.getPayload() == null) {
-            return 0;
-        }
-
-        if (step.getPayload() instanceof Map) {
-            Map<String, Object> payload = (Map<String, Object>) step.getPayload();
-
-            // Chercher le timestamp dans différents champs possibles
-            Object ts = payload.get("timestamp");
-            if (ts == null) ts = payload.get("ts");
-            if (ts == null) ts = payload.get("recordedAt");
-            if (ts == null) ts = payload.get("time");
-
-            if (ts instanceof Number) {
-                return ((Number) ts).longValue();
-            } else if (ts instanceof String) {
-                try {
-                    return Long.parseLong((String) ts);
-                } catch (NumberFormatException e) {
-                    // Essayer de parser comme ISO date
-                    try {
-                        return java.time.Instant.parse((String) ts).toEpochMilli();
-                    } catch (Exception ignored) {
-                    }
-                }
-            }
-        }
-
-        return 0;
     }
 
     /**

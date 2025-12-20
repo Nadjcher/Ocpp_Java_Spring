@@ -26,26 +26,26 @@ export function PerfOCPP() {
         try {
             const csvText = await file.text();
             const result = await api.importPerfCSV(csvText);
-            setPerfLogs(prev => [...prev, `✓ Imported CSV data`]);
+            setPerfLogs(prev => [...prev, `[OK] Imported CSV data`]);
         } catch (error) {
-            setPerfLogs(prev => [...prev, `❌ Import failed: ${error}`]);
+            setPerfLogs(prev => [...prev, `[ERR] Import failed: ${error}`]);
         }
     };
 
     const runAdaptivePerfTest = async () => {
         setPerfRunning(true);
         setPerfChartData([]);
-        setPerfLogs(['🚀 Starting adaptive performance test...']);
+        setPerfLogs(['[START] Starting adaptive performance test...']);
 
         try {
             // startPerformanceTest(sessions, duration)
             const result = await api.startPerformanceTest(1000, 60);
 
             setPerfLogs(prev => [...prev,
-                `✅ Test started`
+                `[OK] Test started`
             ]);
         } catch (error) {
-            setPerfLogs(prev => [...prev, `❌ Test failed: ${error}`]);
+            setPerfLogs(prev => [...prev, `[ERR] Test failed: ${error}`]);
         } finally {
             setPerfRunning(false);
         }
@@ -106,7 +106,7 @@ export function PerfOCPP() {
                             className="w-full px-4 py-2 bg-gray-600 rounded hover:bg-gray-700"
                             disabled={perfRunning}
                         >
-                            📁 Importer CSV Perf
+                            [FILE] Importer CSV Perf
                         </button>
                     </div>
                     <div className="flex items-end">
@@ -115,14 +115,14 @@ export function PerfOCPP() {
                                 onClick={runAdaptivePerfTest}
                                 className="w-full px-4 py-2 bg-red-600 rounded hover:bg-red-700"
                             >
-                                🚀 Montée en charge adaptative
+                                [START] Montée en charge adaptative
                             </button>
                         ) : (
                             <button
                                 onClick={stopTest}
                                 className="w-full px-4 py-2 bg-yellow-600 rounded hover:bg-yellow-700"
                             >
-                                ⏹️ Arrêter Test
+                                [STOP] Arrêter Test
                             </button>
                         )}
                     </div>
@@ -223,9 +223,9 @@ export function PerfOCPP() {
                         <div className="bg-gray-900 p-3 rounded h-32 overflow-auto font-mono text-xs">
                             {perfLogs.map((log, idx) => (
                                 <div key={idx} className={`${
-                                    log.includes('⚠️') ? 'text-yellow-400' :
-                                        log.includes('✅') || log.includes('✓') ? 'text-green-400' :
-                                            log.includes('❌') ? 'text-red-400' : ''
+                                    log.includes('[WARN]') ? 'text-yellow-400' :
+                                        log.includes('[OK]') ? 'text-green-400' :
+                                            log.includes('[ERR]') ? 'text-red-400' : ''
                                 }`}>
                                     {log}
                                 </div>

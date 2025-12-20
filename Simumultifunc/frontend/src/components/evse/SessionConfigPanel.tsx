@@ -1,189 +1,178 @@
 // frontend/src/components/evse/SessionConfigPanel.tsx
-// Panneau de configuration inline pour une session
-
-import React from 'react';
-import type { SessionConfig } from '@/types/multiSession.types';
-import type { Vehicle } from '@/types/evse.types';
-import { ENV_URLS } from '@/constants/evse.constants';
+import React, { useState } from 'react';
+import type { SessionConfig, EvseType, Environment } from '@/types/session.types';
+import { NumericInput } from '@/components/ui/NumericInput';
 
 interface SessionConfigPanelProps {
   config: SessionConfig;
-  isTemporary: boolean;
-  isConnected: boolean;
-  vehicles: Vehicle[];
-  onConfigChange: (updates: Partial<SessionConfig>) => void;
-  onConnect: () => void;
-  onDisconnect: () => void;
+  onChange: (config: Partial<SessionConfig>) => void;
+  disabled?: boolean;
 }
 
 export function SessionConfigPanel({
   config,
-  isTemporary,
-  isConnected,
-  vehicles,
-  onConfigChange,
-  onConnect,
-  onDisconnect
+  onChange,
+  disabled = false
 }: SessionConfigPanelProps) {
-  const canEdit = isTemporary || !isConnected;
+  const [isExpanded, setIsExpanded] = useState(false);
 
-  // Calculer l'URL WebSocket
-  const wsUrl = ENV_URLS[config.environment]
-    ? `${ENV_URLS[config.environment]}/${config.cpId}`
-    : `wss://ocpp-${config.environment}.example.com/${config.cpId}`;
+  const evseTypes: { value: EvseType; label: string }[] = [
+    { value: 'ac-mono', label: 'AC Mono (1 phase)' },
+    { value: 'ac-bi', label: 'AC Bi (2 phases)' },
+    { value: 'ac-tri', label: 'AC Tri (3 phases)' },
+    { value: 'dc', label: 'DC' }
+  ];
+
+  const environments: { value: Environment; label: string }[] = [
+    { value: 'test', label: 'Test' },
+    { value: 'pp', label: 'Pre-Production' }
+  ];
 
   return (
-    <div className="rounded-lg border bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-gray-800">Configuration OCPP</h3>
-        {isTemporary && (
-          <span className="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded animate-pulse">
-            Configurez puis connectez
-          </span>
-        )}
-      </div>
+    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full px-4 py-3 flex items-center justify-between bg-gray-50 hover:bg-gray-100"
+        disabled={disabled}
+      >
+        <span className="font-medium text-gray-700">Configuration Session</span>
+        <svg
+          className={`w-5 h-5 text-gray-500 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
 
-      <div className="grid grid-cols-12 gap-4">
-        {/* Environnement */}
-        <div className="col-span-3">
-          <label className="block text-xs text-gray-500 mb-1">Environnement</label>
-          <select
-            className="w-full border rounded px-3 py-2 text-sm bg-white disabled:bg-gray-100"
-            value={config.environment}
-            onChange={(e) => onConfigChange({ environment: e.target.value as 'test' | 'pp' })}
-            disabled={!canEdit}
-          >
-            <option value="test">Test</option>
-            <option value="pp">Pre-Production</option>
-          </select>
-        </div>
+      {isExpanded && (
+        <div className="p-4 space-y-4">
+          {/* ChargePoint ID */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              ChargePoint ID
+            </label>
+            <input
+              type="text"
+              value={config.cpId}
+              onChange={e => onChange({ cpId: e.target.value })}
+              disabled={disabled}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+              placeholder="CP_001"
+            />
+          </div>
 
-        {/* CP-ID */}
-        <div className="col-span-3">
-          <label className="block text-xs text-gray-500 mb-1">CP-ID</label>
-          <input
-            type="text"
-            className="w-full border rounded px-3 py-2 text-sm disabled:bg-gray-100"
-            value={config.cpId}
-            onChange={(e) => onConfigChange({ cpId: e.target.value })}
-            disabled={!canEdit}
-            placeholder="Ex: SIM-001"
-          />
-        </div>
-
-        {/* idTag */}
-        <div className="col-span-3">
-          <label className="block text-xs text-gray-500 mb-1">idTag (Badge)</label>
-          <input
-            type="text"
-            className="w-full border rounded px-3 py-2 text-sm"
-            value={config.idTag}
-            onChange={(e) => onConfigChange({ idTag: e.target.value })}
-            placeholder="Ex: TAG-001"
-          />
-        </div>
-
-        {/* Bouton Connect/Disconnect */}
-        <div className="col-span-3 flex items-end">
-          {isTemporary || !isConnected ? (
-            <button
-              onClick={onConnect}
-              className="w-full px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700
-                         font-medium transition-colors flex items-center justify-center gap-2"
+          {/* Environment */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Environnement
+            </label>
+            <select
+              value={config.environment}
+              onChange={e => onChange({ environment: e.target.value as Environment })}
+              disabled={disabled}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              CONNECT
-            </button>
-          ) : (
-            <button
-              onClick={onDisconnect}
-              className="w-full px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700
-                         font-medium transition-colors flex items-center justify-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636" />
-              </svg>
-              DISCONNECT
-            </button>
-          )}
-        </div>
+              {environments.map(env => (
+                <option key={env.value} value={env.value}>{env.label}</option>
+              ))}
+            </select>
+          </div>
 
-        {/* URL WebSocket (lecture seule) */}
-        <div className="col-span-12">
-          <label className="block text-xs text-gray-500 mb-1">WebSocket URL</label>
-          <div className="w-full border rounded px-3 py-2 text-sm bg-gray-50 text-gray-600 font-mono truncate">
-            {wsUrl}
+          {/* EVSE Type */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Type de borne
+            </label>
+            <select
+              value={config.evseType}
+              onChange={e => onChange({ evseType: e.target.value as EvseType })}
+              disabled={disabled}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+            >
+              {evseTypes.map(type => (
+                <option key={type.value} value={type.value}>{type.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Max Amperage */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Ampérage Max (A)
+            </label>
+            <NumericInput
+              value={config.maxA}
+              onChange={val => onChange({ maxA: val })}
+              disabled={disabled}
+              min={1}
+              max={500}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+            />
+          </div>
+
+          {/* ID Tag */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              ID Tag
+            </label>
+            <input
+              type="text"
+              value={config.idTag}
+              onChange={e => onChange({ idTag: e.target.value })}
+              disabled={disabled}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+              placeholder="BADGE_001"
+            />
+          </div>
+
+          {/* SoC Range */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                SoC Initial (%)
+              </label>
+              <NumericInput
+                value={config.socStart}
+                onChange={val => onChange({ socStart: val })}
+                disabled={disabled}
+                min={0}
+                max={100}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                SoC Cible (%)
+              </label>
+              <NumericInput
+                value={config.socTarget}
+                onChange={val => onChange({ socTarget: val })}
+                disabled={disabled}
+                min={0}
+                max={100}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+              />
+            </div>
+          </div>
+
+          {/* MeterValues Interval */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Intervalle MeterValues (s)
+            </label>
+            <NumericInput
+              value={config.mvEvery}
+              onChange={val => onChange({ mvEvery: val })}
+              disabled={disabled}
+              min={1}
+              max={3600}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+            />
           </div>
         </div>
-
-        {/* Ligne 2 : Type EVSE, Max A, Vehicule */}
-        <div className="col-span-2">
-          <label className="block text-xs text-gray-500 mb-1">Type EVSE</label>
-          <select
-            className="w-full border rounded px-3 py-2 text-sm bg-white"
-            value={config.evseType}
-            onChange={(e) => onConfigChange({ evseType: e.target.value as SessionConfig['evseType'] })}
-          >
-            <option value="ac-mono">AC Mono (1ph)</option>
-            <option value="ac-bi">AC Bi (2ph)</option>
-            <option value="ac-tri">AC Tri (3ph)</option>
-            <option value="dc">DC</option>
-          </select>
-        </div>
-
-        <div className="col-span-2">
-          <label className="block text-xs text-gray-500 mb-1">Courant Max (A)</label>
-          <input
-            type="number"
-            className="w-full border rounded px-3 py-2 text-sm"
-            value={config.maxA}
-            onChange={(e) => onConfigChange({ maxA: Number(e.target.value) || 32 })}
-            min={1}
-            max={500}
-          />
-        </div>
-
-        <div className="col-span-4">
-          <label className="block text-xs text-gray-500 mb-1">Vehicule</label>
-          <select
-            className="w-full border rounded px-3 py-2 text-sm bg-white"
-            value={config.vehicleId}
-            onChange={(e) => onConfigChange({ vehicleId: e.target.value })}
-          >
-            {vehicles.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name} ({v.capacityKWh} kWh)
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="col-span-2">
-          <label className="block text-xs text-gray-500 mb-1">SoC Depart (%)</label>
-          <input
-            type="number"
-            className="w-full border rounded px-3 py-2 text-sm"
-            value={config.socStart}
-            onChange={(e) => onConfigChange({ socStart: Number(e.target.value) || 20 })}
-            min={0}
-            max={100}
-          />
-        </div>
-
-        <div className="col-span-2">
-          <label className="block text-xs text-gray-500 mb-1">SoC Cible (%)</label>
-          <input
-            type="number"
-            className="w-full border rounded px-3 py-2 text-sm"
-            value={config.socTarget}
-            onChange={(e) => onConfigChange({ socTarget: Number(e.target.value) || 80 })}
-            min={0}
-            max={100}
-          />
-        </div>
-      </div>
+      )}
     </div>
   );
 }

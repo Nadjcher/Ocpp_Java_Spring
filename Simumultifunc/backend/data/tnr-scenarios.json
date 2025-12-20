@@ -1,0 +1,1784 @@
+[ {
+  "id" : "scenario-exec-1765922426167",
+  "name" : "record-1765922385435",
+  "description" : "Scénario créé automatiquement depuis l'enregistrement",
+  "category" : "recorded",
+  "tags" : [ "auto-recorded", "tnr" ],
+  "steps" : [ {
+    "order" : 1,
+    "name" : "Step 1: connect",
+    "type" : "CONNECT",
+    "action" : "connect",
+    "payload" : {
+      "uri" : "wss://evse-test.total-ev-charge.com/ocpp/WebSocket/POP-REGULATION-TEST-TOMY2",
+      "subprotocol" : "ocpp1.6"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Success",
+      "durationMs" : 1,
+      "response" : {
+        "url" : "wss://evse-test.total-ev-charge.com/ocpp/WebSocket/POP-REGULATION-TEST-TOMY2",
+        "cpId" : "POP-REGULATION-TEST-TOMY2",
+        "connected" : true
+      }
+    }
+  }, {
+    "order" : 2,
+    "name" : "Step 2: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "78aa8879-85d0-4ef2-b697-ae7130812e1d",
+      "payload" : {
+        "status" : "Accepted",
+        "currentTime" : "2025-12-16T22:00:29.537Z",
+        "interval" : 300
+      },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }
+  }, {
+    "order" : 3,
+    "name" : "Step 3: ChangeAvailability",
+    "type" : "SEND_OCPP",
+    "action" : "ChangeAvailability",
+    "payload" : {
+      "messageId" : "43dafd55-8545-4d6c-97d2-0005e781e466",
+      "payload" : {
+        "connectorId" : 1,
+        "type" : "Inoperative"
+      },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Awaited server CALL: ChangeAvailability",
+      "durationMs" : 514,
+      "response" : {
+        "action" : "ChangeAvailability",
+        "note" : "Server CALL will be handled automatically by messageRouter",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }
+  }, {
+    "order" : 4,
+    "name" : "Step 4: ChangeAvailability",
+    "type" : "SEND_OCPP",
+    "action" : "ChangeAvailability",
+    "payload" : {
+      "messageId" : "43dafd55-8545-4d6c-97d2-0005e781e466",
+      "direction" : "outgoing",
+      "response" : {
+        "status" : "Accepted"
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Response handled: ChangeAvailability",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "ChangeAvailability",
+        "handled" : true,
+        "note" : "Client response handled automatically by messageRouter",
+        "direction" : "outgoing"
+      }
+    }
+  }, {
+    "order" : 5,
+    "name" : "Step 5: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "6545df71-3d06-4a9b-a32c-9bad65348c1c",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }
+  }, {
+    "order" : 6,
+    "name" : "Step 6: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "b1a76689-840f-4c63-8086-b3dc58dc54fa",
+      "payload" : {
+        "idTagInfo" : {
+          "status" : "Accepted"
+        }
+      },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 1,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }
+  }, {
+    "order" : 7,
+    "name" : "Step 7: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "8ae8a210-9ef8-4578-906d-35f19eed1fdf",
+      "payload" : {
+        "transactionId" : 710,
+        "idTagInfo" : {
+          "status" : "Accepted",
+          "parentIdTag" : "TAG-001"
+        }
+      },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }
+  }, {
+    "order" : 8,
+    "name" : "Step 8: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "78ef157a-a44a-4052-8c4f-c7808226e5c5",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }
+  }, {
+    "order" : 9,
+    "name" : "Step 9: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "915e8740-97a2-49f4-8cd8-ca2f53c1cfe1",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }
+  }, {
+    "order" : 10,
+    "name" : "Step 10: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "ffd2ae32-d84d-498c-b286-368b60c6f317",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }
+  }, {
+    "order" : 11,
+    "name" : "Step 11: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "97af24b9-5599-4f42-856a-c0031d753f6a",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }
+  }, {
+    "order" : 12,
+    "name" : "Step 12: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "2fa3697c-b212-47db-b0df-2cdfdd18fb34",
+      "payload" : {
+        "idTagInfo" : {
+          "status" : "Accepted"
+        }
+      },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }
+  }, {
+    "order" : 13,
+    "name" : "Step 13: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "96a21977-cdad-441b-80eb-3c3f0ba583b3",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }
+  }, {
+    "order" : 14,
+    "name" : "Step 14: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "1ace1272-3bb3-4375-b8c0-15645785ae87",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }
+  }, {
+    "order" : 15,
+    "name" : "Step 15: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "450a4e05-e314-4929-b7ef-a964e31198ab",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }
+  } ],
+  "config" : {
+    "cpId" : "SIMU-CP-001",
+    "repeatCount" : 1,
+    "continueOnError" : false,
+    "globalTimeoutMs" : 300000,
+    "variables" : { }
+  },
+  "status" : "PASSED",
+  "lastResult" : {
+    "scenarioId" : "scenario-exec-1765922426167",
+    "status" : "PASSED",
+    "passedSteps" : 15,
+    "failedSteps" : 0,
+    "totalSteps" : 15,
+    "durationMs" : 517,
+    "executedAt" : "2025-12-18T10:36:02.532Z",
+    "stepResults" : [ {
+      "passed" : true,
+      "message" : "Success",
+      "durationMs" : 1,
+      "response" : {
+        "url" : "wss://evse-test.total-ev-charge.com/ocpp/WebSocket/POP-REGULATION-TEST-TOMY2",
+        "cpId" : "POP-REGULATION-TEST-TOMY2",
+        "connected" : true
+      }
+    }, {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }, {
+      "passed" : true,
+      "message" : "Awaited server CALL: ChangeAvailability",
+      "durationMs" : 514,
+      "response" : {
+        "action" : "ChangeAvailability",
+        "note" : "Server CALL will be handled automatically by messageRouter",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }, {
+      "passed" : true,
+      "message" : "Response handled: ChangeAvailability",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "ChangeAvailability",
+        "handled" : true,
+        "note" : "Client response handled automatically by messageRouter",
+        "direction" : "outgoing"
+      }
+    }, {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }, {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 1,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }, {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }, {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }, {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }, {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }, {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }, {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }, {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }, {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }, {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    } ],
+    "logs" : [ "Executing step 1: Step 1: connect", "  ✓ Step passed", "Executing step 2: Step 2: CallResult", "  ✓ Step passed", "Executing step 3: Step 3: ChangeAvailability", "  ✓ Step passed", "Executing step 4: Step 4: ChangeAvailability", "  ✓ Step passed", "Executing step 5: Step 5: CallResult", "  ✓ Step passed", "Executing step 6: Step 6: CallResult", "  ✓ Step passed", "Executing step 7: Step 7: CallResult", "  ✓ Step passed", "Executing step 8: Step 8: CallResult", "  ✓ Step passed", "Executing step 9: Step 9: CallResult", "  ✓ Step passed", "Executing step 10: Step 10: CallResult", "  ✓ Step passed", "Executing step 11: Step 11: CallResult", "  ✓ Step passed", "Executing step 12: Step 12: CallResult", "  ✓ Step passed", "Executing step 13: Step 13: CallResult", "  ✓ Step passed", "Executing step 14: Step 14: CallResult", "  ✓ Step passed", "Executing step 15: Step 15: CallResult", "  ✓ Step passed" ]
+  },
+  "createdAt" : "2025-12-16T23:01:33.091Z",
+  "updatedAt" : "2025-12-16T23:01:33.091Z",
+  "lastRunAt" : "2025-12-18T10:36:02.532Z",
+  "version" : "1.0.0",
+  "active" : true
+}, {
+  "id" : "scenario-exec-1766015324347",
+  "name" : "record-1766015284404",
+  "description" : "Scénario créé automatiquement depuis l'enregistrement",
+  "category" : "recorded",
+  "tags" : [ "auto-recorded", "tnr" ],
+  "steps" : [ {
+    "order" : 1,
+    "name" : "Step 1: connect",
+    "type" : "CONNECT",
+    "action" : "connect",
+    "payload" : {
+      "uri" : "wss://evse-test.total-ev-charge.com/ocpp/WebSocket/CP-SESSION-003",
+      "subprotocol" : "ocpp1.6"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Success",
+      "durationMs" : 1,
+      "response" : {
+        "connected" : true,
+        "cpId" : "CP-SESSION-003",
+        "url" : "wss://evse-test.total-ev-charge.com/ocpp/WebSocket/CP-SESSION-003"
+      }
+    }
+  }, {
+    "order" : 2,
+    "name" : "Step 2: BootNotification",
+    "type" : "SEND_OCPP",
+    "action" : "BootNotification",
+    "payload" : {
+      "direction" : "outgoing",
+      "messageId" : "706a29ef-0380-4270-b9a6-d86e635b69f0",
+      "payload" : {
+        "chargePointVendor" : "EVSE Simulator",
+        "chargePointModel" : "SimuCP-1",
+        "chargePointSerialNumber" : "SIM-001",
+        "firmwareVersion" : "1.0.0",
+        "meterType" : "Virtual",
+        "meterSerialNumber" : "SIM-001-M"
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : false,
+      "message" : "Error: com.evse.simulator.exception.OCPPException: Session not connected: tnr-test-session",
+      "durationMs" : 1,
+      "error" : "ExecutionException: com.evse.simulator.exception.OCPPException: Session not connected: tnr-test-session"
+    }
+  }, {
+    "order" : 3,
+    "name" : "Step 3: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "direction" : "incoming",
+      "messageId" : "706a29ef-0380-4270-b9a6-d86e635b69f0",
+      "payload" : {
+        "status" : "Rejected",
+        "currentTime" : "2025-12-17T23:48:45.612Z",
+        "interval" : 300
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Sent BootNotification (inferred from CallResult)",
+      "durationMs" : 424,
+      "response" : {
+        "status" : "Accepted",
+        "currentTime" : "2025-12-18T08:17:03.025Z",
+        "interval" : 300
+      }
+    }
+  }, {
+    "order" : 4,
+    "name" : "Step 4: connect",
+    "type" : "CONNECT",
+    "action" : "connect",
+    "payload" : {
+      "uri" : "wss://evse-test.total-ev-charge.com/ocpp/WebSocket/POP-REGULATION-TEST-TOMY3",
+      "subprotocol" : "ocpp1.6"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Success",
+      "durationMs" : 2,
+      "response" : {
+        "connected" : true,
+        "cpId" : "POP-REGULATION-TEST-TOMY3",
+        "url" : "wss://evse-test.total-ev-charge.com/ocpp/WebSocket/POP-REGULATION-TEST-TOMY3"
+      }
+    }
+  }, {
+    "order" : 5,
+    "name" : "Step 5: BootNotification",
+    "type" : "SEND_OCPP",
+    "action" : "BootNotification",
+    "payload" : {
+      "direction" : "outgoing",
+      "messageId" : "f79f4c2e-8563-4391-bbca-4170becc93bc",
+      "payload" : {
+        "chargePointVendor" : "EVSE Simulator",
+        "chargePointModel" : "SimuCP-1",
+        "chargePointSerialNumber" : "SIM-001",
+        "firmwareVersion" : "1.0.0",
+        "meterType" : "Virtual",
+        "meterSerialNumber" : "SIM-001-M"
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Sent client CALL: BootNotification",
+      "durationMs" : 397,
+      "response" : {
+        "status" : "Accepted",
+        "currentTime" : "2025-12-18T08:17:03.412Z",
+        "interval" : 300
+      }
+    }
+  }, {
+    "order" : 6,
+    "name" : "Step 6: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "direction" : "incoming",
+      "messageId" : "f79f4c2e-8563-4391-bbca-4170becc93bc",
+      "payload" : {
+        "status" : "Accepted",
+        "currentTime" : "2025-12-17T23:49:05.931Z",
+        "interval" : 300
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Sent BootNotification (inferred from CallResult)",
+      "durationMs" : 362,
+      "response" : {
+        "status" : "Accepted",
+        "currentTime" : "2025-12-18T08:17:03.845Z",
+        "interval" : 300
+      }
+    }
+  }, {
+    "order" : 7,
+    "name" : "Step 7: StatusNotification",
+    "type" : "SEND_OCPP",
+    "action" : "StatusNotification",
+    "payload" : {
+      "direction" : "outgoing",
+      "messageId" : "42224a47-9c9c-4fe2-994a-9fc40e482199",
+      "payload" : {
+        "connectorId" : 1,
+        "status" : "Preparing",
+        "errorCode" : "NoError",
+        "timestamp" : "2025-12-17T23:49:15.408640900Z"
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Sent client CALL: StatusNotification",
+      "durationMs" : 157,
+      "response" : { }
+    }
+  }, {
+    "order" : 8,
+    "name" : "Step 8: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "direction" : "incoming",
+      "messageId" : "42224a47-9c9c-4fe2-994a-9fc40e482199",
+      "payload" : { }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "direction" : "incoming",
+        "observed" : true,
+        "note" : "Incoming CallResult observed"
+      }
+    }
+  }, {
+    "order" : 9,
+    "name" : "Step 9: Authorize",
+    "type" : "SEND_OCPP",
+    "action" : "Authorize",
+    "payload" : {
+      "direction" : "outgoing",
+      "messageId" : "8154fd62-bdb9-4553-804d-33d011d38f83",
+      "payload" : {
+        "idTag" : "TAG-001"
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Sent client CALL: Authorize",
+      "durationMs" : 348,
+      "response" : {
+        "idTagInfo" : {
+          "status" : "Accepted"
+        }
+      }
+    }
+  }, {
+    "order" : 10,
+    "name" : "Step 10: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "direction" : "incoming",
+      "messageId" : "8154fd62-bdb9-4553-804d-33d011d38f83",
+      "payload" : {
+        "idTagInfo" : {
+          "status" : "Accepted"
+        }
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Sent Authorize (inferred from CallResult)",
+      "durationMs" : 157,
+      "response" : {
+        "idTagInfo" : {
+          "status" : "Accepted"
+        }
+      }
+    }
+  }, {
+    "order" : 11,
+    "name" : "Step 11: StartTransaction",
+    "type" : "SEND_OCPP",
+    "action" : "StartTransaction",
+    "payload" : {
+      "direction" : "outgoing",
+      "messageId" : "617d735e-f9d0-4a21-9be2-3940cb15799c",
+      "payload" : {
+        "connectorId" : 1,
+        "idTag" : "TAG-001",
+        "meterStart" : 0,
+        "timestamp" : "2025-12-17T23:49:19.568909600Z"
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Sent client CALL: StartTransaction",
+      "durationMs" : 306,
+      "response" : {
+        "transactionId" : 721,
+        "idTagInfo" : {
+          "status" : "Accepted",
+          "parentIdTag" : "TNR_TAG_001"
+        }
+      }
+    }
+  }, {
+    "order" : 12,
+    "name" : "Step 12: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "direction" : "incoming",
+      "messageId" : "617d735e-f9d0-4a21-9be2-3940cb15799c",
+      "payload" : {
+        "transactionId" : 120,
+        "idTagInfo" : {
+          "status" : "Accepted",
+          "parentIdTag" : "TAG-001"
+        }
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Sent StartTransaction (inferred from CallResult)",
+      "durationMs" : 368,
+      "response" : {
+        "transactionId" : 722,
+        "idTagInfo" : {
+          "status" : "Accepted",
+          "parentIdTag" : "TNR_TAG_001"
+        }
+      }
+    }
+  }, {
+    "order" : 13,
+    "name" : "Step 13: MeterValues",
+    "type" : "SEND_OCPP",
+    "action" : "MeterValues",
+    "payload" : {
+      "direction" : "outgoing",
+      "messageId" : "c46081ef-f9fc-440c-b81d-21840871a8cf",
+      "payload" : {
+        "connectorId" : 1,
+        "meterValue" : [ {
+          "timestamp" : "2025-12-17T23:49:29.992829400Z",
+          "sampledValue" : [ {
+            "value" : "20",
+            "measurand" : "Energy.Active.Import.Register",
+            "unit" : "Wh",
+            "location" : "Outlet"
+          }, {
+            "value" : "7400",
+            "measurand" : "Power.Active.Import",
+            "unit" : "W",
+            "location" : "Outlet"
+          }, {
+            "value" : "32,2",
+            "measurand" : "Current.Import",
+            "unit" : "A",
+            "location" : "Outlet"
+          }, {
+            "value" : "230,0",
+            "measurand" : "Voltage",
+            "unit" : "V",
+            "location" : "Outlet"
+          }, {
+            "value" : "20",
+            "measurand" : "SoC",
+            "unit" : "Percent"
+          } ]
+        } ],
+        "transactionId" : 120
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Sent client CALL: MeterValues",
+      "durationMs" : 51,
+      "response" : { }
+    }
+  }, {
+    "order" : 14,
+    "name" : "Step 14: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "direction" : "incoming",
+      "messageId" : "c46081ef-f9fc-440c-b81d-21840871a8cf",
+      "payload" : { }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 16,
+      "response" : {
+        "action" : "CallResult",
+        "direction" : "incoming",
+        "observed" : true,
+        "note" : "Incoming CallResult observed"
+      }
+    }
+  }, {
+    "order" : 15,
+    "name" : "Step 15: MeterValues",
+    "type" : "SEND_OCPP",
+    "action" : "MeterValues",
+    "payload" : {
+      "direction" : "outgoing",
+      "messageId" : "1fbd7d03-e409-4767-940d-678426c08575",
+      "payload" : {
+        "connectorId" : 1,
+        "meterValue" : [ {
+          "timestamp" : "2025-12-17T23:49:39.982030500Z",
+          "sampledValue" : [ {
+            "value" : "41",
+            "measurand" : "Energy.Active.Import.Register",
+            "unit" : "Wh",
+            "location" : "Outlet"
+          }, {
+            "value" : "7400",
+            "measurand" : "Power.Active.Import",
+            "unit" : "W",
+            "location" : "Outlet"
+          }, {
+            "value" : "32,2",
+            "measurand" : "Current.Import",
+            "unit" : "A",
+            "location" : "Outlet"
+          }, {
+            "value" : "230,0",
+            "measurand" : "Voltage",
+            "unit" : "V",
+            "location" : "Outlet"
+          }, {
+            "value" : "20",
+            "measurand" : "SoC",
+            "unit" : "Percent"
+          } ]
+        } ],
+        "transactionId" : 120
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Sent client CALL: MeterValues",
+      "durationMs" : 84,
+      "response" : { }
+    }
+  }, {
+    "order" : 16,
+    "name" : "Step 16: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "direction" : "incoming",
+      "messageId" : "1fbd7d03-e409-4767-940d-678426c08575",
+      "payload" : { }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "direction" : "incoming",
+        "observed" : true,
+        "note" : "Incoming CallResult observed"
+      }
+    }
+  }, {
+    "order" : 17,
+    "name" : "Step 17: MeterValues",
+    "type" : "SEND_OCPP",
+    "action" : "MeterValues",
+    "payload" : {
+      "direction" : "outgoing",
+      "messageId" : "3a1bf5a8-efc3-45a3-818c-65e67823d79c",
+      "payload" : {
+        "connectorId" : 1,
+        "meterValue" : [ {
+          "timestamp" : "2025-12-17T23:49:49.985106400Z",
+          "sampledValue" : [ {
+            "value" : "61",
+            "measurand" : "Energy.Active.Import.Register",
+            "unit" : "Wh",
+            "location" : "Outlet"
+          }, {
+            "value" : "7400",
+            "measurand" : "Power.Active.Import",
+            "unit" : "W",
+            "location" : "Outlet"
+          }, {
+            "value" : "32,2",
+            "measurand" : "Current.Import",
+            "unit" : "A",
+            "location" : "Outlet"
+          }, {
+            "value" : "230,0",
+            "measurand" : "Voltage",
+            "unit" : "V",
+            "location" : "Outlet"
+          }, {
+            "value" : "20",
+            "measurand" : "SoC",
+            "unit" : "Percent"
+          } ]
+        } ],
+        "transactionId" : 120
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Sent client CALL: MeterValues",
+      "durationMs" : 62,
+      "response" : { }
+    }
+  }, {
+    "order" : 18,
+    "name" : "Step 18: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "direction" : "incoming",
+      "messageId" : "3a1bf5a8-efc3-45a3-818c-65e67823d79c",
+      "payload" : { }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "direction" : "incoming",
+        "observed" : true,
+        "note" : "Incoming CallResult observed"
+      }
+    }
+  }, {
+    "order" : 19,
+    "name" : "Step 19: StopTransaction",
+    "type" : "SEND_OCPP",
+    "action" : "StopTransaction",
+    "payload" : {
+      "direction" : "outgoing",
+      "messageId" : "d74b0eec-c59c-47f5-9f7b-3ed1d5dffe6f",
+      "payload" : {
+        "transactionId" : 120,
+        "meterStop" : 61,
+        "timestamp" : "2025-12-17T23:49:58.736773500Z",
+        "reason" : "Local",
+        "idTag" : "TAG-001"
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Sent client CALL: StopTransaction",
+      "durationMs" : 190,
+      "response" : {
+        "idTagInfo" : {
+          "status" : "Accepted"
+        }
+      }
+    }
+  }, {
+    "order" : 20,
+    "name" : "Step 20: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "direction" : "incoming",
+      "messageId" : "d74b0eec-c59c-47f5-9f7b-3ed1d5dffe6f",
+      "payload" : {
+        "idTagInfo" : {
+          "status" : "Accepted"
+        }
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Sent Authorize (inferred from CallResult)",
+      "durationMs" : 201,
+      "response" : {
+        "idTagInfo" : {
+          "status" : "Accepted"
+        }
+      }
+    }
+  }, {
+    "order" : 21,
+    "name" : "Step 21: StatusNotification",
+    "type" : "SEND_OCPP",
+    "action" : "StatusNotification",
+    "payload" : {
+      "direction" : "outgoing",
+      "messageId" : "63e7e867-d419-4b16-84e5-9723e7a99930",
+      "payload" : {
+        "connectorId" : 1,
+        "status" : "Finishing",
+        "errorCode" : "NoError",
+        "timestamp" : "2025-12-17T23:49:58.898606600Z"
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Sent client CALL: StatusNotification",
+      "durationMs" : 60,
+      "response" : { }
+    }
+  }, {
+    "order" : 22,
+    "name" : "Step 22: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "direction" : "incoming",
+      "messageId" : "63e7e867-d419-4b16-84e5-9723e7a99930",
+      "payload" : { }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "direction" : "incoming",
+        "observed" : true,
+        "note" : "Incoming CallResult observed"
+      }
+    }
+  }, {
+    "order" : 23,
+    "name" : "Step 23: StatusNotification",
+    "type" : "SEND_OCPP",
+    "action" : "StatusNotification",
+    "payload" : {
+      "direction" : "outgoing",
+      "messageId" : "0bc4b30b-18e9-4ee9-b8fa-e590236276c0",
+      "payload" : {
+        "connectorId" : 1,
+        "status" : "Available",
+        "errorCode" : "NoError",
+        "timestamp" : "2025-12-17T23:50:00.473666800Z"
+      }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Sent client CALL: StatusNotification",
+      "durationMs" : 95,
+      "response" : { }
+    }
+  }, {
+    "order" : 24,
+    "name" : "Step 24: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "direction" : "incoming",
+      "messageId" : "0bc4b30b-18e9-4ee9-b8fa-e590236276c0",
+      "payload" : { }
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "CallResult",
+        "direction" : "incoming",
+        "observed" : true,
+        "note" : "Incoming CallResult observed"
+      }
+    }
+  }, {
+    "order" : 25,
+    "name" : "Step 25: disconnect",
+    "type" : "CONNECT",
+    "action" : "disconnect",
+    "payload" : {
+      "remote" : false,
+      "reason" : "",
+      "code" : 1000
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Success",
+      "durationMs" : 0,
+      "response" : {
+        "disconnected" : true
+      }
+    }
+  } ],
+  "config" : {
+    "csmsUrl" : "wss://evse-test.total-ev-charge.com/ocpp/WebSocket/POP-REGULATION-TEST-TOMY3",
+    "cpId" : "POP-REGULATION-TEST-TOMY3",
+    "repeatCount" : 1,
+    "continueOnError" : false,
+    "globalTimeoutMs" : 300000,
+    "variables" : { }
+  },
+  "status" : "FAILED",
+  "lastResult" : {
+    "scenarioId" : "scenario-exec-1766015324347",
+    "status" : "FAILED",
+    "passedSteps" : 1,
+    "failedSteps" : 1,
+    "totalSteps" : 25,
+    "durationMs" : 2,
+    "executedAt" : "2025-12-18T09:31:30.345Z",
+    "stepResults" : [ {
+      "passed" : true,
+      "message" : "Success",
+      "durationMs" : 1,
+      "response" : {
+        "connected" : true,
+        "cpId" : "CP-SESSION-003",
+        "url" : "wss://evse-test.total-ev-charge.com/ocpp/WebSocket/CP-SESSION-003"
+      }
+    }, {
+      "passed" : false,
+      "message" : "Error: com.evse.simulator.exception.OCPPException: Session not connected: tnr-test-session",
+      "durationMs" : 1,
+      "error" : "ExecutionException: com.evse.simulator.exception.OCPPException: Session not connected: tnr-test-session"
+    } ],
+    "logs" : [ "Executing step 1: Step 1: connect", "  ✓ Step passed", "Executing step 2: Step 2: BootNotification", "  ✗ Step failed: Error: com.evse.simulator.exception.OCPPException: Session not connected: tnr-test-session", "Stopping execution due to error" ]
+  },
+  "createdAt" : "2025-12-18T00:50:07.849Z",
+  "updatedAt" : "2025-12-18T00:50:07.849Z",
+  "lastRunAt" : "2025-12-18T09:31:30.345Z",
+  "version" : "1.0.0",
+  "active" : true
+}, {
+  "id" : "scenario-exec-1765661952043",
+  "name" : "record-1765661884483",
+  "description" : "Scénario créé automatiquement depuis l'enregistrement",
+  "category" : "recorded",
+  "tags" : [ "auto-recorded", "tnr" ],
+  "steps" : [ {
+    "order" : 1,
+    "name" : "Step 1: connect",
+    "type" : "CONNECT",
+    "action" : "connect",
+    "payload" : {
+      "subprotocol" : "ocpp1.6",
+      "uri" : "wss://evse-test.total-ev-charge.com/ocpp/WebSocket/POP-REGULATION-TEST-TOMY2"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Success",
+      "durationMs" : 4,
+      "response" : {
+        "url" : "wss://evse-test.total-ev-charge.com/ocpp/WebSocket/POP-REGULATION-TEST-TOMY2",
+        "cpId" : "POP-REGULATION-TEST-TOMY2",
+        "connected" : true
+      }
+    }
+  }, {
+    "order" : 2,
+    "name" : "Step 2: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "3ab22516-5e69-4e5a-b1ca-e4efbce3aade",
+      "payload" : {
+        "status" : "Accepted",
+        "currentTime" : "2025-12-13T21:39:14.966Z",
+        "interval" : 300
+      },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 5,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }
+  }, {
+    "order" : 3,
+    "name" : "Step 3: ChangeAvailability",
+    "type" : "SEND_OCPP",
+    "action" : "ChangeAvailability",
+    "payload" : {
+      "messageId" : "62e85bbe-1ce9-474b-8cee-9800ff004114",
+      "payload" : {
+        "connectorId" : 1,
+        "type" : "Inoperative"
+      },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Awaited server CALL: ChangeAvailability",
+      "durationMs" : 502,
+      "response" : {
+        "action" : "ChangeAvailability",
+        "note" : "Server CALL will be handled automatically by messageRouter",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }
+  }, {
+    "order" : 4,
+    "name" : "Step 4: ChangeAvailability",
+    "type" : "SEND_OCPP",
+    "action" : "ChangeAvailability",
+    "payload" : {
+      "response" : {
+        "status" : "ACCEPTED"
+      },
+      "messageId" : "62e85bbe-1ce9-474b-8cee-9800ff004114",
+      "direction" : "outgoing"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : true,
+      "message" : "Response handled: ChangeAvailability",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "ChangeAvailability",
+        "handled" : true,
+        "note" : "Client response handled automatically by messageRouter",
+        "direction" : "outgoing"
+      }
+    }
+  }, {
+    "order" : 5,
+    "name" : "Step 5: ProtocolError",
+    "type" : "SEND_OCPP",
+    "action" : "ProtocolError",
+    "payload" : {
+      "messageId" : "62e85bbe-1ce9-474b-8cee-9800ff004114",
+      "errorCode" : "ProtocolError",
+      "errorDescription" : "Payload bad format"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ],
+    "result" : {
+      "passed" : false,
+      "message" : "Error: Unknown OCPP action: ProtocolError",
+      "durationMs" : 0,
+      "error" : "IllegalArgumentException: Unknown OCPP action: ProtocolError"
+    }
+  }, {
+    "order" : 6,
+    "name" : "Step 6: connect",
+    "type" : "CONNECT",
+    "action" : "connect",
+    "payload" : {
+      "subprotocol" : "ocpp1.6",
+      "uri" : "wss://evse-test.total-ev-charge.com/ocpp/WebSocket/POP-REGULATION-TEST-TOMY2"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 7,
+    "name" : "Step 7: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "95bb3b93-fac0-4489-ba31-932dd1d60cde",
+      "payload" : {
+        "status" : "Accepted",
+        "currentTime" : "2025-12-13T21:39:15.807Z",
+        "interval" : 300
+      },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 8,
+    "name" : "Step 8: ChangeAvailability",
+    "type" : "SEND_OCPP",
+    "action" : "ChangeAvailability",
+    "payload" : {
+      "messageId" : "d13ff173-9b52-47a7-9bd6-9734f909d6e4",
+      "payload" : {
+        "connectorId" : 1,
+        "type" : "Inoperative"
+      },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 9,
+    "name" : "Step 9: ChangeAvailability",
+    "type" : "SEND_OCPP",
+    "action" : "ChangeAvailability",
+    "payload" : {
+      "response" : {
+        "status" : "ACCEPTED"
+      },
+      "messageId" : "d13ff173-9b52-47a7-9bd6-9734f909d6e4",
+      "direction" : "outgoing"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 10,
+    "name" : "Step 10: ProtocolError",
+    "type" : "SEND_OCPP",
+    "action" : "ProtocolError",
+    "payload" : {
+      "messageId" : "d13ff173-9b52-47a7-9bd6-9734f909d6e4",
+      "errorCode" : "ProtocolError",
+      "errorDescription" : "Payload bad format"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 11,
+    "name" : "Step 11: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "f26ee3a9-fe0b-4c30-b622-cb0d61205809",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 12,
+    "name" : "Step 12: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "c494a6c1-2dca-44b3-81ce-a6b9a304b84c",
+      "payload" : {
+        "idTagInfo" : {
+          "status" : "Accepted"
+        }
+      },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 13,
+    "name" : "Step 13: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "98da13ef-17fc-42ab-95b5-99fab56e0346",
+      "payload" : {
+        "transactionId" : 672,
+        "idTagInfo" : {
+          "status" : "Accepted",
+          "parentIdTag" : "TAG-001"
+        }
+      },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 14,
+    "name" : "Step 14: disconnect",
+    "type" : "CONNECT",
+    "action" : "disconnect",
+    "payload" : {
+      "reason" : "",
+      "code" : 1000,
+      "remote" : false
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 15,
+    "name" : "Step 15: disconnect",
+    "type" : "CONNECT",
+    "action" : "disconnect",
+    "payload" : {
+      "reason" : "",
+      "code" : 1000,
+      "remote" : false
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 16,
+    "name" : "Step 16: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "d28c05eb-ff2d-4d1d-a00e-cae278bfe2a8",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 17,
+    "name" : "Step 17: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "4615bdbf-52e0-47f3-953b-c50e4d443c9c",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 18,
+    "name" : "Step 18: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "c1a186ea-0bf4-4887-b1af-1e61aad5fb4f",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 19,
+    "name" : "Step 19: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "12ec8148-8f50-4f18-9f56-8a8784f83637",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 20,
+    "name" : "Step 20: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "6218f45b-552a-4c68-b74b-ad117cf1c716",
+      "payload" : {
+        "idTagInfo" : {
+          "status" : "Accepted"
+        }
+      },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 21,
+    "name" : "Step 21: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "d9d8ccb1-c123-44f8-b8c1-4b5cd35a6502",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 22,
+    "name" : "Step 22: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "b49bf274-fbe5-4d67-96d3-cc3fa0d78175",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 23,
+    "name" : "Step 23: CallResult",
+    "type" : "SEND_OCPP",
+    "action" : "CallResult",
+    "payload" : {
+      "messageId" : "4809435a-0ceb-4057-b4a6-9417fba159b8",
+      "payload" : { },
+      "direction" : "incoming"
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  }, {
+    "order" : 24,
+    "name" : "Step 24: disconnect",
+    "type" : "CONNECT",
+    "action" : "disconnect",
+    "payload" : {
+      "reason" : "",
+      "code" : 1000,
+      "remote" : false
+    },
+    "delayMs" : 0,
+    "timeoutMs" : 30000,
+    "assertions" : [ ]
+  } ],
+  "config" : {
+    "cpId" : "SIMU-CP-001",
+    "repeatCount" : 1,
+    "continueOnError" : false,
+    "globalTimeoutMs" : 300000,
+    "variables" : { }
+  },
+  "status" : "FAILED",
+  "lastResult" : {
+    "scenarioId" : "scenario-exec-1765661952043",
+    "status" : "FAILED",
+    "passedSteps" : 4,
+    "failedSteps" : 1,
+    "totalSteps" : 24,
+    "durationMs" : 514,
+    "executedAt" : "2025-12-18T10:23:48.986Z",
+    "stepResults" : [ {
+      "passed" : true,
+      "message" : "Success",
+      "durationMs" : 4,
+      "response" : {
+        "url" : "wss://evse-test.total-ev-charge.com/ocpp/WebSocket/POP-REGULATION-TEST-TOMY2",
+        "cpId" : "POP-REGULATION-TEST-TOMY2",
+        "connected" : true
+      }
+    }, {
+      "passed" : true,
+      "message" : "Observed incoming: CallResult",
+      "durationMs" : 5,
+      "response" : {
+        "action" : "CallResult",
+        "note" : "Incoming CallResult observed",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }, {
+      "passed" : true,
+      "message" : "Awaited server CALL: ChangeAvailability",
+      "durationMs" : 502,
+      "response" : {
+        "action" : "ChangeAvailability",
+        "note" : "Server CALL will be handled automatically by messageRouter",
+        "observed" : true,
+        "direction" : "incoming"
+      }
+    }, {
+      "passed" : true,
+      "message" : "Response handled: ChangeAvailability",
+      "durationMs" : 0,
+      "response" : {
+        "action" : "ChangeAvailability",
+        "handled" : true,
+        "note" : "Client response handled automatically by messageRouter",
+        "direction" : "outgoing"
+      }
+    }, {
+      "passed" : false,
+      "message" : "Error: Unknown OCPP action: ProtocolError",
+      "durationMs" : 0,
+      "error" : "IllegalArgumentException: Unknown OCPP action: ProtocolError"
+    } ],
+    "logs" : [ "Executing step 1: Step 1: connect", "  ✓ Step passed", "Executing step 2: Step 2: CallResult", "  ✓ Step passed", "Executing step 3: Step 3: ChangeAvailability", "  ✓ Step passed", "Executing step 4: Step 4: ChangeAvailability", "  ✓ Step passed", "Executing step 5: Step 5: ProtocolError", "  ✗ Step failed: Error: Unknown OCPP action: ProtocolError", "Stopping execution due to error" ]
+  },
+  "createdAt" : "2025-12-13T22:40:18.870Z",
+  "updatedAt" : "2025-12-13T22:40:18.870Z",
+  "lastRunAt" : "2025-12-18T10:23:48.985Z",
+  "version" : "1.0.0",
+  "active" : true
+} ]

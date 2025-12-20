@@ -313,8 +313,8 @@ class TNREVSEService extends EventEmitter {
         this.emit('txdpCaptured', txdpMessage);
     }
 
-    // Rejouer un scénario avec timing configurable
-    async replayScenario(recordingId: string, options?: ReplayOptions): Promise<TNRComparison> {
+    // Rejouer un scénario
+    async replayScenario(recordingId: string, options?: Partial<ReplayOptions>): Promise<TNRComparison> {
         const recording = this.recordings.get(recordingId);
         if (!recording) {
             throw new Error(`Scénario ${recordingId} non trouvé`);

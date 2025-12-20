@@ -1,15 +1,7 @@
 // frontend/src/components/simu-evse/Chart.tsx
-// Composant graphique pour les données de charge
-
-import React, { useState, useEffect, useRef } from 'react';
-import type { Serie } from '@/types/evse.types';
-import { clamp } from '@/utils/evse.utils';
-
-interface RefLine {
-  value: number;
-  label: string;
-  color: string;
-}
+import React, { useState, useEffect, useRef } from "react";
+import type { Serie } from "@/types/evse.types";
+import { clamp } from "@/utils/evse.utils";
 
 interface ChartProps {
   series: Serie[];
@@ -17,12 +9,7 @@ interface ChartProps {
   height?: number;
   xLabel?: string;
   yLabel?: string;
-  refLines?: RefLine[];
-}
-
-interface HoverState {
-  x: number;
-  vals: { label: string; y: number; color: string }[];
+  refLines?: Array<{ value: number; label: string; color: string }>;
 }
 
 export function Chart({
@@ -33,7 +20,11 @@ export function Chart({
   yLabel,
   refLines,
 }: ChartProps) {
-  const [hover, setHover] = useState<HoverState | null>(null);
+  const [hover, setHover] = useState<{
+    x: number;
+    vals: { label: string; y: number; color: string }[];
+  } | null>(null);
+
   const boxRef = useRef<HTMLDivElement>(null);
   const [W, setW] = useState(560);
   const H = height;
@@ -228,8 +219,8 @@ export function Chart({
           const areaD =
             s.points.length > 1
               ? `M ${xOf(s.points[0].t)},${yOf(0)} L ${pathD} L ${xOf(
-                s.points[s.points.length - 1].t
-              )},${yOf(0)} Z`
+                  s.points[s.points.length - 1].t
+                )},${yOf(0)} Z`
               : "";
 
           return (
@@ -299,5 +290,3 @@ export function Chart({
     </div>
   );
 }
-
-export default Chart;

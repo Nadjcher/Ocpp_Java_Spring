@@ -2,7 +2,7 @@ package com.evse.simulator.service;
 
 import com.evse.simulator.exception.VehicleNotFoundException;
 import com.evse.simulator.model.VehicleProfile;
-import com.evse.simulator.repository.JsonFileRepository;
+import com.evse.simulator.repository.DataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,7 +19,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class VehicleService implements com.evse.simulator.domain.service.VehicleService {
 
-    private final JsonFileRepository repository;
+    private final DataRepository repository;
 
     /**
      * Récupère tous les profils de véhicules.

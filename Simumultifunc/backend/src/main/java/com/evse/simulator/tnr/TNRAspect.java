@@ -2,6 +2,8 @@ package com.evse.simulator.tnr;
 
 import com.evse.simulator.domain.service.TNRService;
 import com.evse.simulator.model.TNREvent;
+import com.evse.simulator.tnr.model.TnrEvent;
+import com.evse.simulator.tnr.service.TnrRecordingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -16,6 +18,10 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Aspect pour l'enregistrement automatique des événements TNR.
  * Capture les appels OCPP et les connexions WebSocket.
+ * <p>
+ * Utilise le nouveau TnrRecordingService avec filtrage et limites.
+ * Maintient la compatibilité avec l'ancien TNRService.
+ * </p>
  */
 @Slf4j
 @Aspect
@@ -25,6 +31,7 @@ import java.util.concurrent.CompletableFuture;
 public class TNRAspect {
 
     private final TNRService tnrService;
+    private final TnrRecordingService recordingService;
 
     /* --------- OCPP client --------- */
 
@@ -69,6 +76,13 @@ public class TNRAspect {
 
     private void recordOcpp(String dir, String sessionId, String action, Object payload) {
         try {
+            // Enregistrer avec le nouveau service (enrichi)
+            TnrEvent newEvent = "RECV".equals(dir)
+                    ? TnrEvent.ocppRecv(sessionId, action, payload, null)
+                    : TnrEvent.ocppSend(sessionId, action, payload);
+            recordingService.recordEvent(newEvent);
+
+            // Maintenir compatibilité avec l'ancien service
             TNREvent ev = new TNREvent();
             ev.setTimestamp(System.currentTimeMillis());
             ev.setSessionId(sessionId);
@@ -95,9 +109,16 @@ public class TNRAspect {
 
     private void recordSession(WebSocketSession session, String action) {
         try {
+            String sessionId = session != null ? session.getId() : null;
+
+            // Enregistrer avec le nouveau service (enrichi)
+            TnrEvent newEvent = TnrEvent.connection(sessionId, "connect".equals(action));
+            recordingService.recordEvent(newEvent);
+
+            // Maintenir compatibilité avec l'ancien service
             TNREvent ev = new TNREvent();
             ev.setTimestamp(System.currentTimeMillis());
-            ev.setSessionId(session != null ? session.getId() : null);
+            ev.setSessionId(sessionId);
             ev.setType("session");
             ev.setAction(action);
             ev.setPayload(null);

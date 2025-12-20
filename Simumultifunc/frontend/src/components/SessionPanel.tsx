@@ -59,7 +59,7 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
             <div className="grid grid-cols-2 gap-6">
                 {/* Configuration Panel */}
                 <div>
-                    <h3 className="text-lg font-semibold mb-3 text-white">🔌 Connexion OCPP</h3>
+                    <h3 className="text-lg font-semibold mb-3 text-white">[PLUG] Connexion OCPP</h3>
 
                     <div className="space-y-3 mb-4">
                         <div className="grid grid-cols-2 gap-3">
@@ -92,13 +92,13 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
                             }`}
                             disabled={session.state === 'CONNECTING'}
                         >
-                            {session.state === 'DISCONNECTED' ? '🔌 Connecter' :
-                                session.state === 'CONNECTING' ? '⏳ Connexion...' :
-                                    '🔌 Déconnecter'}
+                            {session.state === 'DISCONNECTED' ? '[PLUG] Connecter' :
+                                session.state === 'CONNECTING' ? '[TIMER] Connexion...' :
+                                    '[PLUG] Déconnecter'}
                         </button>
                     </div>
 
-                    <h3 className="text-lg font-semibold mb-3 text-white">🚗 Véhicule</h3>
+                    <h3 className="text-lg font-semibold mb-3 text-white">[CAR] Véhicule</h3>
 
                     <div className="space-y-3 mb-4">
                         <div>
@@ -123,19 +123,19 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
                                 disabled={session.state !== 'CONNECTED'}
                                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
                             >
-                                🅿️ Park
+                                [PARK] Park
                             </button>
                             <button
                                 onClick={onPlug}
                                 disabled={session.state !== 'CONNECTED'}
                                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
                             >
-                                🔌 Plug
+                                [PLUG] Plug
                             </button>
                         </div>
                     </div>
 
-                    <h3 className="text-lg font-semibold mb-3 text-white">⚡ Charge</h3>
+                    <h3 className="text-lg font-semibold mb-3 text-white">[POWER] Charge</h3>
 
                     <div className="space-y-3">
                         <div className="flex gap-2">
@@ -151,7 +151,7 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
                                 disabled={session.state !== 'CONNECTED'}
                                 className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50"
                             >
-                                🔑 Auth
+                                [AUTH] Auth
                             </button>
                         </div>
 
@@ -161,14 +161,14 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
                                 disabled={session.state !== 'AUTHORIZED'}
                                 className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
                             >
-                                ▶️ Start
+                                [START] Start
                             </button>
                             <button
                                 onClick={onStop}
                                 disabled={session.state !== 'CHARGING'}
                                 className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
                             >
-                                ⏹️ Stop
+                                [STOP] Stop
                             </button>
                         </div>
                     </div>
@@ -176,7 +176,7 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
 
                 {/* Status Panel */}
                 <div>
-                    <h3 className="text-lg font-semibold mb-3 text-white">📊 État de charge</h3>
+                    <h3 className="text-lg font-semibold mb-3 text-white">[CHART] État de charge</h3>
 
                     <div className="grid grid-cols-2 gap-4 mb-4">
                         <div className="bg-gray-700 p-3 rounded">
@@ -192,14 +192,14 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
                     {/* Graphiques simplifiés */}
                     <div className="bg-gray-700 rounded p-4 mb-4 h-32 flex items-center justify-center">
                         <div className="text-gray-400 text-center">
-                            <div className="text-3xl mb-2">📈</div>
+                            <div className="text-3xl mb-2">[CHART]</div>
                             <div>Graphique SoC</div>
                         </div>
                     </div>
 
                     <div className="bg-gray-700 rounded p-4 h-32 flex items-center justify-center">
                         <div className="text-gray-400 text-center">
-                            <div className="text-3xl mb-2">⚡</div>
+                            <div className="text-3xl mb-2">[POWER]</div>
                             <div>Graphique Puissance</div>
                         </div>
                     </div>
@@ -208,7 +208,7 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
 
             {/* Logs */}
             <div className="mt-6">
-                <h3 className="text-lg font-semibold mb-2 text-white">📋 Logs</h3>
+                <h3 className="text-lg font-semibold mb-2 text-white">[LOGS] Logs</h3>
                 <div className="bg-gray-900 rounded p-3 h-32 overflow-y-auto font-mono text-xs border border-gray-700">
                     {session.logs?.length === 0 ? (
                         <div className="text-gray-500">Aucun log disponible</div>

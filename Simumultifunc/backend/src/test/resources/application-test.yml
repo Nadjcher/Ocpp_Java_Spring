@@ -1,0 +1,85 @@
+# =============================================================================
+# EVSE Simulator - Test Configuration
+# =============================================================================
+
+server:
+  port: 0  # Random port for tests
+  shutdown: graceful
+
+spring:
+  application:
+    name: evse-simulator-test
+  lifecycle:
+    timeout-per-shutdown-phase: 5s
+  threads:
+    virtual:
+      enabled: false
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+      indent-output: true
+      fail-on-empty-beans: false
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: non_null
+
+# OCPP Configuration
+ocpp:
+  version: "1.6"
+  heartbeat-interval: 30000
+  meter-values-interval: 10000
+  default-url: ws://localhost:8080/ocpp
+  connection-timeout: 5000
+  reconnect-delay: 1000
+  max-reconnect-attempts: 2
+
+# Session defaults
+session:
+  defaults:
+    cp-id: TEST-CP-001
+    id-tag: TEST-TAG-001
+    vehicle: GENERIC
+    connector-id: 1
+    max-power-kw: 22.0
+
+# Data Storage
+data:
+  path: ./test-data
+  vehicles-file: ${data.path}/vehicles.json
+  sessions-file: ${data.path}/sessions.json
+  tnr-scenarios-file: ${data.path}/tnr-scenarios.json
+  auto-save-interval: 60000
+  max-log-entries: 100
+  max-chart-points: 100
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,httpexchanges,scheduledtasks
+  endpoint:
+    health:
+      show-details: always
+  httpexchanges:
+    recording:
+      enabled: true
+  info:
+    env:
+      enabled: true
+    java:
+      enabled: true
+
+# Logging - minimal for tests
+logging:
+  level:
+    root: WARN
+    com.evse.simulator: INFO
+    org.springframework.web.socket: WARN
+
+# OpenAPI - enabled for tests
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true

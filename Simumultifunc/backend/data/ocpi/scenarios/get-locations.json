@@ -1,0 +1,42 @@
+{
+  "id": "get-locations",
+  "name": "Get Locations",
+  "description": "Retrieve locations from CPO partner",
+  "category": "integration",
+  "tags": ["locations", "cpo"],
+  "requiredModules": ["LOCATIONS"],
+  "stopOnFailure": false,
+  "steps": [
+    {
+      "id": "step-1",
+      "name": "Fetch Locations List",
+      "type": "HTTP_REQUEST",
+      "method": "GET",
+      "endpoint": "${endpoints.locations}",
+      "timeoutMs": 30000,
+      "assertions": [
+        {
+          "name": "HTTP Status 200",
+          "type": "HTTP_STATUS",
+          "expected": 200,
+          "operator": "eq",
+          "critical": true
+        },
+        {
+          "name": "OCPI Status Success",
+          "type": "OCPI_STATUS",
+          "expected": 1000,
+          "operator": "eq",
+          "critical": true
+        }
+      ],
+      "extractions": [
+        {
+          "variableName": "locationCount",
+          "jsonPath": "$.data.length()",
+          "defaultValue": 0
+        }
+      ]
+    }
+  ]
+}

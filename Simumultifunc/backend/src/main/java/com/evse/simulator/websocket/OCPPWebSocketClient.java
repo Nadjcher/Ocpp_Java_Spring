@@ -1,10 +1,13 @@
 package com.evse.simulator.websocket;
 
+import com.evse.simulator.domain.service.BroadcastService;
 import com.evse.simulator.domain.service.OCPPService;
+import com.evse.simulator.domain.service.TNRService;
 import com.evse.simulator.model.ChargingProfile;
 import com.evse.simulator.model.ChargingProfile.*;
 import com.evse.simulator.model.LogEntry;
 import com.evse.simulator.model.Session;
+import com.evse.simulator.model.TNREvent;
 import com.evse.simulator.model.enums.SessionState;
 import com.evse.simulator.ocpp.v16.Ocpp16MessageRouter;
 import com.evse.simulator.service.ChargingProfileManager;
@@ -14,7 +17,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.java_websocket.client.WebSocketClient;
+import org.java_websocket.drafts.Draft_6455;
 import org.java_websocket.handshake.ServerHandshake;
+import org.java_websocket.protocols.IProtocol;
+import org.java_websocket.protocols.Protocol;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
@@ -23,6 +29,7 @@ import javax.net.ssl.X509TrustManager;
 import java.net.URI;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,21 +48,74 @@ public class OCPPWebSocketClient extends WebSocketClient {
     private final ObjectMapper objectMapper;
     private final ChargingProfileManager chargingProfileManager;
     private final Ocpp16MessageRouter messageRouter;
+    private BroadcastService broadcaster;
+    private TNRService tnrService;
 
     public OCPPWebSocketClient(URI serverUri, Session session, OCPPService ocppService,
                                ChargingProfileManager chargingProfileManager,
                                Ocpp16MessageRouter messageRouter) {
-        super(serverUri);
+        this(serverUri, session, ocppService, chargingProfileManager, messageRouter, "ocpp1.6", null);
+    }
+
+    public OCPPWebSocketClient(URI serverUri, Session session, OCPPService ocppService,
+                               ChargingProfileManager chargingProfileManager,
+                               Ocpp16MessageRouter messageRouter,
+                               String ocppSubprotocol) {
+        this(serverUri, session, ocppService, chargingProfileManager, messageRouter, ocppSubprotocol, null);
+    }
+
+    public OCPPWebSocketClient(URI serverUri, Session session, OCPPService ocppService,
+                               ChargingProfileManager chargingProfileManager,
+                               Ocpp16MessageRouter messageRouter,
+                               String ocppSubprotocol,
+                               BroadcastService broadcaster) {
+        // Use Draft_6455 with the OCPP subprotocol for proper WebSocket handshake
+        super(serverUri, createOcppDraft(ocppSubprotocol));
         this.session = session;
         this.ocppService = ocppService;
         this.objectMapper = new ObjectMapper();
         this.chargingProfileManager = chargingProfileManager;
         this.messageRouter = messageRouter;
+        this.broadcaster = broadcaster;
 
         // Désactiver le timeout de connexion (0 = infini, connexion maintenue jusqu'à déconnexion manuelle)
         // Valeur en secondes: 0 = désactivé, >0 = timeout après X secondes sans ping/pong
         setConnectionLostTimeout(0);
 
+        // Configurer SSL pour les connexions wss://
+        configureSSL(serverUri);
+
+        log.info("OCPPWebSocketClient created with subprotocol: {}", ocppSubprotocol);
+    }
+
+    /**
+     * Configure le service TNR pour l'enregistrement des événements.
+     */
+    public void setTnrService(TNRService tnrService) {
+        this.tnrService = tnrService;
+    }
+
+    /**
+     * Enregistre un événement TNR si l'enregistrement est actif.
+     */
+    private void recordTNREvent(String type, String action, Object payload, Long latency) {
+        if (tnrService != null && tnrService.isRecording()) {
+            TNREvent event = new TNREvent();
+            event.setTimestamp(System.currentTimeMillis());
+            event.setSessionId(session.getId());
+            event.setType(type);
+            event.setAction(action);
+            event.setPayload(payload);
+            event.setLatency(latency);
+            tnrService.recordEvent(event);
+            log.debug("TNR event recorded: {} - {}", type, action);
+        }
+    }
+
+    /**
+     * Constructeur avec configuration SSL.
+     */
+    private void configureSSL(URI serverUri) {
         // Configurer SSL pour les connexions wss://
         if ("wss".equalsIgnoreCase(serverUri.getScheme())) {
             try {
@@ -66,6 +126,17 @@ public class OCPPWebSocketClient extends WebSocketClient {
                 log.error("Failed to configure SSL for WebSocket: {}", e.getMessage());
             }
         }
+    }
+
+    /**
+     * Creates a Draft_6455 with the specified OCPP subprotocol.
+     * This is essential for proper WebSocket handshake with CSMS servers.
+     */
+    private static Draft_6455 createOcppDraft(String subprotocol) {
+        // Create protocol with the OCPP subprotocol name
+        IProtocol protocol = new Protocol(subprotocol);
+        // Draft_6455 with the protocol list - server will select from these
+        return new Draft_6455(Collections.emptyList(), Collections.singletonList(protocol));
     }
 
     /**
@@ -99,10 +170,20 @@ public class OCPPWebSocketClient extends WebSocketClient {
 
     @Override
     public void onOpen(ServerHandshake handshake) {
-        log.info("WebSocket connected for session {} to {}",
-                session.getId(), getURI());
+        // Log successful connection with subprotocol info
+        String negotiatedProtocol = getProtocol() != null ? getProtocol().toString() : "none";
+        log.info("WebSocket connected for session {} to {} (subprotocol: {})",
+                session.getId(), getURI(), negotiatedProtocol);
         session.setConnected(true);
+        session.setState(SessionState.CONNECTED);  // Mettre à jour l'état à CONNECTED
         session.setLastConnected(java.time.LocalDateTime.now());
+        session.addLog(LogEntry.success("WebSocket", "Connected with subprotocol: " + negotiatedProtocol));
+
+        // Enregistrer l'événement de connexion pour TNR
+        recordTNREvent("connection", "connect", Map.of(
+                "uri", getURI().toString(),
+                "subprotocol", negotiatedProtocol
+        ), null);
     }
 
     @Override
@@ -138,6 +219,7 @@ public class OCPPWebSocketClient extends WebSocketClient {
      * Traite un message CALL entrant (du CSMS vers le CP).
      */
     private void handleCall(String messageId, List<Object> ocppMessage) {
+        long startTime = System.currentTimeMillis();
         String action = (String) ocppMessage.get(2);
         Map<String, Object> payload = ocppMessage.size() > 3 ?
                 (Map<String, Object>) ocppMessage.get(3) : new HashMap<>();
@@ -153,11 +235,36 @@ public class OCPPWebSocketClient extends WebSocketClient {
             session.addLog(LogEntry.info("OCPP", "<< CALL " + action));
         }
 
+        // Enregistrer l'événement CALL reçu pour TNR
+        recordTNREvent("ocpp_call", action, Map.of(
+                "direction", "incoming",
+                "messageId", messageId,
+                "payload", payload
+        ), null);
+
         // Traiter selon l'action
         Map<String, Object> response = processIncomingCall(action, payload);
 
         // Envoyer la réponse
         sendCallResult(messageId, response);
+
+        // Enregistrer la réponse pour TNR
+        long latency = System.currentTimeMillis() - startTime;
+        recordTNREvent("ocpp_result", action, Map.of(
+                "direction", "outgoing",
+                "messageId", messageId,
+                "response", response
+        ), latency);
+
+        // Broadcast la session mise à jour au frontend (pour SCP, RemoteStart, etc.)
+        if (broadcaster != null) {
+            try {
+                broadcaster.broadcastSession(session);
+                log.trace("Session {} broadcasted after handling {}", session.getId(), action);
+            } catch (Exception e) {
+                log.warn("Failed to broadcast session after {}: {}", action, e.getMessage());
+            }
+        }
     }
 
     /**
@@ -285,6 +392,13 @@ public class OCPPWebSocketClient extends WebSocketClient {
 
         log.debug("Session {} received CALLRESULT [{}]", session.getId(), messageId);
 
+        // Enregistrer l'événement CALLRESULT pour TNR
+        recordTNREvent("ocpp_result", "CallResult", Map.of(
+                "direction", "incoming",
+                "messageId", messageId,
+                "payload", payload
+        ), null);
+
         ocppService.handleCallResult(session.getId(), messageId, payload);
     }
 
@@ -297,6 +411,13 @@ public class OCPPWebSocketClient extends WebSocketClient {
 
         log.warn("Session {} received CALLERROR [{}]: {} - {}",
                 session.getId(), messageId, errorCode, errorDescription);
+
+        // Enregistrer l'événement CALLERROR pour TNR
+        recordTNREvent("ocpp_error", errorCode, Map.of(
+                "messageId", messageId,
+                "errorCode", errorCode,
+                "errorDescription", errorDescription
+        ), null);
 
         ocppService.handleCallError(session.getId(), messageId, errorCode, errorDescription);
     }
@@ -615,6 +736,13 @@ public class OCPPWebSocketClient extends WebSocketClient {
 
         session.setConnected(false);
         session.setState(SessionState.DISCONNECTED);
+
+        // Enregistrer l'événement de déconnexion pour TNR
+        recordTNREvent("connection", "disconnect", Map.of(
+                "code", code,
+                "reason", reason != null ? reason : "",
+                "remote", remote
+        ), null);
     }
 
     @Override

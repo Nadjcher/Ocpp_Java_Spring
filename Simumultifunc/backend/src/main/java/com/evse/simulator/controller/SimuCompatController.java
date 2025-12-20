@@ -2,6 +2,7 @@ package com.evse.simulator.controller;
 
 import com.evse.simulator.domain.service.OCPPService;
 import com.evse.simulator.model.Session;
+import com.evse.simulator.model.enums.ChargerType;
 import com.evse.simulator.model.enums.ConnectorStatus;
 import com.evse.simulator.model.enums.SessionState;
 import com.evse.simulator.service.SessionService;
@@ -95,8 +96,38 @@ public class SimuCompatController {
             // Configuration EVSE si fournie
             String evseType = (String) body.get("evseType");
             Number maxA = (Number) body.get("maxA");
+            Number maxPowerKw = (Number) body.get("maxPowerKw");
+
+            // Appliquer le type de chargeur (dc, ac-mono, ac-bi, ac-tri)
+            if (evseType != null) {
+                ChargerType chargerType = ChargerType.fromValue(evseType);
+                session.setChargerType(chargerType);
+                log.info("Session charger type set to: {} (from evseType: {})", chargerType, evseType);
+
+                // Pour DC, utiliser la puissance max configurée ou celle du type de chargeur
+                if (chargerType.isDC()) {
+                    double dcPower = maxPowerKw != null ? maxPowerKw.doubleValue() : chargerType.getMaxPowerKw();
+                    session.setMaxPowerKw(dcPower);
+                    log.info("Session DC maxPowerKw set to: {} kW", dcPower);
+                } else {
+                    // Pour AC, calculer la puissance depuis le type de chargeur
+                    session.setMaxPowerKw(chargerType.getMaxPowerKw());
+                    log.info("Session AC maxPowerKw set to: {} kW", chargerType.getMaxPowerKw());
+                }
+            }
+
             if (maxA != null) {
                 session.setMaxCurrentA(maxA.doubleValue());
+            }
+
+            // Phases véhicule pour MeterValues (si le véhicule limite les phases)
+            Number vehicleAcPhases = (Number) body.get("vehicleAcPhases");
+            if (vehicleAcPhases != null) {
+                int evsePhases = session.getChargerType() != null ? session.getChargerType().getPhases() : 3;
+                int effectivePhases = Math.min(evsePhases, vehicleAcPhases.intValue());
+                session.setActivePhases(effectivePhases);
+                log.info("Session activePhases set to: {} (vehicle: {}, EVSE: {})",
+                    effectivePhases, vehicleAcPhases.intValue(), evsePhases);
             }
 
             // Token d'authentification si fourni
@@ -666,6 +697,8 @@ public class SimuCompatController {
             // Mise à jour de la session
             session.setMaxCurrentA(powerPerPhase);
             session.setMaxPowerKw(totalPowerKw);
+            // Définir les phases actives pour la génération des MeterValues
+            session.setActivePhases(vehicleActivePhases);
 
             // Log de la configuration
             session.addLog(com.evse.simulator.model.LogEntry.info("PHASING",
@@ -782,52 +815,69 @@ public class SimuCompatController {
     @GetMapping("/{id}/price")
     @Operation(summary = "Récupère le prix de la session depuis le CSMS (TTE API uniquement)")
     public ResponseEntity<Map<String, Object>> getSessionPrice(@PathVariable String id) {
+        // Récupérer la session (utiliser findSession pour éviter exception)
+        Session session;
         try {
-            Session session = sessionService.getSession(id);
-            if (session == null) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
-                    "ok", false,
-                    "error", "Session not found"
-                ));
-            }
+            session = sessionService.getSession(id);
+        } catch (Exception e) {
+            log.warn("Session not found for price request: {}", id);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                "ok", false,
+                "error", "Session non trouvée: " + id
+            ));
+        }
 
-            // Vérifier que TTE est configuré
-            if (!cognitoTokenService.isConfigured()) {
-                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
-                    "ok", false,
-                    "error", "TTE non configuré - définir TTE_CLIENT_ID et TTE_CLIENT_SECRET"
-                ));
-            }
+        // Vérifier que TTE est configuré
+        if (!cognitoTokenService.isConfigured()) {
+            log.warn("TTE not configured - cannot fetch price for session {}", id);
+            return ResponseEntity.ok(Map.of(
+                "ok", false,
+                "source", "not_configured",
+                "error", "TTE non configuré - définir TTE_CLIENT_ID et TTE_CLIENT_SECRET",
+                "message", "Configuration TTE manquante"
+            ));
+        }
 
-            if (!tteApiService.isAvailable()) {
-                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
-                    "ok", false,
-                    "error", "Service TTE indisponible"
-                ));
-            }
+        if (!tteApiService.isAvailable()) {
+            log.warn("TTE service unavailable for price request - session {}", id);
+            return ResponseEntity.ok(Map.of(
+                "ok", false,
+                "source", "not_configured",
+                "error", "Service TTE indisponible",
+                "message", "Service TTE indisponible"
+            ));
+        }
 
-            // Récupérer les infos de la session
-            Integer transactionId = session.getTxId();
-            String cpId = session.getCpId();
+        // Récupérer les infos de la session
+        Integer transactionId = session.getTxId();
+        String cpId = session.getCpId();
 
-            if (cpId == null || cpId.isEmpty()) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
-                    "ok", false,
-                    "error", "Pas de ChargePoint ID valide pour cette session"
-                ));
-            }
+        if (cpId == null || cpId.isEmpty()) {
+            log.warn("No ChargePoint ID for session {} - cannot fetch price", id);
+            return ResponseEntity.ok(Map.of(
+                "ok", false,
+                "source", "error",
+                "error", "Pas de ChargePoint ID valide pour cette session",
+                "message", "ChargePoint ID manquant"
+            ));
+        }
 
-            // Récupérer le prix depuis TTE API (CSMS) - même si transactionId est 0 ou null
-            int txId = transactionId != null ? transactionId : 0;
-            String csmsUrl = session.getWsUrl();
-            log.info("Fetching pricing from TTE API for CP: {}, transactionId: {}, env: {}",
-                     cpId, txId, csmsUrl != null ? csmsUrl : "default");
+        // Récupérer le prix depuis TTE API (CSMS) - même si transactionId est 0 ou null
+        int txId = transactionId != null ? transactionId : 0;
+        String csmsUrl = session.getWsUrl();
+        log.info("Fetching pricing from TTE API for CP: {}, transactionId: {}, env: {}",
+                 cpId, txId, csmsUrl != null ? csmsUrl : "default");
+
+        try {
             PricingData pricing = tteApiService.getTransactionPricing(cpId, txId, csmsUrl);
 
             if (pricing == null) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                log.info("Price not found in TTE for CP: {}, txId: {}", cpId, txId);
+                return ResponseEntity.ok(Map.of(
                     "ok", false,
+                    "source", "not_found",
                     "error", "Prix non trouvé dans le CSMS pour cette transaction",
+                    "message", "Transaction non trouvée dans TTE",
                     "transactionId", txId,
                     "chargePointId", cpId
                 ));
@@ -846,10 +896,15 @@ public class SimuCompatController {
             ));
 
         } catch (Exception e) {
-            log.error("Error getting price from CSMS for session {}: {}", id, e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+            log.error("Error getting price from TTE API for session {}, CP: {}, txId: {}: {}",
+                      id, cpId, txId, e.getMessage());
+            return ResponseEntity.ok(Map.of(
                 "ok", false,
-                "error", "Erreur lors de la récupération du prix: " + e.getMessage()
+                "source", "error",
+                "error", "Erreur lors de la récupération du prix: " + e.getMessage(),
+                "message", "Erreur API TTE: " + e.getMessage(),
+                "transactionId", txId,
+                "chargePointId", cpId
             ));
         }
     }
