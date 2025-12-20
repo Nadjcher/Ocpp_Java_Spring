@@ -20,6 +20,13 @@ spring:
     name: evse-simulator
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
+  # ==========================================================================
+  # MongoDB Configuration
+  # ==========================================================================
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/evse_simulator}
+      database: ${MONGODB_DATABASE:evse_simulator}
   # Graceful shutdown timeout
   lifecycle:
     timeout-per-shutdown-phase: 30s
