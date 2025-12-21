@@ -20,22 +20,22 @@ public class GPMProperties {
     /**
      * URL de base de l'API TTE Energy Service Manager.
      */
-    private String baseUrl = "https://evplatform.evcharge-test.totalenergies.com/apigw/energy-service-manager";
+    private String baseUrl;
 
     /**
      * URL pour obtenir le token OAuth2 Cognito.
      */
-    private String tokenUrl = "https://tte-pool-prod.auth.eu-central-1.amazoncognito.com/oauth2/token";
+    private String tokenUrl;
 
     /**
      * Client ID pour l'authentification OAuth2 Cognito.
      */
-    private String clientId = "3fuql0avnrhgkooe7s7404mjsb";
+    private String clientId;
 
     /**
      * Client Secret pour l'authentification OAuth2 Cognito.
      */
-    private String clientSecret = "o5edbcc02b6ugvc39qcbcsaq14g9qkqmetp2q3agqon0t7f536t";
+    private String clientSecret;
 
     /**
      * Intervalle par défaut entre les ticks (minutes).
