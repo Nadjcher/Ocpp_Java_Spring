@@ -611,6 +611,8 @@ public class Session {
         metrics.put("voltage", voltage);
         // Courant en A
         metrics.put("current", currentA);
+        // Nombre de phases actives (pour le phasage)
+        metrics.put("phases", getEffectivePhases());
         return metrics;
     }
 

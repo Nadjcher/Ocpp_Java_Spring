@@ -6,6 +6,7 @@ import { SessionsProvider } from "./contexts/SessionsContext";
 import { SessionPersistenceProvider } from "./providers/SessionPersistenceProvider";
 
 import SimulGPMTab from "./tabs/SimulGPMTab";
+import GPMDryRunTab from "./tabs/GPMDryRunTab";
 import SimuEvseTab from "./tabs/SimuEvseTab";
 import PerfOCPPTab from "./tabs/PerfOCPPTab";
 import TnrTab from "./tabs/TnrTab";
@@ -21,6 +22,7 @@ import "@/styles/buttons.css";
 
 type TabKey =
     | "simul-gpm"
+    | "gpm-dryrun"
     | "simu-evse"
     | "perf-ocpp"
     | "tnr"
@@ -33,6 +35,7 @@ type TabKey =
 
 const TABS: { key: TabKey; label: string }[] = [
     { key: "simul-gpm", label: "Simul GPM (Multi)" },
+    { key: "gpm-dryrun", label: "GPM Dry-Run" },
     { key: "simu-evse", label: "Simu EVSE" },
     { key: "perf-ocpp", label: "Perf OCPP (HTTP)" },
     { key: "tnr", label: "TNR" },
@@ -79,6 +82,7 @@ export default function App() {
 
                             <main className="content">
                                 {active === "simul-gpm" && <SimulGPMTab />}
+                                {active === "gpm-dryrun" && <GPMDryRunTab />}
                                 {active === "simu-evse" && <SimuEvseTab />}
                                 {active === "perf-ocpp" && <PerfOCPPTab />}
                                 {active === "tnr" && <TnrTab />}

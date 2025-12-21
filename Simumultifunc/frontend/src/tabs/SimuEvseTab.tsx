@@ -52,11 +52,15 @@ import {
 import { useToasts, useTNRWithAPI } from '@/hooks/useEvseHooks';
 
 // Composants extraits dans un fichier dédié
-import { TNRBandeau, ChargeDisplay, ChargingCable } from '@/components/simu-evse';
+import { TNRBandeau, ChargeDisplay, ChargingCable, GPMSetpointCard } from '@/components/simu-evse';
 
 // Multi-sessions components et hooks
 import { SessionTabBar } from '@/components/evse/SessionTabBar';
 import type { SessionState, SessionConfig } from '@/types/multiSession.types';
+
+// Anomaly Detection ML
+import { useAnomalyAnalysis } from '@/hooks/useAnomalyAnalysis';
+import { AnomalyDashboard } from '@/components/anomaly';
 
 // ==========================================================================
 // CACHE D'ÉTAT PER-SESSION (isolation des sessions) AVEC PERSISTANCE
@@ -1002,6 +1006,20 @@ export default function SimuEvseTab() {
   const [maxA, setMaxA] = useState<number>(32);
   // Mode test: ignorer les limites véhicule pour la puissance physique
   const [bypassVehicleLimits, setBypassVehicleLimits] = useState<boolean>(false);
+
+  // GPM Setpoint states
+  const [gpmRootNodeId, setGpmRootNodeId] = useState<string>("");
+  const [gpmSetpointKw, setGpmSetpointKw] = useState<number | null>(null);
+  const [gpmEnabled, setGpmEnabled] = useState<boolean>(false);
+
+  // Anomaly Detection ML
+  const anomalyAnalysis = useAnomalyAnalysis({
+    enabled: true,
+    autoAnalyzeInterval: 5000, // Refresh every 5s
+    onCritical: (anomaly) => {
+      toasts.push(`Anomalie critique: ${anomaly.message}`);
+    },
+  });
 
   const [vehicles, setVehicles] = useState<Array<{
     id: string;
@@ -2296,9 +2314,30 @@ export default function SimuEvseTab() {
             -MAX_POINTS
         ),
       }));
+
+      // Feed data to anomaly analyzer
+      anomalyAnalysis.analyzeAll({
+        power: {
+          timestamp: Date.now(),
+          powerW: (pActiveFiltRef.current ?? 0) * 1000,
+          setpointW: appliedLimitKw * 1000,
+        },
+        soc: {
+          timestamp: Date.now(),
+          soc: socFiltRef.current ?? socStart,
+          energyWh: energyFromPowerKWhRef.current * 1000,
+          powerW: (pActiveFiltRef.current ?? 0) * 1000,
+        },
+        scp: gpmSetpointKw ? {
+          timestamp: Date.now(),
+          setpointW: gpmSetpointKw * 1000,
+          actualPowerW: (pActiveFiltRef.current ?? 0) * 1000,
+          accepted: true,
+        } : undefined,
+      });
     }, 1000);
     return () => clearInterval(id);
-  }, [selSession?.status, appliedLimitKw, vehMaxKwAtSoc, socStart, vehicleCapacityKWh, vehicleEfficiency, clampRamp]);
+  }, [selSession?.status, appliedLimitKw, vehMaxKwAtSoc, socStart, vehicleCapacityKWh, vehicleEfficiency, clampRamp, anomalyAnalysis, gpmSetpointKw]);
 
   // ========= 12. RENDER =========
   // Si bootAccepted === false, les boutons d'action OCPP sont désactivés
@@ -2793,6 +2832,40 @@ export default function SimuEvseTab() {
                 />
               </div>
 
+              {/* Section GPM Setpoint */}
+              <div className="col-span-12 mt-2">
+                <div className="rounded border p-3 bg-violet-50 border-violet-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-violet-600">⚡</span>
+                      <span className="text-xs font-semibold text-violet-800">GPM Setpoint Monitoring</span>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                          type="checkbox"
+                          checked={gpmEnabled}
+                          onChange={(e) => setGpmEnabled(e.target.checked)}
+                          className="w-3 h-3 accent-violet-500"
+                      />
+                      <span className={`text-xs ${gpmEnabled ? 'text-violet-700 font-medium' : 'text-slate-400'}`}>
+                        Activer
+                      </span>
+                    </label>
+                  </div>
+                  {gpmEnabled && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-violet-600 whitespace-nowrap">Root Node ID:</span>
+                      <input
+                          className="flex-1 border border-violet-200 rounded px-2 py-1 text-sm bg-white"
+                          value={gpmRootNodeId}
+                          onChange={(e) => setGpmRootNodeId(e.target.value)}
+                          placeholder="Ex: SITE-001 ou 5e7f..."
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Boutons organisés */}
               <div className="col-span-12 grid grid-cols-2 gap-4 mt-3">
                 {/* Colonne gauche – Contrôles BORNE */}
@@ -3102,6 +3175,29 @@ export default function SimuEvseTab() {
               />
             </div>
 
+            {/* GPM Setpoint Card */}
+            <div className="mb-3">
+              <GPMSetpointCard
+                  cpId={cpId}
+                  rootNodeId={gpmRootNodeId}
+                  enabled={gpmEnabled}
+                  onSetpointReceived={setGpmSetpointKw}
+              />
+            </div>
+
+            {/* Anomaly Detection ML - Compact */}
+            <div className="mb-3">
+              <AnomalyDashboard
+                  result={anomalyAnalysis.analysisResult}
+                  enabled={anomalyAnalysis.enabled}
+                  onToggle={anomalyAnalysis.setEnabled}
+                  onResolve={anomalyAnalysis.resolveAnomaly}
+                  onRefresh={anomalyAnalysis.refreshAnalysis}
+                  onClear={anomalyAnalysis.clearHistory}
+                  compact
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-2 mb-2">
               <div className="rounded border p-2 bg-emerald-50">
                 <div className="text-[10px] text-emerald-700 mb-0.5">Énergie</div>
@@ -3179,6 +3275,15 @@ export default function SimuEvseTab() {
                           value: profileState.effectiveLimit.limitW / 1000,
                           label: `SCP: ${(profileState.effectiveLimit.limitW / 1000).toFixed(1)} kW`,
                           color: "#22c55e",
+                        },
+                      ]
+                      : []),
+                  ...(gpmSetpointKw !== null
+                      ? [
+                        {
+                          value: gpmSetpointKw,
+                          label: `GPM: ${gpmSetpointKw.toFixed(1)} kW`,
+                          color: "#8b5cf6",
                         },
                       ]
                       : []),

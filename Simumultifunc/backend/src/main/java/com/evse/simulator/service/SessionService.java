@@ -276,7 +276,8 @@ public class SessionService implements com.evse.simulator.domain.service.Session
         // Calcul du courant par phase
         if (session.getVoltage() > 0) {
             double voltage = session.getVoltage();
-            int phases = session.getChargerType().getPhases();
+            // Utiliser les phases effectives (respecte activePhases configuré par phasing)
+            int phases = session.getEffectivePhases();
             double current;
 
             if (phases > 1) {

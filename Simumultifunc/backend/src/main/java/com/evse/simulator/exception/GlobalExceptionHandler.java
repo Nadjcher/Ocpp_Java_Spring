@@ -151,14 +151,31 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleGenericException(
             Exception ex, WebRequest request) {
 
-        log.error("Unexpected error", ex);
+        String path = request.getDescription(false);
+        log.error("Unexpected error at {}: {} - {}", path, ex.getClass().getSimpleName(), ex.getMessage(), ex);
+
+        // Pour le debugging, inclure le message réel de l'exception
+        String errorMessage = ex.getMessage();
+        if (errorMessage == null || errorMessage.isBlank()) {
+            errorMessage = ex.getClass().getSimpleName();
+        }
+
+        // Extraire la cause racine si présente
+        Throwable rootCause = ex;
+        while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
+            rootCause = rootCause.getCause();
+        }
+        String rootMessage = rootCause.getMessage();
+        if (rootMessage != null && !rootMessage.equals(errorMessage)) {
+            errorMessage = errorMessage + " (root: " + rootMessage + ")";
+        }
 
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ErrorResponse.builder()
                         .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
                         .error("Internal Server Error")
-                        .message("An unexpected error occurred")
-                        .path(request.getDescription(false))
+                        .message(errorMessage)
+                        .path(path)
                         .build());
     }
 

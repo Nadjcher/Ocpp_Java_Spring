@@ -293,8 +293,11 @@ export default function TnrTab() {
     const [mode, setMode] = useState<TnrMode>("fast");
     const [speed, setSpeed] = useState<number>(1);
 
-    /* Multi-select pour exécution parallèle */
-    const [selectedScenarios, setSelectedScenarios] = useState<Set<string>>(new Set());
+    /* Multi-select pour exécution parallèle - using object for stable React updates */
+    const [selectedScenariosMap, setSelectedScenariosMap] = useState<Record<string, boolean>>({});
+    const selectedScenarios = useMemo(() => {
+        return new Set(Object.keys(selectedScenariosMap).filter(k => selectedScenariosMap[k]));
+    }, [selectedScenariosMap]);
     const [runningScenarios, setRunningScenarios] = useState<Map<string, RunningScenario>>(new Map());
 
     /* Filtres */
@@ -680,35 +683,30 @@ export default function TnrTab() {
     }
 
     /* ---------- Selection helpers ---------- */
-    const toggleScenarioSelection = (id: string) => {
-        setSelectedScenarios(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) {
-                next.delete(id);
-            } else {
-                next.add(id);
-            }
-            return next;
-        });
-    };
+    const toggleScenarioSelection = useCallback((id: string) => {
+        setSelectedScenariosMap(prev => ({
+            ...prev,
+            [id]: !prev[id]
+        }));
+    }, []);
 
-    const selectAllInCategory = (category: string) => {
+    const selectAllInCategory = useCallback((category: string) => {
         const scenariosInCat = scenariosByCategory.get(category) || [];
-        setSelectedScenarios(prev => {
-            const next = new Set(prev);
-            scenariosInCat.forEach(s => next.add(s.id));
+        setSelectedScenariosMap(prev => {
+            const next = { ...prev };
+            scenariosInCat.forEach(s => { next[s.id] = true; });
             return next;
         });
-    };
+    }, [scenariosByCategory]);
 
-    const deselectAllInCategory = (category: string) => {
+    const deselectAllInCategory = useCallback((category: string) => {
         const scenariosInCat = scenariosByCategory.get(category) || [];
-        setSelectedScenarios(prev => {
-            const next = new Set(prev);
-            scenariosInCat.forEach(s => next.delete(s.id));
+        setSelectedScenariosMap(prev => {
+            const next = { ...prev };
+            scenariosInCat.forEach(s => { next[s.id] = false; });
             return next;
         });
-    };
+    }, [scenariosByCategory]);
 
     const toggleFolder = (folder: string) => {
         setExpandedFolders(prev => {
@@ -1043,20 +1041,24 @@ export default function TnrTab() {
                     {/* Actions de sélection groupée */}
                     <div style={{ marginBottom: 8, display: "flex", gap: 8 }}>
                         <button
-                            onClick={() => setSelectedScenarios(new Set(filteredScenarios.map(s => s.id)))}
+                            onClick={() => {
+                                const newMap: Record<string, boolean> = {};
+                                filteredScenarios.forEach(s => { newMap[s.id] = true; });
+                                setSelectedScenariosMap(newMap);
+                            }}
                             style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 11, cursor: "pointer" }}
                         >
                             ☑ Tout sélectionner
                         </button>
                         <button
-                            onClick={() => setSelectedScenarios(new Set())}
+                            onClick={() => setSelectedScenariosMap({})}
                             style={{ padding: "4px 8px", borderRadius: 4, border: "1px solid #d1d5db", fontSize: 11, cursor: "pointer" }}
                         >
                             ☐ Tout désélectionner
                         </button>
                     </div>
 
-                    <div style={{ maxHeight: "calc(100vh - 350px)", minHeight: 300, overflow: "auto" }}>
+                    <div style={{ maxHeight: "calc(100vh - 350px)", minHeight: 300, overflow: "auto", overflowX: "hidden" }}>
                         {viewMode === "tree" ? (
                             /* Vue par dossiers/catégories */
                             <div style={{ display: "grid", gap: 4 }}>
@@ -1116,7 +1118,7 @@ export default function TnrTab() {
 
                                             {/* Folder content */}
                                             {isExpanded && (
-                                                <div style={{ marginLeft: 20, marginTop: 4, display: "grid", gap: 4 }}>
+                                                <div style={{ marginLeft: 20, marginTop: 4, display: "grid", gap: 4, contain: "layout" }}>
                                                     {/* Quick select for folder */}
                                                     <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
                                                         <button
@@ -1136,7 +1138,7 @@ export default function TnrTab() {
                                                         <ScenarioCard
                                                             key={s.id}
                                                             scenario={s}
-                                                            isSelected={selectedScenarios.has(s.id)}
+                                                            isSelected={!!selectedScenariosMap[s.id]}
                                                             isActive={selScenarioId === s.id}
                                                             onToggleSelect={() => toggleScenarioSelection(s.id)}
                                                             onSelect={() => setSelScenarioId(s.id)}
@@ -1153,12 +1155,12 @@ export default function TnrTab() {
                             </div>
                         ) : (
                             /* Vue liste */
-                            <div style={{ display: "grid", gap: 8 }}>
+                            <div style={{ display: "grid", gap: 8, contain: "layout" }}>
                                 {filteredScenarios.map(s => (
                                     <ScenarioCard
                                         key={s.id}
                                         scenario={s}
-                                        isSelected={selectedScenarios.has(s.id)}
+                                        isSelected={!!selectedScenariosMap[s.id]}
                                         isActive={selScenarioId === s.id}
                                         onToggleSelect={() => toggleScenarioSelection(s.id)}
                                         onSelect={() => setSelScenarioId(s.id)}
@@ -1703,7 +1705,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
     );
 }
 
-function ScenarioCard({
+const ScenarioCard = React.memo(function ScenarioCard({
     scenario,
     isSelected,
     isActive,
@@ -1726,25 +1728,41 @@ function ScenarioCard({
 }) {
     const catConfig = getCategoryConfig(scenario.category || scenario.folder);
 
+    // Stop propagation pour éviter les conflits avec le parent
+    const handleCheckboxChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        e.stopPropagation();
+        onToggleSelect();
+    }, [onToggleSelect]);
+
     return (
         <div
             style={{
+                position: "relative",
                 border: isActive ? "2px solid #2563eb" : isSelected ? "2px solid #8b5cf6" : "1px solid #e5e7eb",
                 borderRadius: 8,
                 padding: 10,
                 background: runningStatus === "running" ? "#eff6ff" :
                            runningStatus === "success" ? "#ecfdf5" :
                            runningStatus === "failed" ? "#fef2f2" : "#fff",
-                overflow: "hidden"
+                overflow: "hidden",
+                isolation: "isolate",
+                contain: "layout"
             }}
         >
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 8, minWidth: 0 }}>
-                {/* Checkbox */}
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8, minWidth: 0, width: "100%" }}>
+                {/* Checkbox - positioned absolutely to avoid layout shifts */}
                 <input
                     type="checkbox"
                     checked={isSelected}
-                    onChange={onToggleSelect}
-                    style={{ marginTop: 4, cursor: "pointer" }}
+                    onChange={handleCheckboxChange}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                        marginTop: 4,
+                        cursor: "pointer",
+                        flexShrink: 0,
+                        width: 16,
+                        height: 16
+                    }}
                 />
 
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1881,4 +1899,4 @@ function ScenarioCard({
             </div>
         </div>
     );
-}
+});

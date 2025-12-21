@@ -67,7 +67,8 @@ public class MeterValuesHandler extends AbstractOcppHandler {
 
         if (session != null) {
             double powerW = session.getCurrentPowerKw() * 1000;
-            double currentA = session.getCurrentA();
+            // Utiliser le courant MAX configuré (pas le courant calculé) pour les MeterValues
+            double currentA = session.getMaxCurrentA();
             double voltageV = session.getVoltage();
 
             // Pour AC triphasé ou biphasé, générer des valeurs par phase

@@ -34,12 +34,14 @@ public class TNRController {
     @GetMapping("/status")
     @Operation(summary = "Statut global TNR (compat frontend)")
     public ResponseEntity<Map<String, Object>> getGlobalStatus() {
-        return ResponseEntity.ok(Map.of(
-            "running", false,
-            "recording", false,
-            "scenariosCount", tnrService.getAllScenarios().size(),
-            "resultsCount", tnrService.getAllResults().size()
-        ));
+        Map<String, Object> status = new HashMap<>();
+        status.put("running", false);
+        status.put("recording", tnrService.isRecording());
+        status.put("isRecording", tnrService.isRecording());
+        status.put("scenariosCount", tnrService.getAllScenarios().size());
+        status.put("resultsCount", tnrService.getAllResults().size());
+        status.put("currentRecordingId", tnrService.getCurrentRecordingId());
+        return ResponseEntity.ok(status);
     }
 
     // =========================================================================
@@ -259,27 +261,46 @@ public class TNRController {
 
     @PostMapping("/run/{scenarioId}")
     @Operation(summary = "Lance un scénario TNR (compat frontend)")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> runScenarioCompat(
+    public ResponseEntity<Map<String, Object>> runScenarioCompat(
             @PathVariable String scenarioId,
             @RequestParam(required = false) String url,
             @RequestParam(required = false, defaultValue = "fast") String mode,
             @RequestParam(required = false, defaultValue = "1") double speed) {
         log.info("Running TNR scenario {} with url={}, mode={}, speed={}", scenarioId, url, mode, speed);
         String executionId = scenarioId + "-" + System.currentTimeMillis();
-        return tnrService.runScenario(scenarioId)
-            .thenApply(result -> {
-                Map<String, Object> m = new java.util.HashMap<>();
-                m.put("executionId", executionId);
-                m.put("ok", result.getStatus() == ScenarioStatus.PASSED);
-                return ResponseEntity.ok(m);
-            })
-            .exceptionally(ex -> {
-                Map<String, Object> m = new java.util.HashMap<>();
-                m.put("executionId", executionId);
-                m.put("ok", false);
-                m.put("error", ex.getMessage());
-                return ResponseEntity.ok(m);
-            });
+
+        try {
+            // Lancer l'exécution en arrière-plan (fire and forget)
+            // Le frontend pollera /api/tnr/executions/{executionId}/logs pour suivre la progression
+            tnrService.runScenario(scenarioId, mode, speed)
+                .whenComplete((result, ex) -> {
+                    if (ex != null) {
+                        log.warn("TNR scenario {} execution failed: {}", scenarioId, ex.getMessage());
+                    } else {
+                        log.info("TNR scenario {} completed with status: {}", scenarioId, result.getStatus());
+                    }
+                });
+
+            // Retourner immédiatement - le frontend pollera pour les résultats
+            Map<String, Object> m = new java.util.HashMap<>();
+            m.put("executionId", executionId);
+            m.put("ok", true);
+            m.put("started", true);
+            m.put("mode", mode);
+            m.put("speed", speed);
+            m.put("message", "Scenario started, poll /api/tnr/executions/" + executionId + "/logs for progress");
+            return ResponseEntity.ok(m);
+
+        } catch (Exception e) {
+            log.error("TNR scenario {} failed to start: {}", scenarioId, e.getMessage(), e);
+            Map<String, Object> m = new java.util.HashMap<>();
+            m.put("executionId", executionId);
+            m.put("ok", false);
+            m.put("error", e.getMessage() != null ? e.getMessage() : e.toString());
+            m.put("mode", mode);
+            m.put("speed", speed);
+            return ResponseEntity.ok(m);
+        }
     }
 
     @GetMapping("/scenarios")
@@ -370,9 +391,9 @@ public class TNRController {
     @Operation(summary = "Démarre l'enregistrement TNR")
     @SuppressWarnings("unchecked")
     public ResponseEntity<Map<String, Object>> startRecorder(@RequestBody(required = false) Map<String, Object> body) {
-        String sessionId = body != null ? (String) body.get("sessionId") : null;
-        String name = body != null ? (String) body.get("name") : "Recording-" + System.currentTimeMillis();
-        String category = body != null ? (String) body.get("category") : "recorded";
+        String sessionId = body != null && body.get("sessionId") != null ? (String) body.get("sessionId") : "";
+        String name = body != null && body.get("name") != null ? (String) body.get("name") : "Recording-" + System.currentTimeMillis();
+        String category = body != null && body.get("category") != null ? (String) body.get("category") : "recorded";
         List<String> tags = body != null && body.get("tags") instanceof List ?
             (List<String>) body.get("tags") : List.of("auto-recorded", "tnr");
         String executionId = "exec-" + System.currentTimeMillis();
@@ -382,24 +403,26 @@ public class TNRController {
         // Stocker les métadonnées pour l'utiliser lors du stop
         tnrService.startRecording(executionId, name);
 
-        return ResponseEntity.ok(Map.of(
-            "ok", true,
-            "recording", true,
-            "executionId", executionId,
-            "sessionId", sessionId != null ? sessionId : "",
-            "name", name,
-            "category", category,
-            "tags", tags
-        ));
+        // Use HashMap to avoid NullPointerException with Map.of()
+        Map<String, Object> response = new HashMap<>();
+        response.put("ok", true);
+        response.put("recording", true);
+        response.put("executionId", executionId);
+        response.put("sessionId", sessionId);
+        response.put("name", name);
+        response.put("category", category);
+        response.put("tags", tags);
+
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/recorder/stop")
     @Operation(summary = "Arrête l'enregistrement TNR et sauvegarde")
     @SuppressWarnings("unchecked")
     public ResponseEntity<Map<String, Object>> stopRecorder(@RequestBody(required = false) Map<String, Object> body) {
-        String sessionId = body != null ? (String) body.get("sessionId") : null;
+        String sessionId = body != null && body.get("sessionId") != null ? (String) body.get("sessionId") : "";
         String scenarioName = body != null ? (String) body.get("name") : null;
-        String category = body != null ? (String) body.get("category") : "recorded";
+        String category = body != null && body.get("category") != null ? (String) body.get("category") : "recorded";
         List<String> tags = null;
         if (body != null && body.get("tags") instanceof List) {
             tags = (List<String>) body.get("tags");
@@ -410,13 +433,15 @@ public class TNRController {
         // Arrêter l'enregistrement et sauvegarder avec les métadonnées
         String executionId = tnrService.stopRecordingAndSave(scenarioName, category, tags);
 
-        return ResponseEntity.ok(Map.of(
-            "ok", true,
-            "recording", false,
-            "executionId", executionId != null ? executionId : "",
-            "sessionId", sessionId != null ? sessionId : "",
-            "saved", executionId != null
-        ));
+        // Use HashMap to avoid NullPointerException with Map.of()
+        Map<String, Object> response = new HashMap<>();
+        response.put("ok", true);
+        response.put("recording", false);
+        response.put("executionId", executionId != null ? executionId : "");
+        response.put("sessionId", sessionId);
+        response.put("saved", executionId != null);
+
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/record/start")
@@ -434,13 +459,15 @@ public class TNRController {
     @PostMapping("/tap")
     @Operation(summary = "Enregistre un événement TNR (tap)")
     public ResponseEntity<Map<String, Object>> recordTap(@RequestBody(required = false) Map<String, Object> body) {
-        String sessionId = body != null ? (String) body.get("sessionId") : null;
-        String event = body != null ? (String) body.get("event") : null;
+        String sessionId = body != null && body.get("sessionId") != null ? (String) body.get("sessionId") : "";
+        String event = body != null && body.get("event") != null ? (String) body.get("event") : "";
         log.info("TNR tap event for session {}: {}", sessionId, event);
-        return ResponseEntity.ok(Map.of(
-            "ok", true,
-            "event", event != null ? event : "",
-            "sessionId", sessionId != null ? sessionId : ""
-        ));
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("ok", true);
+        response.put("event", event);
+        response.put("sessionId", sessionId);
+
+        return ResponseEntity.ok(response);
     }
 }

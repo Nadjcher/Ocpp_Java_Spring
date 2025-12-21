@@ -15,7 +15,8 @@ interface ConnectionPanelProps {
 
 const styles: Record<string, React.CSSProperties> = {
   panel: {
-    background: '#1e293b',
+    background: '#fff',
+    border: '1px solid #e5e7eb',
     borderRadius: 8,
     padding: 16,
     marginBottom: 20,
@@ -27,7 +28,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 16,
   },
   label: {
-    color: '#94a3b8',
+    color: '#6b7280',
     fontSize: 13,
     fontWeight: 500,
   },
@@ -42,7 +43,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '8px 16px',
     borderRadius: 20,
     background: 'transparent',
-    color: '#e2e8f0',
+    color: '#374151',
     cursor: 'pointer',
     transition: 'all 0.2s',
     fontSize: 13,
@@ -60,7 +61,8 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 16,
   },
   card: {
-    background: '#0f172a',
+    background: '#f9fafb',
+    border: '1px solid #e5e7eb',
     borderRadius: 8,
     padding: 16,
   },
@@ -71,6 +73,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 12,
     fontWeight: 600,
     fontSize: 14,
+    color: '#111827',
   },
   cardIcon: {
     fontSize: 18,
@@ -79,16 +82,16 @@ const styles: Record<string, React.CSSProperties> = {
     marginLeft: 'auto',
     fontSize: 11,
     padding: '2px 8px',
-    background: '#1e293b',
+    background: '#e5e7eb',
     borderRadius: 4,
-    color: '#94a3b8',
+    color: '#6b7280',
   },
   field: {
     marginBottom: 10,
   },
   fieldLabel: {
     fontSize: 11,
-    color: '#64748b',
+    color: '#6b7280',
     marginBottom: 4,
   },
   urlDisplay: {
@@ -99,11 +102,12 @@ const styles: Record<string, React.CSSProperties> = {
   urlCode: {
     flex: 1,
     padding: '8px 12px',
-    background: '#1e293b',
+    background: '#fff',
+    border: '1px solid #d1d5db',
     borderRadius: 4,
     fontFamily: 'monospace',
     fontSize: 12,
-    color: '#e2e8f0',
+    color: '#374151',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
@@ -115,6 +119,7 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
     fontSize: 14,
     opacity: 0.7,
+    color: '#6b7280',
   },
   tokenDisplay: {
     display: 'flex',
@@ -125,7 +130,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 10,
     padding: '2px 6px',
     borderRadius: 4,
-    background: '#3b82f6',
+    background: '#2563eb',
     color: 'white',
     fontWeight: 500,
   },
@@ -135,7 +140,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
     marginTop: 12,
     paddingTop: 12,
-    borderTop: '1px solid #334155',
+    borderTop: '1px solid #e5e7eb',
     fontSize: 13,
   },
   statusIcon: {
@@ -143,11 +148,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   statusText: {
     fontWeight: 500,
-    color: '#e2e8f0',
+    color: '#111827',
   },
   lastTested: {
     fontSize: 11,
-    color: '#64748b',
+    color: '#6b7280',
   },
   actions: {
     display: 'flex',
@@ -166,12 +171,12 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 6,
   },
   btnPrimary: {
-    background: '#3b82f6',
+    background: '#2563eb',
     color: 'white',
   },
   btnSecondary: {
-    background: '#334155',
-    color: '#e2e8f0',
+    background: '#f3f4f6',
+    color: '#374151',
   },
 };
 
@@ -297,7 +302,7 @@ export const ConnectionPanel: React.FC<ConnectionPanelProps> = ({
                   ...styles.envBtn,
                   border: `2px solid ${env.color}`,
                   background: isActive ? env.color : 'transparent',
-                  color: isActive ? 'white' : '#e2e8f0',
+                  color: isActive ? 'white' : '#374151',
                 }}
                 onClick={() => onEnvironmentChange(env.id)}
               >

@@ -81,8 +81,8 @@ public class ChargingSimulator {
         Duration eta = calculateEta(session, vehicle, powerCalc.effectivePowerKw, newSoc);
 
         // Calculer les valeurs électriques
-        double voltage = calculateVoltage(chargerType, vehicle, (int) newSoc);
-        double currentA = calculateCurrent(powerCalc.effectivePowerKw, voltage, chargerType);
+        double voltage = calculateVoltage(session, chargerType, vehicle, (int) newSoc);
+        double currentA = calculateCurrent(powerCalc.effectivePowerKw, voltage, session, chargerType);
 
         return ChargingStep.builder()
                 .powerKw(Math.round(powerCalc.effectivePowerKw * 100.0) / 100.0)
@@ -122,9 +122,9 @@ public class ChargingSimulator {
             // Charge DC: utiliser la courbe DC du véhicule
             vehiclePowerKw = vehicle.getDcPowerAtSoc((int) session.getSoc());
         } else {
-            // Charge AC: calculer selon les phases et le courant
+            // Charge AC: calculer selon les phases effectives et le courant
             vehiclePowerKw = vehicle.getEffectiveAcPower(
-                    chargerType.getPhases(),
+                    session.getEffectivePhases(),
                     session.getMaxCurrentA(),
                     session.getVoltage()
             );
@@ -175,24 +175,25 @@ public class ChargingSimulator {
     /**
      * Calcule la tension selon le type de charge et le SoC.
      */
-    private double calculateVoltage(ChargerType chargerType, VehicleProfile vehicle, int soc) {
+    private double calculateVoltage(Session session, ChargerType chargerType, VehicleProfile vehicle, int soc) {
         if (chargerType.isDC()) {
             return vehicle.getVoltageAtSoc(soc);
         } else {
-            // AC: tension du réseau
-            return chargerType.getPhases() == 1 ? 230.0 : 400.0;
+            // AC: tension du réseau (utiliser les phases effectives)
+            return session.getEffectivePhases() == 1 ? 230.0 : 400.0;
         }
     }
 
     /**
      * Calcule le courant par phase à partir de la puissance et de la tension.
      */
-    private double calculateCurrent(double powerKw, double voltage, ChargerType chargerType) {
+    private double calculateCurrent(double powerKw, double voltage, Session session, ChargerType chargerType) {
         if (chargerType.isDC()) {
             // DC: I = P / U
             return (powerKw * 1000.0) / voltage;
         } else {
-            int phases = chargerType.getPhases();
+            // Utiliser les phases effectives (respecte activePhases configuré par phasing)
+            int phases = session.getEffectivePhases();
             if (phases > 1) {
                 // Triphasé: déterminer si la tension est phase-neutre ou ligne-ligne
                 if (voltage < 300) {

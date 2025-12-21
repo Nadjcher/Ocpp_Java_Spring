@@ -211,8 +211,10 @@ public class TNRService implements com.evse.simulator.domain.service.TNRService 
         config.setContinueOnError(false);
         config.setCpId("SIMU-CP-001");
 
-        // Convertir les événements en étapes
+        // Convertir les événements en étapes avec calcul des délais
         List<TNRStep> steps = new ArrayList<>();
+        Long previousTimestamp = null;
+
         for (int i = 0; i < events.size(); i++) {
             TNREvent event = events.get(i);
             TNRStep step = new TNRStep();
@@ -224,7 +226,20 @@ public class TNRService implements com.evse.simulator.domain.service.TNRService 
             step.setAction(event.getAction());
             step.setPayload(event.getPayload());
             step.setTimeoutMs(30000);
-            step.setDelayMs(0);
+
+            // Calculer le délai depuis l'événement précédent
+            long delayMs = 0;
+            if (previousTimestamp != null && event.getTimestamp() != null) {
+                delayMs = event.getTimestamp() - previousTimestamp;
+                // Sanity check: limiter à 5 minutes max
+                if (delayMs < 0) delayMs = 0;
+                if (delayMs > 300000) delayMs = 300000;
+            }
+            step.setDelayMs(delayMs);
+
+            if (event.getTimestamp() != null) {
+                previousTimestamp = event.getTimestamp();
+            }
 
             // Extraire l'URL et cpId depuis l'événement de connexion
             if ("connection".equals(event.getType()) && "connect".equals(event.getAction())) {
@@ -373,49 +388,103 @@ public class TNRService implements com.evse.simulator.domain.service.TNRService 
      * Exécute un scénario de test avec mode et vitesse.
      *
      * @param scenarioId ID du scénario
-     * @param mode mode d'exécution (ex: "normal", "fast", "slow")
-     * @param speed multiplicateur de vitesse
+     * @param mode mode d'exécution: "fast" (no delays), "realtime" (with speed), "instant" (original timing)
+     * @param speed multiplicateur de vitesse (only used in realtime mode)
      * @return CompletableFuture avec le résultat
      */
     @Async("taskExecutor")
     public CompletableFuture<TNRResult> runScenario(String scenarioId, String mode, double speed) {
-        // Pour l'instant, délègue à la version simple
-        // TODO: implémenter la gestion du mode et de la vitesse
         log.info("Running scenario {} in mode {} at speed {}x", scenarioId, mode, speed);
-        return runScenario(scenarioId);
+        return runScenarioInternal(scenarioId, mode, speed);
     }
 
     /**
-     * Exécute un scénario de test.
+     * Exécute un scénario de test (mode fast par défaut).
      *
      * @param scenarioId ID du scénario
      * @return CompletableFuture avec le résultat
      */
     @Async("taskExecutor")
     public CompletableFuture<TNRResult> runScenario(String scenarioId) {
-        TNRScenario scenario = getScenario(scenarioId);
+        return runScenarioInternal(scenarioId, "fast", 1.0);
+    }
 
-        if (runningTests.containsKey(scenarioId)) {
-            return CompletableFuture.failedFuture(
-                    new IllegalStateException("Scenario already running"));
+    /**
+     * Implémentation interne de l'exécution de scénario avec gestion des timings.
+     */
+    private CompletableFuture<TNRResult> runScenarioInternal(String scenarioId, String mode, double speed) {
+        TNRScenario scenario;
+        try {
+            scenario = getScenario(scenarioId);
+        } catch (Exception e) {
+            log.error("TNR: Failed to get scenario {}: {}", scenarioId, e.getMessage());
+            TNRResult errorResult = TNRResult.builder()
+                    .scenarioId(scenarioId)
+                    .status(ScenarioStatus.ERROR)
+                    .errorMessage("Scenario not found: " + e.getMessage())
+                    .executedAt(LocalDateTime.now())
+                    .build();
+            return CompletableFuture.completedFuture(errorResult);
         }
 
-        log.info("Starting TNR scenario: {} - {}", scenarioId, scenario.getName());
+        if (runningTests.containsKey(scenarioId)) {
+            log.warn("Scenario {} is already running, cleaning up stale entry and allowing retry", scenarioId);
+            // Clean up stale entry and allow retry (might be from a crashed execution)
+            runningTests.remove(scenarioId);
+        }
+
+        // Clean up any previous TNR session to ensure fresh start
+        String tnrSessionId = "tnr-test-session";
+        try {
+            Optional<Session> existingSession = sessionService.findSession(tnrSessionId);
+            if (existingSession.isPresent()) {
+                log.info("TNR: Cleaning up previous session state");
+                ocppService.disconnect(tnrSessionId);
+                Session session = existingSession.get();
+                session.setConnected(false);
+                session.setState(com.evse.simulator.model.enums.SessionState.IDLE);
+                repository.saveSession(session);
+                // Small delay to ensure cleanup completes
+                Thread.sleep(200);
+            }
+        } catch (Exception e) {
+            log.warn("TNR: Error cleaning up previous session: {}", e.getMessage());
+        }
+
+        // Déterminer si on doit respecter les timings
+        boolean useTimings = !"fast".equalsIgnoreCase(mode);
+        double effectiveSpeed = "instant".equalsIgnoreCase(mode) ? 1.0 : speed;
+
+        log.info("Starting TNR scenario: {} - {} (mode={}, timings={}, speed={}x)",
+                scenarioId, scenario.getName(), mode, useTimings, effectiveSpeed);
+
+        // Vérifier que le scénario a des étapes
+        List<TNRStep> steps = scenario.getSteps();
+        if (steps == null || steps.isEmpty()) {
+            log.error("TNR: Scenario {} has no steps", scenarioId);
+            TNRResult errorResult = TNRResult.builder()
+                    .scenarioId(scenarioId)
+                    .status(ScenarioStatus.ERROR)
+                    .errorMessage("Scenario has no steps to execute")
+                    .executedAt(LocalDateTime.now())
+                    .build();
+            return CompletableFuture.completedFuture(errorResult);
+        }
 
         scenario.setStatus(ScenarioStatus.RUNNING);
         scenario.setLastRunAt(LocalDateTime.now());
-        repository.saveTNRScenario(scenario);
 
         TNRResult result = TNRResult.builder()
                 .scenarioId(scenarioId)
                 .status(ScenarioStatus.RUNNING)
-                .totalSteps(scenario.getSteps().size())
+                .totalSteps(steps.size())
                 .executedAt(LocalDateTime.now())
                 .build();
 
         runningTests.put(scenarioId, result);
 
         try {
+            repository.saveTNRScenario(scenario);
             // Créer ou récupérer la session de test
             Session testSession = getOrCreateTestSession(scenario.getConfig());
 
@@ -425,8 +494,25 @@ public class TNRService implements com.evse.simulator.domain.service.TNRService 
             int failedSteps = 0;
 
             // Exécuter chaque étape
-            for (int i = 0; i < scenario.getSteps().size(); i++) {
-                TNRStep step = scenario.getSteps().get(i);
+            for (int i = 0; i < steps.size(); i++) {
+                TNRStep step = steps.get(i);
+
+                // Appliquer le délai si mode avec timing (realtime ou instant)
+                if (useTimings && step.getDelayMs() > 0) {
+                    long actualDelay = Math.round(step.getDelayMs() / effectiveSpeed);
+                    if (actualDelay > 0) {
+                        result.getLogs().add("Waiting " + actualDelay + "ms before step " + (i + 1));
+                        log.debug("Waiting {}ms before step {} (original delay: {}ms, speed: {}x)",
+                                actualDelay, i + 1, step.getDelayMs(), effectiveSpeed);
+                        try {
+                            Thread.sleep(actualDelay);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            throw new RuntimeException("Execution interrupted", e);
+                        }
+                    }
+                }
+
                 result.getLogs().add("Executing step " + (i + 1) + ": " + step.getName());
 
                 StepResult stepResult = executeStep(step, testSession, scenario.getConfig());
@@ -487,15 +573,13 @@ public class TNRService implements com.evse.simulator.domain.service.TNRService 
 
     /**
      * Exécute une étape du scénario.
+     * Note: Le délai avant exécution est géré dans runScenarioInternal selon le mode.
      */
     private StepResult executeStep(TNRStep step, Session session, TNRConfig config) {
         long startTime = System.currentTimeMillis();
 
         try {
-            // Délai avant exécution
-            if (step.getDelayMs() > 0) {
-                Thread.sleep(step.getDelayMs());
-            }
+            // Note: Le délai est maintenant géré dans runScenarioInternal pour supporter les modes
 
             Object response = null;
 
@@ -546,6 +630,17 @@ public class TNRService implements com.evse.simulator.domain.service.TNRService 
                                         .build();
                             }
                             log.info("TNR: Successfully connected to {}", session.getUrl());
+
+                            // Wait for WebSocket to be fully established
+                            int maxWaitAttempts = 20; // 2 seconds max
+                            for (int i = 0; i < maxWaitAttempts; i++) {
+                                Session refreshed = sessionService.getSession(session.getId());
+                                if (refreshed != null && refreshed.isConnected()) {
+                                    log.info("TNR: WebSocket fully established after {}ms", i * 100);
+                                    break;
+                                }
+                                Thread.sleep(100);
+                            }
                         } catch (TimeoutException te) {
                             log.error("TNR: Connection timeout for session {} to URL: {}",
                                 session.getId(), session.getUrl());
@@ -715,7 +810,10 @@ public class TNRService implements com.evse.simulator.domain.service.TNRService 
                     response = Map.of("updated", values);
                 }
 
-                default -> throw new IllegalArgumentException("Unknown step type: " + step.getType());
+                default -> {
+                    log.warn("TNR: Unknown step type: {}, skipping", step.getType());
+                    response = Map.of("skipped", true, "type", String.valueOf(step.getType()), "reason", "Unknown step type");
+                }
             }
 
             // Valider les assertions
@@ -838,28 +936,37 @@ public class TNRService implements com.evse.simulator.domain.service.TNRService 
     private Map<String, Object> sendOcppAction(String sessionId, String action,
                                                 Map<String, Object> payload, long timeoutMs)
             throws Exception {
-        return switch (action.toLowerCase()) {
-            case "bootnotification" -> ocppService.sendBootNotification(sessionId)
-                    .get(timeoutMs, TimeUnit.MILLISECONDS);
-            case "authorize" -> ocppService.sendAuthorize(sessionId)
-                    .get(timeoutMs, TimeUnit.MILLISECONDS);
-            case "starttransaction" -> ocppService.sendStartTransaction(sessionId)
-                    .get(timeoutMs, TimeUnit.MILLISECONDS);
-            case "stoptransaction" -> ocppService.sendStopTransaction(sessionId)
-                    .get(timeoutMs, TimeUnit.MILLISECONDS);
-            case "heartbeat" -> ocppService.sendHeartbeat(sessionId)
-                    .get(timeoutMs, TimeUnit.MILLISECONDS);
-            case "metervalues" -> ocppService.sendMeterValues(sessionId)
-                    .get(timeoutMs, TimeUnit.MILLISECONDS);
-            case "statusnotification" -> {
-                // Determine status from current session state
-                Session session = sessionService.getSession(sessionId);
-                var status = com.evse.simulator.model.enums.ConnectorStatus.fromSessionState(session.getState());
-                yield ocppService.sendStatusNotification(sessionId, status)
+        log.info("TNR: Sending OCPP action {} for session {}", action, sessionId);
+        try {
+            return switch (action.toLowerCase()) {
+                case "bootnotification" -> ocppService.sendBootNotification(sessionId)
                         .get(timeoutMs, TimeUnit.MILLISECONDS);
-            }
-            default -> throw new IllegalArgumentException("Unknown OCPP action: " + action);
-        };
+                case "authorize" -> ocppService.sendAuthorize(sessionId)
+                        .get(timeoutMs, TimeUnit.MILLISECONDS);
+                case "starttransaction" -> ocppService.sendStartTransaction(sessionId)
+                        .get(timeoutMs, TimeUnit.MILLISECONDS);
+                case "stoptransaction" -> ocppService.sendStopTransaction(sessionId)
+                        .get(timeoutMs, TimeUnit.MILLISECONDS);
+                case "heartbeat" -> ocppService.sendHeartbeat(sessionId)
+                        .get(timeoutMs, TimeUnit.MILLISECONDS);
+                case "metervalues" -> ocppService.sendMeterValues(sessionId)
+                        .get(timeoutMs, TimeUnit.MILLISECONDS);
+                case "statusnotification" -> {
+                    // Determine status from current session state
+                    Session session = sessionService.getSession(sessionId);
+                    var status = com.evse.simulator.model.enums.ConnectorStatus.fromSessionState(session.getState());
+                    yield ocppService.sendStatusNotification(sessionId, status)
+                            .get(timeoutMs, TimeUnit.MILLISECONDS);
+                }
+                default -> {
+                    log.warn("TNR: Skipping unsupported action: {}", action);
+                    yield Map.of("skipped", true, "action", action, "reason", "Action not supported for replay");
+                }
+            };
+        } catch (Exception e) {
+            log.error("TNR: Error sending action {}: {}", action, e.getMessage());
+            throw e;
+        }
     }
 
     /**
