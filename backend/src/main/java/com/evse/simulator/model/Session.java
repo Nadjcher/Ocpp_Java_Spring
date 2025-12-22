@@ -10,6 +10,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -22,16 +24,21 @@ import java.util.UUID;
  * Contient toutes les informations nécessaires pour simuler
  * une borne de recharge et sa communication OCPP.
  * </p>
+ * <p>
+ * Annotation @Document pour MongoDB (optionnel - fonctionne aussi sans MongoDB).
+ * </p>
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@Document(collection = "sessions")
 public class Session {
 
     /**
      * Identifiant unique de la session.
      */
+    @Id
     @Builder.Default
     private String id = UUID.randomUUID().toString();
 

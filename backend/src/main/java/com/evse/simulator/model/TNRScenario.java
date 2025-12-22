@@ -4,6 +4,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -16,16 +18,21 @@ import java.util.UUID;
  * Définit une séquence d'actions OCPP à exécuter pour valider
  * le comportement du simulateur ou du CSMS.
  * </p>
+ * <p>
+ * Annotation @Document pour MongoDB (optionnel - fonctionne aussi sans MongoDB).
+ * </p>
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@Document(collection = "tnr_scenarios")
 public class TNRScenario {
 
     /**
      * Identifiant unique du scénario.
      */
+    @Id
     @Builder.Default
     private String id = UUID.randomUUID().toString();
 

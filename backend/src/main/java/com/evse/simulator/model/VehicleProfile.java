@@ -6,23 +6,30 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.util.*;
 
 /**
  * Profil d'un véhicule électrique avec ses caractéristiques de charge.
  * Contient les courbes de charge DC réalistes basées sur des données terrain.
+ * <p>
+ * Annotation @Document pour MongoDB (optionnel - fonctionne aussi sans MongoDB).
+ * </p>
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
+@Document(collection = "vehicle_profiles")
 public class VehicleProfile {
 
     // =========================================================================
     // Identité
     // =========================================================================
 
+    @Id
     @NotBlank(message = "L'identifiant est obligatoire")
     private String id;
 
