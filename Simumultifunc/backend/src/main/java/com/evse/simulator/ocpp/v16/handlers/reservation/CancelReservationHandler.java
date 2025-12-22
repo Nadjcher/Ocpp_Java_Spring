@@ -1,12 +1,13 @@
 package com.evse.simulator.ocpp.v16.handlers.reservation;
 
+import com.evse.simulator.model.LogEntry;
 import com.evse.simulator.model.Session;
 import com.evse.simulator.model.enums.OCPPAction;
 import com.evse.simulator.model.enums.SessionState;
 import com.evse.simulator.ocpp.v16.AbstractOcpp16IncomingHandler;
 import com.evse.simulator.ocpp.v16.Ocpp16Exception;
 import com.evse.simulator.ocpp.v16.model.types.CancelReservationStatus;
-import com.evse.simulator.service.SessionStateManager;
+import com.evse.simulator.service.SessionService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -19,10 +20,13 @@ import java.util.Map;
 @Component
 public class CancelReservationHandler extends AbstractOcpp16IncomingHandler {
 
-    private final SessionStateManager stateManager;
+    private final SessionService sessionService;
+    private final ReserveNowHandler reserveNowHandler;
 
-    public CancelReservationHandler(SessionStateManager stateManager) {
-        this.stateManager = stateManager;
+    public CancelReservationHandler(SessionService sessionService,
+                                     ReserveNowHandler reserveNowHandler) {
+        this.sessionService = sessionService;
+        this.reserveNowHandler = reserveNowHandler;
     }
 
     @Override
@@ -41,6 +45,7 @@ public class CancelReservationHandler extends AbstractOcpp16IncomingHandler {
         logEntry(session, payload);
 
         Integer reservationId = getInteger(payload, "reservationId", true);
+        String sessionId = session.getId();
 
         CancelReservationStatus status;
 
@@ -50,32 +55,39 @@ public class CancelReservationHandler extends AbstractOcpp16IncomingHandler {
             Integer currentReservationId = session.getReservationId();
             if (currentReservationId != null && !currentReservationId.equals(reservationId)) {
                 log.warn("[{}] CancelReservation: reservationId mismatch (expected={}, received={})",
-                        session.getId(), currentReservationId, reservationId);
+                        sessionId, currentReservationId, reservationId);
                 status = CancelReservationStatus.REJECTED;
-                logToSession(session, String.format(
+                sessionService.addLog(sessionId, LogEntry.warn("OCPP", String.format(
                         "CancelReservation REJECTED - reservationId mismatch (expected=%d, received=%d)",
-                        currentReservationId, reservationId));
+                        currentReservationId, reservationId)));
             } else {
+                // Annuler le timer d'expiration dans ReserveNowHandler
+                reserveNowHandler.cancelReservation(session);
+
                 // Nettoyer les infos de réservation
                 session.setReservationId(null);
                 session.setReservationExpiry(null);
                 // Note: on garde l'idTag car il pourrait être utilisé ensuite
 
-                // Annuler la réservation
-                stateManager.forceTransition(session, SessionState.AVAILABLE, "CancelReservation from CSMS");
+                // Annuler la réservation via sessionService (sauvegarde + broadcast)
+                sessionService.updateState(sessionId, SessionState.AVAILABLE);
                 status = CancelReservationStatus.ACCEPTED;
-                logToSession(session, String.format(
-                        "CancelReservation ACCEPTED - reservationId=%d", reservationId));
+
+                sessionService.addLog(sessionId, LogEntry.success("OCPP", String.format(
+                        "CancelReservation ACCEPTED - reservationId=%d cancelled", reservationId)));
+
+                log.info("[{}] Reservation #{} cancelled by CSMS", sessionId, reservationId);
             }
         } else {
             // Pas de réservation active
             status = CancelReservationStatus.REJECTED;
-            logToSession(session, String.format(
-                    "CancelReservation REJECTED - no active reservation with id=%d", reservationId));
+            sessionService.addLog(sessionId, LogEntry.warn("OCPP", String.format(
+                    "CancelReservation REJECTED - no active reservation with id=%d (state=%s)",
+                    reservationId, session.getState())));
         }
 
         log.info("[{}] CancelReservation: reservationId={}, status={}",
-                session.getId(), reservationId, status);
+                sessionId, reservationId, status);
 
         Map<String, Object> response = createResponse(status);
         logExit(session, response);

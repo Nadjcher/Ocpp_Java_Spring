@@ -200,7 +200,7 @@ public class SessionService implements com.evse.simulator.domain.service.Session
 
         // Mise à jour des flags associés selon le nouvel état
         switch (state) {
-            case CONNECTED, BOOT_ACCEPTED, PARKED, PLUGGED, AUTHORIZED, AVAILABLE -> {
+            case CONNECTED, BOOT_ACCEPTED, PARKED, PLUGGED, AUTHORIZED, AVAILABLE, RESERVED -> {
                 session.setConnected(true);
             }
             case CHARGING, STARTING -> {

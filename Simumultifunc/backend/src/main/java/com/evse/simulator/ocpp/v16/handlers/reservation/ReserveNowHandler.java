@@ -9,17 +9,16 @@ import com.evse.simulator.model.enums.SessionState;
 import com.evse.simulator.ocpp.v16.AbstractOcpp16IncomingHandler;
 import com.evse.simulator.ocpp.v16.Ocpp16Exception;
 import com.evse.simulator.ocpp.v16.model.types.ReservationStatus;
+import com.evse.simulator.service.SessionService;
 import com.evse.simulator.service.SessionStateManager;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -46,12 +45,16 @@ import java.util.concurrent.TimeUnit;
 public class ReserveNowHandler extends AbstractOcpp16IncomingHandler {
 
     private final OCPPService ocppService;
+    private final SessionService sessionService;
     private final SessionStateManager stateManager;
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     private final Map<String, ScheduledFuture<?>> reservationTimers = new ConcurrentHashMap<>();
 
-    public ReserveNowHandler(@Lazy OCPPService ocppService, SessionStateManager stateManager) {
+    public ReserveNowHandler(@Lazy OCPPService ocppService,
+                             SessionService sessionService,
+                             SessionStateManager stateManager) {
         this.ocppService = ocppService;
+        this.sessionService = sessionService;
         this.stateManager = stateManager;
     }
 
@@ -90,12 +93,16 @@ public class ReserveNowHandler extends AbstractOcpp16IncomingHandler {
             session.setIdTag(idTag);
             session.setReservationExpiry(expiry);
 
-            // Passer le connecteur en Reserved
-            stateManager.forceTransition(session, SessionState.RESERVED, "ReserveNow from CSMS");
+            // Passer le connecteur en Reserved via sessionService pour broadcast + sauvegarde
+            sessionService.updateState(session.getId(), SessionState.RESERVED);
 
-            session.addLog(LogEntry.success("OCPP", String.format(
+            // Log avec broadcast au frontend
+            sessionService.addLog(session.getId(), LogEntry.success("OCPP", String.format(
                     "ReserveNow ACCEPTED - reservationId=%d, idTag=%s, expires=%s (local: %s)",
                     reservationId, idTag, expiryDate, expiry)));
+
+            log.info("[{}] Reservation #{} ACCEPTED - idTag={}, expires={}",
+                    session.getId(), reservationId, idTag, expiry);
 
             // Envoyer StatusNotification(Reserved) de manière asynchrone
             sendReservedStatusNotification(session, connectorId);
@@ -103,7 +110,7 @@ public class ReserveNowHandler extends AbstractOcpp16IncomingHandler {
             // Planifier l'expiration de la réservation
             scheduleReservationExpiry(session, expiry, reservationId);
         } else {
-            session.addLog(LogEntry.warn("OCPP", String.format(
+            sessionService.addLog(session.getId(), LogEntry.warn("OCPP", String.format(
                     "ReserveNow %s - connector not available (state=%s)",
                     status.getValue(), session.getState())));
         }
@@ -120,21 +127,22 @@ public class ReserveNowHandler extends AbstractOcpp16IncomingHandler {
      * Envoie StatusNotification(Reserved) après acceptation de la réservation.
      */
     private void sendReservedStatusNotification(Session session, Integer connectorId) {
+        String sessionId = session.getId();
         CompletableFuture.runAsync(() -> {
             try {
                 // Petit délai pour permettre l'envoi de la réponse ReserveNow
                 Thread.sleep(200);
 
-                log.info("[{}] ReserveNow: Sending StatusNotification(Reserved)", session.getId());
-                ocppService.sendStatusNotification(session.getId(), ConnectorStatus.RESERVED);
+                log.info("[{}] ReserveNow: Sending StatusNotification(Reserved)", sessionId);
+                ocppService.sendStatusNotification(sessionId, ConnectorStatus.RESERVED);
 
-                session.addLog(LogEntry.info("OCPP", "StatusNotification(Reserved) sent"));
+                sessionService.addLog(sessionId, LogEntry.info("OCPP", "StatusNotification(Reserved) sent"));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                log.warn("[{}] ReserveNow: StatusNotification interrupted", session.getId());
+                log.warn("[{}] ReserveNow: StatusNotification interrupted", sessionId);
             } catch (Exception e) {
                 log.error("[{}] ReserveNow: Failed to send StatusNotification: {}",
-                        session.getId(), e.getMessage());
+                        sessionId, e.getMessage());
             }
         });
     }
@@ -225,8 +233,10 @@ public class ReserveNowHandler extends AbstractOcpp16IncomingHandler {
      * Planifie l'expiration automatique de la réservation.
      */
     private void scheduleReservationExpiry(Session session, LocalDateTime expiry, Integer reservationId) {
+        String sessionId = session.getId();
+
         // Annuler tout timer précédent pour cette session
-        ScheduledFuture<?> previousTimer = reservationTimers.remove(session.getId());
+        ScheduledFuture<?> previousTimer = reservationTimers.remove(sessionId);
         if (previousTimer != null) {
             previousTimer.cancel(false);
         }
@@ -236,72 +246,85 @@ public class ReserveNowHandler extends AbstractOcpp16IncomingHandler {
         long delayMillis = delay.toMillis();
 
         if (delayMillis <= 0) {
-            log.warn("[{}] Reservation expiry is in the past, cancelling immediately", session.getId());
-            expireReservation(session, reservationId);
+            log.warn("[{}] Reservation expiry is in the past, cancelling immediately", sessionId);
+            expireReservation(sessionId, reservationId);
             return;
         }
 
         log.info("[{}] Reservation #{} scheduled to expire in {} seconds",
-                session.getId(), reservationId, delay.getSeconds());
+                sessionId, reservationId, delay.getSeconds());
 
-        session.addLog(LogEntry.info("OCPP", String.format(
+        sessionService.addLog(sessionId, LogEntry.info("OCPP", String.format(
                 "Reservation expires in %d minutes %d seconds",
                 delay.toMinutes(), delay.getSeconds() % 60)));
 
-        // Planifier l'expiration
+        // Planifier l'expiration (on passe l'ID de session, pas l'objet session)
         ScheduledFuture<?> future = scheduler.schedule(
-                () -> expireReservation(session, reservationId),
+                () -> expireReservation(sessionId, reservationId),
                 delayMillis,
                 TimeUnit.MILLISECONDS
         );
 
-        reservationTimers.put(session.getId(), future);
+        reservationTimers.put(sessionId, future);
     }
 
     /**
      * Expire une réservation et remet le connecteur disponible.
      */
-    private void expireReservation(Session session, Integer reservationId) {
+    private void expireReservation(String sessionId, Integer reservationId) {
+        // Récupérer la session fraîche depuis le repository
+        Session session;
+        try {
+            session = sessionService.getSession(sessionId);
+        } catch (Exception e) {
+            log.warn("[{}] Session not found during reservation expiry", sessionId);
+            reservationTimers.remove(sessionId);
+            return;
+        }
+
         log.info("[{}] expireReservation called for reservation #{}, current state={}",
-                session.getId(), reservationId, session.getState());
+                sessionId, reservationId, session.getState());
 
         // Vérifier que la réservation est toujours active
         if (session.getState() != SessionState.RESERVED) {
             log.warn("[{}] Reservation #{} already ended (state={}), skipping expiration",
-                    session.getId(), reservationId, session.getState());
+                    sessionId, reservationId, session.getState());
+            reservationTimers.remove(sessionId);
             return;
         }
 
         // Vérifier que c'est bien la même réservation
         if (session.getReservationId() == null || !session.getReservationId().equals(reservationId)) {
             log.debug("[{}] Reservation #{} was replaced by #{}",
-                    session.getId(), reservationId, session.getReservationId());
+                    sessionId, reservationId, session.getReservationId());
+            reservationTimers.remove(sessionId);
             return;
         }
 
-        log.info("[{}] Reservation #{} expired", session.getId(), reservationId);
+        log.info("[{}] Reservation #{} expired", sessionId, reservationId);
 
-        // Nettoyer les infos de réservation
+        // Nettoyer les infos de réservation sur la session
         session.setReservationId(null);
         session.setReservationExpiry(null);
 
-        // Remettre le connecteur disponible
-        stateManager.forceTransition(session, SessionState.AVAILABLE, "Reservation expired");
+        // Remettre le connecteur disponible via sessionService (sauvegarde + broadcast)
+        sessionService.updateState(sessionId, SessionState.AVAILABLE);
 
-        session.addLog(LogEntry.warn("OCPP", String.format(
+        // Log avec broadcast
+        sessionService.addLog(sessionId, LogEntry.warn("OCPP", String.format(
                 "Reservation #%d expired - connector now Available", reservationId)));
 
         // Envoyer StatusNotification(Available)
         try {
-            ocppService.sendStatusNotification(session.getId(), ConnectorStatus.AVAILABLE);
-            session.addLog(LogEntry.info("OCPP", "StatusNotification(Available) sent"));
+            ocppService.sendStatusNotification(sessionId, ConnectorStatus.AVAILABLE);
+            sessionService.addLog(sessionId, LogEntry.info("OCPP", "StatusNotification(Available) sent after expiry"));
         } catch (Exception e) {
             log.error("[{}] Failed to send StatusNotification after reservation expiry: {}",
-                    session.getId(), e.getMessage());
+                    sessionId, e.getMessage());
         }
 
         // Retirer le timer
-        reservationTimers.remove(session.getId());
+        reservationTimers.remove(sessionId);
     }
 
     /**
