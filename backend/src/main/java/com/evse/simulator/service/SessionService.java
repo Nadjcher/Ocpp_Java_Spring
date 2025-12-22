@@ -533,6 +533,19 @@ public class SessionService implements com.evse.simulator.domain.service.Session
     }
 
     /**
+     * Diffuse une mise à jour de session via WebSocket.
+     * Utilisé par ReservationService pour notifier les changements d'état.
+     *
+     * @param session session à diffuser
+     */
+    public void broadcastSessionUpdate(Session session) {
+        if (session != null) {
+            repository.saveSession(session);
+            broadcaster.broadcastSession(session);
+        }
+    }
+
+    /**
      * Met à jour la raison de déconnexion.
      *
      * @param id identifiant de la session
