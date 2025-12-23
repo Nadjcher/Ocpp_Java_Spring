@@ -1,8 +1,9 @@
 package com.evse.simulator.controller;
 
+import com.evse.simulator.model.ChargingProfile;
 import com.evse.simulator.model.Session;
 import com.evse.simulator.service.SessionService;
-import com.evse.simulator.websocket.MLWebSocketHandler;
+import com.evse.simulator.service.SmartChargingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -10,257 +11,440 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * Contrôleur REST pour l'analyse des sessions de charge.
- * Version simplifiée - basée sur des données réelles uniquement.
+ * Contrôleur d'analyse et d'optimisation du parc de bornes.
+ * Analyse les SCP (Smart Charging Profiles) et la répartition de l'énergie.
  */
 @RestController
 @RequestMapping("/api/ml")
-@Tag(name = "Analyse", description = "Analyse des sessions et détection d'anomalies")
+@Tag(name = "Optimisation Parc", description = "Analyse SCP et optimisation énergétique du parc")
 @RequiredArgsConstructor
 @Slf4j
 @CrossOrigin
 public class MLController {
 
     private final SessionService sessionService;
-    private final MLWebSocketHandler mlWebSocketHandler;
-
-    // Historique des anomalies par session
-    private final Map<String, List<Map<String, Object>>> anomalyHistory = new ConcurrentHashMap<>();
-
-    // Seuils configurables
-    private double efficiencyThreshold = 0.5;  // Seuil d'efficacité (50%)
-    private double socDriftThreshold = 5.0;    // Dérive SoC max en %
+    private final SmartChargingService smartChargingService;
 
     @GetMapping("/status")
-    @Operation(summary = "Statut de l'analyse")
-    public ResponseEntity<Map<String, Object>> getStatus() {
+    @Operation(summary = "Statut du parc")
+    public ResponseEntity<Map<String, Object>> getParkStatus() {
         List<Session> sessions = sessionService.getAllSessions();
-        long charging = sessions.stream().filter(Session::isCharging).count();
+
         long connected = sessions.stream().filter(Session::isConnected).count();
+        long charging = sessions.stream().filter(Session::isCharging).count();
+        long withScp = sessions.stream()
+                .filter(s -> s.getActiveChargingProfile() != null)
+                .count();
+
+        double totalCapacity = sessions.stream().mapToDouble(Session::getMaxPowerKw).sum();
+        double totalUsed = sessions.stream().mapToDouble(Session::getCurrentPowerKw).sum();
 
         return ResponseEntity.ok(Map.of(
-            "ready", true,
-            "sessionsTotal", sessions.size(),
-            "sessionsConnected", connected,
-            "sessionsCharging", charging,
-            "anomaliesTracked", anomalyHistory.values().stream().mapToInt(List::size).sum()
+                "sessionsTotal", sessions.size(),
+                "sessionsConnected", connected,
+                "sessionsCharging", charging,
+                "sessionsWithScp", withScp,
+                "totalCapacityKw", round(totalCapacity),
+                "totalUsedKw", round(totalUsed),
+                "parkUtilization", totalCapacity > 0 ? round(totalUsed / totalCapacity * 100) : 0
         ));
     }
 
     @PostMapping("/analyze/{sessionId}")
-    @Operation(summary = "Analyse une session")
+    @Operation(summary = "Analyse une session (SCP et énergie)")
     public ResponseEntity<Map<String, Object>> analyzeSession(@PathVariable String sessionId) {
         try {
             Session session = sessionService.getSession(sessionId);
             Map<String, Object> result = new LinkedHashMap<>();
 
-            // Métriques calculées à partir de données réelles
-            Map<String, Object> metrics = calculateMetrics(session);
-            result.put("metrics", metrics);
+            // Métriques de base
+            result.put("metrics", buildSessionMetrics(session));
 
-            // Détecter les anomalies
-            List<Map<String, Object>> anomalies = detectAnomalies(session, metrics);
-            result.put("anomalies", anomalies);
+            // Analyse SCP
+            result.put("scp", analyzeScp(session));
+
+            // Anomalies/alertes
+            result.put("anomalies", detectIssues(session));
 
             // Prédiction simple
-            Map<String, Object> prediction = predictCharge(session);
-            result.put("prediction", prediction);
-
-            // Stocker et diffuser les anomalies
-            if (!anomalies.isEmpty()) {
-                anomalyHistory.computeIfAbsent(sessionId, k -> new ArrayList<>()).addAll(anomalies);
-                anomalies.forEach(mlWebSocketHandler::broadcastAnomaly);
-            }
+            result.put("prediction", buildPrediction(session));
 
             return ResponseEntity.ok(result);
         } catch (Exception e) {
-            log.error("Erreur analyse session {}: {}", sessionId, e.getMessage());
             return ResponseEntity.ok(Map.of("error", e.getMessage(), "anomalies", List.of()));
         }
     }
 
-    @PostMapping("/threshold")
-    @Operation(summary = "Configure les seuils de détection")
-    public ResponseEntity<Map<String, Object>> updateThresholds(@RequestBody Map<String, Object> body) {
-        if (body.containsKey("efficiency")) {
-            efficiencyThreshold = ((Number) body.get("efficiency")).doubleValue();
-        }
-        if (body.containsKey("socDrift")) {
-            socDriftThreshold = ((Number) body.get("socDrift")).doubleValue();
-        }
+    @GetMapping("/park")
+    @Operation(summary = "Analyse complète du parc")
+    public ResponseEntity<Map<String, Object>> analyzePark() {
+        List<Session> sessions = sessionService.getAllSessions();
+        List<Session> chargingSessions = sessions.stream()
+                .filter(Session::isCharging)
+                .collect(Collectors.toList());
 
-        return ResponseEntity.ok(Map.of(
-            "ok", true,
-            "efficiencyThreshold", efficiencyThreshold,
-            "socDriftThreshold", socDriftThreshold
-        ));
-    }
+        Map<String, Object> result = new LinkedHashMap<>();
 
-    @GetMapping("/anomalies/{sessionId}")
-    @Operation(summary = "Historique des anomalies d'une session")
-    public ResponseEntity<List<Map<String, Object>>> getAnomalies(
-            @PathVariable String sessionId,
-            @RequestParam(defaultValue = "20") int limit) {
+        // Vue globale du parc
+        result.put("summary", buildParkSummary(sessions, chargingSessions));
 
-        List<Map<String, Object>> history = anomalyHistory.getOrDefault(sessionId, List.of());
-        return ResponseEntity.ok(history.stream().limit(limit).collect(Collectors.toList()));
-    }
+        // Analyse SCP globale
+        result.put("scpAnalysis", buildScpAnalysis(chargingSessions));
 
-    @DeleteMapping("/anomalies")
-    @Operation(summary = "Efface l'historique des anomalies")
-    public ResponseEntity<Map<String, Object>> clearAnomalies() {
-        int count = anomalyHistory.values().stream().mapToInt(List::size).sum();
-        anomalyHistory.clear();
-        return ResponseEntity.ok(Map.of("cleared", count));
+        // Alertes d'optimisation
+        result.put("alerts", buildParkAlerts(chargingSessions));
+
+        // Sessions détaillées
+        result.put("sessions", chargingSessions.stream()
+                .map(this::buildSessionMetrics)
+                .collect(Collectors.toList()));
+
+        return ResponseEntity.ok(result);
     }
 
     // =========================================================================
-    // Calculs basés sur données réelles
+    // Analyse SCP
     // =========================================================================
 
-    private Map<String, Object> calculateMetrics(Session session) {
-        Map<String, Object> metrics = new LinkedHashMap<>();
+    private Map<String, Object> analyzeScp(Session session) {
+        Map<String, Object> scp = new LinkedHashMap<>();
 
-        // Données de base
-        metrics.put("sessionId", session.getId());
-        metrics.put("state", session.getState().getValue());
-        metrics.put("isCharging", session.isCharging());
+        ChargingProfile profile = session.getActiveChargingProfile();
+        scp.put("hasActiveProfile", profile != null);
+
+        if (profile != null) {
+            scp.put("profileId", profile.getChargingProfileId());
+            scp.put("purpose", profile.getChargingProfilePurpose().getValue());
+            scp.put("stackLevel", profile.getStackLevel());
+
+            // Limite actuelle du SCP
+            double scpLimitKw = profile.getCurrentLimitKw(
+                    session.getVoltage(),
+                    session.getChargerType().getPhases());
+
+            if (scpLimitKw < Double.MAX_VALUE) {
+                scp.put("currentLimitKw", round(scpLimitKw));
+
+                // Écart entre SCP et puissance réelle
+                double actualPower = session.getCurrentPowerKw();
+                double gap = scpLimitKw - actualPower;
+                double gapPercent = scpLimitKw > 0 ? (gap / scpLimitKw) * 100 : 0;
+
+                scp.put("actualPowerKw", round(actualPower));
+                scp.put("gapKw", round(gap));
+                scp.put("gapPercent", round(gapPercent));
+                scp.put("scpUtilization", round(100 - gapPercent));
+
+                // Évaluation
+                if (gapPercent > 30) {
+                    scp.put("status", "UNDERUSED");
+                    scp.put("statusMessage", "SCP sous-utilisé: la borne pourrait charger plus");
+                } else if (gapPercent < -5) {
+                    scp.put("status", "EXCEEDED");
+                    scp.put("statusMessage", "Dépassement du SCP!");
+                } else {
+                    scp.put("status", "OPTIMAL");
+                    scp.put("statusMessage", "Utilisation optimale du SCP");
+                }
+            } else {
+                scp.put("currentLimitKw", "unlimited");
+                scp.put("status", "NO_LIMIT");
+            }
+
+            // Unité du profil
+            if (profile.getChargingSchedule() != null) {
+                scp.put("rateUnit", profile.getChargingSchedule().getChargingRateUnit().getValue());
+            }
+        } else {
+            scp.put("status", "NO_PROFILE");
+            scp.put("statusMessage", "Pas de SCP actif - charge sans limitation");
+        }
+
+        return scp;
+    }
+
+    // =========================================================================
+    // Métriques session
+    // =========================================================================
+
+    private Map<String, Object> buildSessionMetrics(Session session) {
+        Map<String, Object> m = new LinkedHashMap<>();
+
+        m.put("sessionId", session.getId());
+        m.put("cpId", session.getCpId());
+        m.put("state", session.getState().getValue());
+        m.put("isCharging", session.isCharging());
 
         // Puissance
-        double maxPower = session.getMaxPowerKw();
-        double currentPower = session.getCurrentPowerKw();
-        double efficiency = maxPower > 0 ? currentPower / maxPower : 0;
-        metrics.put("powerKw", round(currentPower, 2));
-        metrics.put("maxPowerKw", round(maxPower, 2));
-        metrics.put("efficiency", round(efficiency * 100, 1)); // En %
+        m.put("powerKw", round(session.getCurrentPowerKw()));
+        m.put("maxPowerKw", round(session.getMaxPowerKw()));
 
-        // Énergie
-        metrics.put("energyKwh", round(session.getEnergyDeliveredKwh(), 2));
+        // Efficacité d'utilisation de la capacité
+        double efficiency = session.getMaxPowerKw() > 0
+                ? (session.getCurrentPowerKw() / session.getMaxPowerKw()) * 100
+                : 0;
+        m.put("capacityUsage", round(efficiency));
 
         // SoC
-        metrics.put("soc", round(session.getSoc(), 1));
-        metrics.put("targetSoc", round(session.getTargetSoc(), 1));
-        metrics.put("socRemaining", round(session.getTargetSoc() - session.getSoc(), 1));
+        m.put("soc", round(session.getSoc()));
+        m.put("targetSoc", round(session.getTargetSoc()));
 
-        // Durée
-        if (session.getStartTime() != null) {
-            long minutes = Duration.between(session.getStartTime(), LocalDateTime.now()).toMinutes();
-            metrics.put("durationMinutes", minutes);
+        // Énergie
+        m.put("energyKwh", round(session.getEnergyDeliveredKwh()));
+
+        // SCP
+        ChargingProfile profile = session.getActiveChargingProfile();
+        m.put("hasScp", profile != null);
+        if (profile != null) {
+            double scpLimit = profile.getCurrentLimitKw(
+                    session.getVoltage(),
+                    session.getChargerType().getPhases());
+            m.put("scpLimitKw", scpLimit < Double.MAX_VALUE ? round(scpLimit) : null);
         }
 
-        return metrics;
+        return m;
     }
 
-    private List<Map<String, Object>> detectAnomalies(Session session, Map<String, Object> metrics) {
-        List<Map<String, Object>> anomalies = new ArrayList<>();
+    // =========================================================================
+    // Analyse parc
+    // =========================================================================
 
-        // 1. Efficacité faible pendant charge active
-        if (session.isCharging()) {
-            double efficiency = ((Number) metrics.get("efficiency")).doubleValue() / 100.0;
-            if (efficiency < efficiencyThreshold && efficiency > 0) {
-                anomalies.add(createAnomaly(
-                    session.getId(),
-                    "UNDERPERFORMING",
-                    "MEDIUM",
-                    String.format("Efficacité faible: %.0f%% (seuil: %.0f%%)",
-                        efficiency * 100, efficiencyThreshold * 100),
-                    "Vérifier le câble de charge et la configuration de puissance"
-                ));
+    private Map<String, Object> buildParkSummary(List<Session> all, List<Session> charging) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+
+        // Compteurs
+        summary.put("totalStations", all.size());
+        summary.put("charging", charging.size());
+        summary.put("available", all.stream().filter(s -> s.getState().getValue().equals("available")).count());
+
+        // Capacité
+        double totalCapacity = all.stream().mapToDouble(Session::getMaxPowerKw).sum();
+        double usedCapacity = charging.stream().mapToDouble(Session::getCurrentPowerKw).sum();
+
+        summary.put("totalCapacityKw", round(totalCapacity));
+        summary.put("usedCapacityKw", round(usedCapacity));
+        summary.put("availableCapacityKw", round(totalCapacity - usedCapacity));
+        summary.put("utilizationPercent", totalCapacity > 0 ? round(usedCapacity / totalCapacity * 100) : 0);
+
+        // Énergie totale délivrée
+        double totalEnergy = all.stream().mapToDouble(Session::getEnergyDeliveredKwh).sum();
+        summary.put("totalEnergyKwh", round(totalEnergy));
+
+        return summary;
+    }
+
+    private Map<String, Object> buildScpAnalysis(List<Session> charging) {
+        Map<String, Object> analysis = new LinkedHashMap<>();
+
+        long withScp = charging.stream()
+                .filter(s -> s.getActiveChargingProfile() != null)
+                .count();
+        long withoutScp = charging.size() - withScp;
+
+        analysis.put("sessionsWithScp", withScp);
+        analysis.put("sessionsWithoutScp", withoutScp);
+        analysis.put("scpCoverage", charging.size() > 0
+                ? round((double) withScp / charging.size() * 100)
+                : 0);
+
+        // Analyse de l'utilisation des SCP
+        double totalScpLimit = 0;
+        double totalActualPower = 0;
+        int scpCount = 0;
+
+        for (Session s : charging) {
+            ChargingProfile profile = s.getActiveChargingProfile();
+            if (profile != null) {
+                double limit = profile.getCurrentLimitKw(s.getVoltage(), s.getChargerType().getPhases());
+                if (limit < Double.MAX_VALUE) {
+                    totalScpLimit += limit;
+                    totalActualPower += s.getCurrentPowerKw();
+                    scpCount++;
+                }
             }
         }
 
-        // 2. Puissance nulle pendant charge
-        if (session.isCharging() && session.getCurrentPowerKw() <= 0) {
-            anomalies.add(createAnomaly(
-                session.getId(),
-                "NO_POWER",
-                "HIGH",
-                "Charge active mais puissance nulle",
-                "Vérifier la connexion et l'état de la borne"
-            ));
+        if (scpCount > 0) {
+            analysis.put("totalScpLimitKw", round(totalScpLimit));
+            analysis.put("totalActualPowerKw", round(totalActualPower));
+            analysis.put("avgScpUtilization", round(totalActualPower / totalScpLimit * 100));
+            analysis.put("wastedCapacityKw", round(totalScpLimit - totalActualPower));
         }
 
-        // 3. SoC qui n'évolue pas (charge bloquée)
-        if (session.isCharging() && session.getStartTime() != null) {
-            long minutes = Duration.between(session.getStartTime(), LocalDateTime.now()).toMinutes();
-            if (minutes > 5 && session.getSoc() <= session.getInitialSoc() + 1) {
-                anomalies.add(createAnomaly(
-                    session.getId(),
-                    "CHARGE_STUCK",
-                    "HIGH",
-                    String.format("SoC n'a pas évolué depuis %d min (%.1f%% → %.1f%%)",
-                        minutes, session.getInitialSoc(), session.getSoc()),
-                    "Vérifier le véhicule et la borne"
-                ));
+        return analysis;
+    }
+
+    private List<Map<String, Object>> buildParkAlerts(List<Session> charging) {
+        List<Map<String, Object>> alerts = new ArrayList<>();
+
+        for (Session s : charging) {
+            ChargingProfile profile = s.getActiveChargingProfile();
+
+            // Alerte: pas de SCP pendant charge
+            if (profile == null) {
+                alerts.add(createAlert(s.getId(), "NO_SCP",
+                        "Charge sans SCP - pas de contrôle de puissance",
+                        "MEDIUM"));
+                continue;
+            }
+
+            double limit = profile.getCurrentLimitKw(s.getVoltage(), s.getChargerType().getPhases());
+            if (limit >= Double.MAX_VALUE) continue;
+
+            double actual = s.getCurrentPowerKw();
+            double usage = (actual / limit) * 100;
+
+            // Alerte: SCP sous-utilisé
+            if (usage < 50 && actual > 0) {
+                alerts.add(createAlert(s.getId(), "SCP_UNDERUSED",
+                        String.format("SCP utilisé à %.0f%% - capacité gaspillée: %.1f kW",
+                                usage, limit - actual),
+                        "LOW"));
+            }
+
+            // Alerte: dépassement SCP
+            if (actual > limit * 1.05) {
+                alerts.add(createAlert(s.getId(), "SCP_EXCEEDED",
+                        String.format("Dépassement SCP: %.1f kW > %.1f kW limite",
+                                actual, limit),
+                        "HIGH"));
+            }
+
+            // Alerte: puissance nulle avec SCP
+            if (s.isCharging() && actual <= 0) {
+                alerts.add(createAlert(s.getId(), "ZERO_POWER",
+                        "Charge active mais puissance nulle",
+                        "HIGH"));
             }
         }
 
-        // 4. Dépassement du SoC cible
-        if (session.getSoc() > session.getTargetSoc() + socDriftThreshold) {
-            anomalies.add(createAnomaly(
-                session.getId(),
-                "SOC_OVERSHOOT",
-                "LOW",
-                String.format("SoC dépasse la cible: %.1f%% > %.1f%%",
-                    session.getSoc(), session.getTargetSoc()),
-                "Vérifier la configuration du SoC cible"
-            ));
+        // Alerte globale: faible utilisation du parc
+        double totalCapacity = charging.stream().mapToDouble(Session::getMaxPowerKw).sum();
+        double totalUsed = charging.stream().mapToDouble(Session::getCurrentPowerKw).sum();
+        if (totalCapacity > 0 && (totalUsed / totalCapacity) < 0.3) {
+            alerts.add(createAlert("PARK", "LOW_UTILIZATION",
+                    String.format("Utilisation du parc faible: %.0f%% de la capacité",
+                            totalUsed / totalCapacity * 100),
+                    "LOW"));
         }
 
-        return anomalies;
+        return alerts;
     }
 
-    private Map<String, Object> createAnomaly(String sessionId, String type, String severity,
-                                               String description, String recommendation) {
-        Map<String, Object> anomaly = new LinkedHashMap<>();
-        anomaly.put("id", UUID.randomUUID().toString().substring(0, 8));
-        anomaly.put("timestamp", LocalDateTime.now().toString());
-        anomaly.put("sessionId", sessionId);
-        anomaly.put("type", type);
-        anomaly.put("severity", severity);
-        anomaly.put("description", description);
-        anomaly.put("recommendation", recommendation);
-        return anomaly;
-    }
+    // =========================================================================
+    // Détection issues session
+    // =========================================================================
 
-    private Map<String, Object> predictCharge(Session session) {
-        Map<String, Object> prediction = new LinkedHashMap<>();
+    private List<Map<String, Object>> detectIssues(Session session) {
+        List<Map<String, Object>> issues = new ArrayList<>();
 
-        prediction.put("sessionId", session.getId());
-        prediction.put("currentSoc", round(session.getSoc(), 1));
-        prediction.put("targetSoc", round(session.getTargetSoc(), 1));
-        prediction.put("currentEnergyKwh", round(session.getEnergyDeliveredKwh(), 2));
+        if (!session.isCharging()) {
+            return issues;
+        }
 
-        double remainingSoc = session.getTargetSoc() - session.getSoc();
-        double currentPower = session.getCurrentPowerKw();
+        ChargingProfile profile = session.getActiveChargingProfile();
+        double actual = session.getCurrentPowerKw();
 
-        if (remainingSoc > 0 && currentPower > 0) {
-            // Estimation simple basée sur capacité batterie moyenne (60 kWh)
-            double batteryCapacity = 60.0;
-            double remainingEnergy = (remainingSoc / 100.0) * batteryCapacity;
-            double remainingMinutes = (remainingEnergy / currentPower) * 60;
-
-            prediction.put("remainingEnergyKwh", round(remainingEnergy, 2));
-            prediction.put("remainingMinutes", (int) remainingMinutes);
-            prediction.put("estimatedEndTime", LocalDateTime.now().plusMinutes((long) remainingMinutes).toString());
+        // Pas de SCP
+        if (profile == null) {
+            issues.add(createAlert(session.getId(), "NO_SCP",
+                    "Pas de profil de charge (SCP) actif",
+                    "MEDIUM"));
         } else {
-            prediction.put("remainingEnergyKwh", 0);
-            prediction.put("remainingMinutes", 0);
-            prediction.put("estimatedEndTime", null);
+            double limit = profile.getCurrentLimitKw(
+                    session.getVoltage(),
+                    session.getChargerType().getPhases());
+
+            if (limit < Double.MAX_VALUE) {
+                double usage = (actual / limit) * 100;
+
+                if (usage < 50 && actual > 0) {
+                    issues.add(createAlert(session.getId(), "SCP_UNDERUSED",
+                            String.format("SCP sous-utilisé (%.0f%%) - vérifier le véhicule ou ajuster le SCP", usage),
+                            "LOW"));
+                }
+
+                if (actual > limit * 1.05) {
+                    issues.add(createAlert(session.getId(), "SCP_EXCEEDED",
+                            "Dépassement de la limite SCP",
+                            "HIGH"));
+                }
+            }
         }
 
-        return prediction;
+        // Puissance nulle
+        if (actual <= 0) {
+            issues.add(createAlert(session.getId(), "ZERO_POWER",
+                    "Charge active mais puissance nulle",
+                    "HIGH"));
+        }
+
+        // Efficacité globale faible
+        double efficiency = session.getMaxPowerKw() > 0
+                ? (actual / session.getMaxPowerKw()) * 100
+                : 0;
+        if (efficiency < 30 && actual > 0) {
+            issues.add(createAlert(session.getId(), "LOW_EFFICIENCY",
+                    String.format("Utilisation capacité borne faible: %.0f%%", efficiency),
+                    "LOW"));
+        }
+
+        return issues;
     }
 
-    private double round(double value, int decimals) {
-        double factor = Math.pow(10, decimals);
-        return Math.round(value * factor) / factor;
+    // =========================================================================
+    // Prédiction
+    // =========================================================================
+
+    private Map<String, Object> buildPrediction(Session session) {
+        Map<String, Object> pred = new LinkedHashMap<>();
+
+        pred.put("sessionId", session.getId());
+        pred.put("currentSoc", round(session.getSoc()));
+        pred.put("targetSoc", round(session.getTargetSoc()));
+        pred.put("currentEnergyKwh", round(session.getEnergyDeliveredKwh()));
+
+        double remaining = session.getTargetSoc() - session.getSoc();
+        double power = session.getCurrentPowerKw();
+
+        if (remaining > 0 && power > 0) {
+            // Estimation basée sur capacité batterie typique
+            double batteryKwh = 60.0;
+            double remainingEnergy = (remaining / 100.0) * batteryKwh;
+            int remainingMinutes = (int) ((remainingEnergy / power) * 60);
+
+            pred.put("remainingEnergyKwh", round(remainingEnergy));
+            pred.put("remainingMinutes", remainingMinutes);
+        } else {
+            pred.put("remainingEnergyKwh", 0);
+            pred.put("remainingMinutes", 0);
+        }
+
+        return pred;
+    }
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    private Map<String, Object> createAlert(String sessionId, String type,
+                                             String message, String severity) {
+        return Map.of(
+                "id", UUID.randomUUID().toString().substring(0, 8),
+                "sessionId", sessionId,
+                "type", type,
+                "description", message,
+                "severity", severity,
+                "timestamp", LocalDateTime.now().toString()
+        );
+    }
+
+    private double round(double value) {
+        return Math.round(value * 10.0) / 10.0;
     }
 }
