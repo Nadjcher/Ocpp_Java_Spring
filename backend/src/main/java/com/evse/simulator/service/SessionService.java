@@ -273,10 +273,10 @@ public class SessionService implements com.evse.simulator.domain.service.Session
         session.setEnergyDeliveredKwh(energyKwh);
         session.setMeterValue((int) (energyKwh * 1000)); // Conversion en Wh
 
-        // Calcul du courant
+        // Calcul du courant (avec null safety pour chargerType)
         if (session.getVoltage() > 0) {
             double current = (powerKw * 1000) / session.getVoltage();
-            if (session.getChargerType().getPhases() > 1) {
+            if (session.getChargerType() != null && session.getChargerType().getPhases() > 1) {
                 current /= Math.sqrt(3);
             }
             session.setCurrentA(current);
