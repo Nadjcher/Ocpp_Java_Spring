@@ -663,9 +663,20 @@ public class SimuCompatController {
                 phaseImbalance = (double)(evsePhases - vehicleActivePhases) / evsePhases * 100.0;
             }
 
-            // Mise à jour de la session
+            // Mise à jour de la session avec tous les champs de phasage
             session.setMaxCurrentA(powerPerPhase);
             session.setMaxPowerKw(totalPowerKw);
+            session.setEvsePhases(evsePhases);
+            session.setVehicleActivePhases(vehicleActivePhases);
+            session.setPowerPerPhase(powerPerPhase);
+            session.setPhaseImbalance(phaseImbalance);
+
+            // Mettre à jour le phaseType selon le nombre de phases
+            if (evsePhases == 1) {
+                session.setPhaseType("AC_MONO");
+            } else {
+                session.setPhaseType("AC_TRI");
+            }
 
             // Log de la configuration
             session.addLog(com.evse.simulator.model.LogEntry.info("PHASING",
@@ -702,19 +713,24 @@ public class SimuCompatController {
         try {
             Session session = sessionService.getSession(id);
 
-            // Déduire la configuration de phasage depuis les données de la session
-            int evsePhases = session.getChargerType() != null ?
-                session.getChargerType().getPhases() : 3;
-            double currentA = session.getMaxCurrentA() > 0 ? session.getMaxCurrentA() : 32.0;
+            // Utiliser les champs de phasage stockés dans la session
+            int evsePhases = session.getEvsePhases() > 0 ? session.getEvsePhases() :
+                    (session.getChargerType() != null ? session.getChargerType().getPhases() : 3);
+            int vehicleActivePhases = session.getVehicleActivePhases() > 0 ?
+                    session.getVehicleActivePhases() : evsePhases;
+            double powerPerPhase = session.getPowerPerPhase() > 0 ?
+                    session.getPowerPerPhase() : (session.getMaxCurrentA() > 0 ? session.getMaxCurrentA() : 32.0);
             double powerKw = session.getMaxPowerKw() > 0 ? session.getMaxPowerKw() : 22.0;
+            double phaseImbalance = session.getPhaseImbalance();
 
             return ResponseEntity.ok(Map.of(
                 "ok", true,
                 "evsePhases", evsePhases,
-                "vehicleActivePhases", evsePhases, // Par défaut = max phases
-                "powerPerPhase", currentA,
+                "vehicleActivePhases", vehicleActivePhases,
+                "powerPerPhase", powerPerPhase,
                 "totalPowerKw", powerKw,
-                "phaseImbalance", 0.0
+                "phaseImbalance", phaseImbalance,
+                "phaseType", session.getPhaseType() != null ? session.getPhaseType() : "AC_TRI"
             ));
         } catch (Exception e) {
             return ResponseEntity.ok(Map.of("ok", false, "error", e.getMessage()));

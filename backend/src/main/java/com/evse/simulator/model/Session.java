@@ -230,6 +230,30 @@ public class Session {
     @Builder.Default
     private String phaseType = "AC_TRI";
 
+    /**
+     * Nombre de phases de la borne EVSE (1-3).
+     */
+    @Builder.Default
+    private int evsePhases = 3;
+
+    /**
+     * Nombre de phases actives du véhicule (1-3).
+     */
+    @Builder.Default
+    private int vehicleActivePhases = 3;
+
+    /**
+     * Puissance par phase en Ampères.
+     */
+    @Builder.Default
+    private double powerPerPhase = 16.0;
+
+    /**
+     * Déséquilibre de phase en pourcentage.
+     */
+    @Builder.Default
+    private double phaseImbalance = 0.0;
+
     // =========================================================================
     // État de connexion
     // =========================================================================
