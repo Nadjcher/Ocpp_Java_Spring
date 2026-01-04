@@ -648,6 +648,8 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
 
     /**
      * Simule la progression de la charge.
+     * Respecte les limites SCP (Smart Charging Profile) si définies.
+     * Recalcule la limite effective à chaque tick pour gérer les périodes de schedule.
      */
     private void simulateCharging(String sessionId) {
         sessionService.findSession(sessionId).ifPresent(session -> {
@@ -659,6 +661,45 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
 
             if (powerKw <= 0) {
                 powerKw = Math.min(session.getMaxPowerKw(), 11.0); // 11 kW par défaut
+            }
+
+            // Recalculer la limite SCP effective (pour gérer les changements de période)
+            try {
+                ChargingProfileManager.EffectiveLimit effectiveLimit = chargingProfileManager.getEffectiveLimit(
+                        sessionId,
+                        session.getConnectorId(),
+                        session.getPhaseType(),
+                        session.getVoltage()
+                );
+
+                if (effectiveLimit.hasLimit()) {
+                    double newScpLimit = effectiveLimit.getLimitKw();
+
+                    // Mettre à jour la session si la limite a changé
+                    if (Math.abs(session.getScpLimitKw() - newScpLimit) > 0.1) {
+                        session.setScpLimitKw(newScpLimit);
+                        session.setScpLimitA(effectiveLimit.limitRaw());
+                        session.setScpProfileId(effectiveLimit.profileId());
+                        session.setScpPurpose(effectiveLimit.source() != null ? effectiveLimit.source().getValue() : null);
+                        session.setScpStackLevel(effectiveLimit.stackLevel());
+
+                        if (effectiveLimit.nextPeriod() != null) {
+                            session.setScpNextPeriodSeconds(effectiveLimit.nextPeriod().secondsUntilStart());
+                            session.setScpNextLimitKw(effectiveLimit.nextPeriod().limit() / 1000.0);
+                        }
+
+                        log.info("Session {} SCP limit updated: {} kW (period changed)", sessionId, newScpLimit);
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("Could not recalculate SCP limit for session {}: {}", sessionId, e.getMessage());
+            }
+
+            // Appliquer la limite SCP si définie
+            double scpLimit = session.getScpLimitKw();
+            if (scpLimit > 0 && scpLimit < powerKw) {
+                powerKw = scpLimit;
+                log.debug("Session {} power capped by SCP limit: {} kW", sessionId, scpLimit);
             }
 
             // Réduction de puissance à haut SoC
