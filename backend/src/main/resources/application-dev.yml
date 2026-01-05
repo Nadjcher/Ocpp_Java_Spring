@@ -64,13 +64,15 @@ springdoc:
 
 # =============================================================================
 # TTE API Configuration (Cognito OAuth2) - DEV
+# IMPORTANT: Ne jamais commiter de credentials! Utiliser les variables d'environnement.
 # =============================================================================
 tte:
-  enabled: true
+  enabled: ${TTE_ENABLED:true}
   cognito:
-    client-id: 3tmbtgs4jcdf7f53uedn1eej11
-    client-secret: j8bbm7tbq50ge8ueg3ag6abvbl1n8rt7g5hbdg8hulkp803olur
+    # Credentials OAuth2 - DOIVENT être fournis via variables d'environnement
+    client-id: ${TTE_CLIENT_ID:}
+    client-secret: ${TTE_CLIENT_SECRET:}
   api:
     # URLs TTE par environnement - sélection automatique selon l'URL CSMS de la session
-    test-url: https://evplatform.evcharge-test.totalenergies.com
-    pp-url: https://evplatform.evcharge-pp.totalenergies.com
+    test-url: ${TTE_API_TEST_URL:https://evplatform.evcharge-test.totalenergies.com}
+    pp-url: ${TTE_API_PP_URL:https://evplatform.evcharge-pp.totalenergies.com}
