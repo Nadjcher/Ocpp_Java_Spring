@@ -5,6 +5,8 @@ import com.evse.simulator.model.enums.ChargerType;
 import com.evse.simulator.model.enums.OCPPAction;
 import com.evse.simulator.ocpp.validation.MeterValuesValidator;
 import com.evse.simulator.ocpp.validation.MeterValuesValidator.ValidationResult;
+import com.evse.simulator.ocpp.validation.RealisticCurrentCalculator;
+import com.evse.simulator.ocpp.validation.RealisticCurrentCalculator.CurrentResult;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -17,14 +19,21 @@ import java.util.concurrent.CompletableFuture;
  * Envoie les valeurs de compteur pendant une charge.
  * Supporte les mesures monophasées, biphasées et triphasées.
  * Inclut une validation de cohérence des valeurs électriques.
+ *
+ * Le courant envoyé est calculé de manière réaliste:
+ * - Charge active: courant configuré (phasing) limité par le véhicule
+ * - SoC > 80%: réduction progressive du courant (courbe de charge)
+ * - SoC = target ou pas de charge: courant de veille (~0.025A)
  */
 @Component
 public class MeterValuesHandler extends AbstractOcppHandler {
 
     private final MeterValuesValidator validator;
+    private final RealisticCurrentCalculator currentCalculator;
 
-    public MeterValuesHandler(MeterValuesValidator validator) {
+    public MeterValuesHandler(MeterValuesValidator validator, RealisticCurrentCalculator currentCalculator) {
         this.validator = validator;
+        this.currentCalculator = currentCalculator;
     }
 
     @Override
@@ -88,10 +97,32 @@ public class MeterValuesHandler extends AbstractOcppHandler {
         ));
 
         if (session != null) {
-            double powerW = session.getCurrentPowerKw() * 1000;
-            // Utiliser le courant réel calculé (basé sur P/V) pour les MeterValues
-            double currentA = session.getCurrentA();
             double voltageV = session.getVoltage();
+
+            // Calculer le courant réaliste basé sur:
+            // - Configuration phasing (maxCurrentA)
+            // - Limites du véhicule
+            // - État de charge (SoC, charging vs idle)
+            CurrentResult currentResult = currentCalculator.calculateRealisticCurrent(session);
+            double currentA = currentResult.getCurrentA();
+
+            // Calculer la puissance cohérente avec le courant
+            // Si charge active: P = √3 × V × I (triphasé) ou P = V × I (mono)
+            // Si idle: P ≈ 0
+            double powerW;
+            if (currentResult.isCharging()) {
+                powerW = currentCalculator.calculatePowerFromCurrent(
+                    currentA, voltageV, phases, chargerType);
+            } else {
+                powerW = 0; // Pas de puissance si pas de charge active
+            }
+
+            log.debug("[{}] MeterValues: current={}A ({}), power={}W, soc={}%",
+                session.getSessionId(),
+                String.format("%.2f", currentA),
+                currentResult.getReason(),
+                String.format("%.0f", powerW),
+                String.format("%.1f", session.getSoc()));
 
             // Pour AC triphasé ou biphasé, générer des valeurs par phase
             if (chargerType != null && chargerType.isAC() && phases >= 2) {
@@ -121,10 +152,21 @@ public class MeterValuesHandler extends AbstractOcppHandler {
                 // session.getCurrentA() retourne déjà le courant par phase (calculé par SessionService)
                 double[] phaseCurrents = applyImbalanceToEachPhase(currentA, phases, 0.03);
 
-                // Puissance active totale
+                // Puissance active totale (consommée)
                 sampledValues.add(createSampledValue(
                     String.valueOf((int) powerW),
                     "Power.Active.Import",
+                    "W",
+                    "Outlet",
+                    null
+                ));
+
+                // Puissance offerte (disponible de la borne)
+                // Calculée depuis le courant max configuré: P = √3 × V × I_max
+                double powerOfferedW = Math.sqrt(3) * phaseVoltage * session.getMaxCurrentA() * phases;
+                sampledValues.add(createSampledValue(
+                    String.valueOf((int) powerOfferedW),
+                    "Power.Offered",
                     "W",
                     "Outlet",
                     null
@@ -211,6 +253,16 @@ public class MeterValuesHandler extends AbstractOcppHandler {
                 sampledValues.add(createSampledValue(
                     String.valueOf((int) powerW),
                     "Power.Active.Import",
+                    "W",
+                    "Outlet",
+                    null
+                ));
+
+                // Puissance offerte (disponible de la borne)
+                double powerOfferedW = voltageV * session.getMaxCurrentA();
+                sampledValues.add(createSampledValue(
+                    String.valueOf((int) powerOfferedW),
+                    "Power.Offered",
                     "W",
                     "Outlet",
                     null
