@@ -3,6 +3,8 @@ package com.evse.simulator.ocpp.handler;
 import com.evse.simulator.model.Session;
 import com.evse.simulator.model.enums.ChargerType;
 import com.evse.simulator.model.enums.OCPPAction;
+import com.evse.simulator.ocpp.validation.MeterValuesValidator;
+import com.evse.simulator.ocpp.validation.MeterValuesValidator.ValidationResult;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -14,9 +16,16 @@ import java.util.concurrent.CompletableFuture;
  * Handler pour le message MeterValues.
  * Envoie les valeurs de compteur pendant une charge.
  * Supporte les mesures monophasées, biphasées et triphasées.
+ * Inclut une validation de cohérence des valeurs électriques.
  */
 @Component
 public class MeterValuesHandler extends AbstractOcppHandler {
+
+    private final MeterValuesValidator validator;
+
+    public MeterValuesHandler(MeterValuesValidator validator) {
+        this.validator = validator;
+    }
 
     @Override
     public OCPPAction getAction() {
@@ -25,6 +34,19 @@ public class MeterValuesHandler extends AbstractOcppHandler {
 
     @Override
     public Map<String, Object> buildPayload(OcppMessageContext context) {
+        // Valider la session avant de construire le payload
+        Session session = context.getSession();
+        if (session != null) {
+            ValidationResult validationResult = validator.validateSession(session);
+            if (validationResult.hasErrors()) {
+                log.warn("[{}] MeterValues validation errors: {}",
+                    session.getSessionId(), validationResult.getErrors());
+            }
+            if (validationResult.hasWarnings()) {
+                log.info("[{}] MeterValues validation warnings: {}",
+                    session.getSessionId(), validationResult.getWarnings());
+            }
+        }
         int connectorId = context.getConnectorId() > 0 ? context.getConnectorId() : 1;
         Integer transactionId = context.getTransactionId();
 
@@ -67,8 +89,8 @@ public class MeterValuesHandler extends AbstractOcppHandler {
 
         if (session != null) {
             double powerW = session.getCurrentPowerKw() * 1000;
-            // Utiliser le courant MAX configuré (pas le courant calculé) pour les MeterValues
-            double currentA = session.getMaxCurrentA();
+            // Utiliser le courant réel calculé (basé sur P/V) pour les MeterValues
+            double currentA = session.getCurrentA();
             double voltageV = session.getVoltage();
 
             // Pour AC triphasé ou biphasé, générer des valeurs par phase
