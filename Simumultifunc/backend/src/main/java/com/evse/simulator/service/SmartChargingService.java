@@ -638,20 +638,38 @@ public class SmartChargingService implements com.evse.simulator.domain.service.S
 
     /**
      * Détermine le temps de début du schedule selon le type de profil.
+     *
+     * Pour les profils ABSOLUTE avec un startSchedule périmé (startSchedule + duration < now),
+     * on utilise appliedAt comme référence pour éviter que des profils fraîchement reçus
+     * soient considérés comme expirés à cause d'un startSchedule ancien.
      */
     private LocalDateTime getScheduleStartTime(ChargingProfile profile, LocalDateTime now) {
         switch (profile.getChargingProfileKind()) {
             case ABSOLUTE -> {
-                // Priority: startSchedule > validFrom > appliedAt > now
-                if (profile.getChargingSchedule().getStartSchedule() != null) {
-                    return profile.getChargingSchedule().getStartSchedule();
+                LocalDateTime startSchedule = profile.getChargingSchedule().getStartSchedule();
+                Integer duration = profile.getChargingSchedule().getDuration();
+                LocalDateTime appliedAt = profile.getAppliedAt();
+
+                if (startSchedule != null) {
+                    // Vérifier si le schedule original est déjà complètement expiré
+                    // Si startSchedule + duration < appliedAt, le profile a été reçu après son expiration théorique
+                    // Dans ce cas, utiliser appliedAt comme référence (le CSMS envoie un refresh)
+                    if (duration != null && appliedAt != null) {
+                        LocalDateTime scheduleEnd = startSchedule.plusSeconds(duration);
+                        if (scheduleEnd.isBefore(appliedAt)) {
+                            log.info("[SCP] ABSOLUTE profile {}: startSchedule {} + duration {}s = {} is before appliedAt {}, using appliedAt as reference",
+                                profile.getChargingProfileId(), startSchedule, duration, scheduleEnd, appliedAt);
+                            return appliedAt;
+                        }
+                    }
+                    return startSchedule;
                 }
                 // For profiles with future validFrom but no startSchedule,
                 // the schedule should start when the profile becomes valid
                 if (profile.getValidFrom() != null) {
                     return profile.getValidFrom();
                 }
-                return profile.getAppliedAt() != null ? profile.getAppliedAt() : now;
+                return appliedAt != null ? appliedAt : now;
             }
             case RELATIVE -> {
                 // Relatif au début de la transaction (moment d'application)
