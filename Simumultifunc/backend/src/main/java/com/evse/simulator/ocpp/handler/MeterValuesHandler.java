@@ -1,7 +1,6 @@
 package com.evse.simulator.ocpp.handler;
 
 import com.evse.simulator.model.Session;
-import com.evse.simulator.model.enums.ChargerType;
 import com.evse.simulator.model.enums.OCPPAction;
 import org.springframework.stereotype.Component;
 
@@ -13,10 +12,14 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Handler pour le message MeterValues.
  * Envoie les valeurs de compteur pendant une charge.
- * Supporte les mesures monophasées, biphasées et triphasées.
+ * Format simplifié: Energy, Current/Voltage par phase, Temperature, Power.Offered
  */
 @Component
 public class MeterValuesHandler extends AbstractOcppHandler {
+
+    private static final String CONTEXT_PERIODIC = "Sample.Periodic";
+    private static final String LOCATION_INLET = "Inlet";
+    private static final String LOCATION_BODY = "Body";
 
     @Override
     public OCPPAction getAction() {
@@ -44,198 +47,100 @@ public class MeterValuesHandler extends AbstractOcppHandler {
     }
 
     /**
-     * Construit un échantillon de valeurs de compteur.
-     * Génère des valeurs par phase pour AC triphasé/biphasé.
+     * Construit un échantillon de valeurs de compteur simplifié.
+     * Format: Energy totale, Current par phase, Voltage par phase, Temperature, Power.Offered
      */
     private Map<String, Object> buildMeterValueSample(OcppMessageContext context) {
         List<Map<String, Object>> sampledValues = new ArrayList<>();
 
         Session session = context.getSession();
-        ChargerType chargerType = session != null ? session.getChargerType() : null;
-        // Utiliser les phases effectives (respecte activePhases configuré par phasing ou véhicule)
-        int phases = session != null ? session.getEffectivePhases() : 1;
+        int phases = session != null ? session.getEffectivePhases() : 3;
 
-        // Énergie active importée totale (Wh)
+        // 1. Énergie active importée totale (Wh)
         long energyWh = context.getMeterValue() != null ? context.getMeterValue() : 0L;
         sampledValues.add(createSampledValue(
             String.valueOf(energyWh),
             "Energy.Active.Import.Register",
             "Wh",
-            "Outlet",
+            LOCATION_INLET,
             null
         ));
 
         if (session != null) {
-            double powerW = session.getCurrentPowerKw() * 1000;
-            // Utiliser le courant MAX configuré (pas le courant calculé) pour les MeterValues
-            double currentA = session.getMaxCurrentA();
             double voltageV = session.getVoltage();
+            double powerActiveW = session.getCurrentPowerKw() * 1000;  // Puissance actuelle consommée
+            double powerOfferedW = session.getMaxPowerKw() * 1000;     // Puissance max offerte
 
-            // Pour AC triphasé ou biphasé, générer des valeurs par phase
-            if (chargerType != null && chargerType.isAC() && phases >= 2) {
-                // Déterminer si voltageV est la tension phase-neutre ou phase-phase
-                // En Europe: phase-neutre ~230V, phase-phase ~400V
-                // Si voltageV <= 260V, c'est probablement la tension phase-neutre
-                // Si voltageV > 350V, c'est probablement la tension phase-phase
-                double phaseVoltage;
-                double lineToLineVoltage;
-                if (voltageV > 350) {
-                    // voltageV est la tension phase-phase (ex: 400V)
-                    phaseVoltage = voltageV / Math.sqrt(3);  // ~230V
-                    lineToLineVoltage = voltageV;
-                } else {
-                    // voltageV est la tension phase-neutre (ex: 230V)
-                    phaseVoltage = voltageV;  // ~230V directement
-                    lineToLineVoltage = voltageV * Math.sqrt(3);  // ~400V
-                }
+            // Calculer la tension phase-neutre si nécessaire
+            double phaseVoltage = voltageV > 350 ? voltageV / Math.sqrt(3) : voltageV;
 
-                // Répartition réaliste de la puissance et de l'énergie par phase
-                // En triphasé équilibré, la puissance et l'énergie sont réparties sur les phases
-                double[] phasePowers = distributeWithImbalance(powerW, phases, 0.03);
-                double[] phaseEnergies = distributeWithImbalance(energyWh, phases, 0.03);
+            // Calculer le courant réel depuis la puissance actuelle
+            // P = √3 × V × I (triphasé) ou P = V × I (monophasé)
+            double currentA;
+            if (phases >= 3) {
+                // Triphasé: I = P / (√3 × V)
+                currentA = powerActiveW / (Math.sqrt(3) * phaseVoltage * phases / 3);
+            } else {
+                // Monophasé: I = P / V
+                currentA = powerActiveW / (phaseVoltage * phases);
+            }
 
-                // En triphasé, chaque phase porte le courant nominal (PAS divisé par le nombre de phases!)
-                // Le courant par phase EST le courant nominal avec un léger déséquilibre
-                // session.getCurrentA() retourne déjà le courant par phase (calculé par SessionService)
-                double[] phaseCurrents = applyImbalanceToEachPhase(currentA, phases, 0.03);
-
-                // Puissance active totale
+            // 2. Courant par phase (L1, L2, L3) - calculé depuis puissance réelle
+            String[] phaseNames = {"L1", "L2", "L3"};
+            for (int i = 0; i < Math.min(phases, 3); i++) {
                 sampledValues.add(createSampledValue(
-                    String.valueOf((int) powerW),
-                    "Power.Active.Import",
-                    "W",
-                    "Outlet",
-                    null
-                ));
-
-                // Énergie et valeurs par phase
-                String[] phaseNames = {"L1", "L2", "L3"};
-                for (int i = 0; i < phases && i < 3; i++) {
-                    String phase = phaseNames[i];
-
-                    // Énergie par phase
-                    sampledValues.add(createSampledValue(
-                        String.valueOf((long) phaseEnergies[i]),
-                        "Energy.Active.Import.Register",
-                        "Wh",
-                        "Outlet",
-                        phase
-                    ));
-
-                    // Puissance par phase
-                    sampledValues.add(createSampledValue(
-                        String.valueOf((int) phasePowers[i]),
-                        "Power.Active.Import",
-                        "W",
-                        "Outlet",
-                        phase
-                    ));
-
-                    // Courant par phase
-                    sampledValues.add(createSampledValue(
-                        String.format("%.1f", phaseCurrents[i]),
-                        "Current.Import",
-                        "A",
-                        "Outlet",
-                        phase
-                    ));
-
-                    // Tension par phase (ligne-neutre)
-                    // Ajouter une légère variation pour réalisme
-                    double phaseVoltageVar = phaseVoltage * (1 + (i - 1) * 0.01);
-                    sampledValues.add(createSampledValue(
-                        String.format("%.1f", phaseVoltageVar),
-                        "Voltage",
-                        "V",
-                        "Outlet",
-                        phase
-                    ));
-                }
-
-                // Tension ligne-ligne (entre phases) pour triphasé
-                if (phases == 3) {
-                    String[] lineNames = {"L1-L2", "L2-L3", "L3-L1"};
-                    for (int i = 0; i < 3; i++) {
-                        // Utiliser lineToLineVoltage calculée (√3 × tension phase-neutre ≈ 400V)
-                        sampledValues.add(createSampledValue(
-                            String.format("%.1f", lineToLineVoltage * (1 + (i - 1) * 0.005)),
-                            "Voltage",
-                            "V",
-                            "Outlet",
-                            lineNames[i]
-                        ));
-                    }
-                }
-
-                // Courant neutre (somme vectorielle, proche de 0 si équilibré)
-                double neutralCurrent = Math.abs(phaseCurrents[0] - phaseCurrents[1]);
-                if (phases == 3) {
-                    neutralCurrent = Math.sqrt(
-                        Math.pow(phaseCurrents[0] - phaseCurrents[1], 2) +
-                        Math.pow(phaseCurrents[1] - phaseCurrents[2], 2) +
-                        Math.pow(phaseCurrents[2] - phaseCurrents[0], 2)
-                    ) / Math.sqrt(3);
-                }
-                sampledValues.add(createSampledValue(
-                    String.format("%.2f", neutralCurrent),
+                    String.format("%.2f", currentA),
                     "Current.Import",
                     "A",
-                    "Outlet",
-                    "N"
-                ));
-
-            } else {
-                // Monophasé ou DC - comportement classique
-                sampledValues.add(createSampledValue(
-                    String.valueOf((int) powerW),
-                    "Power.Active.Import",
-                    "W",
-                    "Outlet",
-                    null
-                ));
-
-                if (currentA > 0) {
-                    sampledValues.add(createSampledValue(
-                        String.format("%.1f", currentA),
-                        "Current.Import",
-                        "A",
-                        "Outlet",
-                        null
-                    ));
-                }
-
-                if (voltageV > 0) {
-                    sampledValues.add(createSampledValue(
-                        String.format("%.1f", voltageV),
-                        "Voltage",
-                        "V",
-                        "Outlet",
-                        null
-                    ));
-                }
-            }
-
-            // SoC (toujours inclus si disponible)
-            if (session.getSoc() > 0) {
-                sampledValues.add(createSampledValue(
-                    String.valueOf((int) session.getSoc()),
-                    "SoC",
-                    "Percent",
-                    null,
-                    null
+                    LOCATION_INLET,
+                    phaseNames[i]
                 ));
             }
 
-            // Température (optionnel)
-            if (session.getTemperature() > 0 && session.getTemperature() != 25.0) {
+            // 3. Tension par phase (L1, L2, L3)
+            // Légère variation réaliste entre phases
+            double[] voltageVariations = {0, -3, 1};
+            for (int i = 0; i < Math.min(phases, 3); i++) {
+                int voltage = (int) Math.round(phaseVoltage + voltageVariations[i]);
                 sampledValues.add(createSampledValue(
-                    String.format("%.1f", session.getTemperature()),
-                    "Temperature",
-                    "Celsius",
-                    "Body",
-                    null
+                    String.valueOf(voltage),
+                    "Voltage",
+                    "V",
+                    LOCATION_INLET,
+                    phaseNames[i]
                 ));
             }
+
+            // 4. Température
+            double temperature = session.getTemperature();
+            if (temperature <= 0 || temperature == 25.0) {
+                temperature = 12; // Valeur par défaut réaliste
+            }
+            sampledValues.add(createSampledValue(
+                String.valueOf((int) temperature),
+                "Temperature",
+                "Celsius",
+                LOCATION_BODY,
+                null
+            ));
+
+            // 5. Power.Active.Import (puissance actuelle consommée)
+            sampledValues.add(createSampledValue(
+                String.valueOf((int) powerActiveW),
+                "Power.Active.Import",
+                "W",
+                null,
+                null
+            ));
+
+            // 6. Power.Offered (puissance maximale offerte)
+            sampledValues.add(createSampledValue(
+                String.valueOf((int) powerOfferedW),
+                "Power.Offered",
+                "W",
+                null,
+                null
+            ));
         }
 
         return createPayload(
@@ -245,62 +150,12 @@ public class MeterValuesHandler extends AbstractOcppHandler {
     }
 
     /**
-     * Distribue une valeur totale sur plusieurs phases avec un léger déséquilibre.
-     * La somme des valeurs de sortie égale la valeur totale d'entrée.
-     * @param total valeur totale à distribuer
-     * @param phases nombre de phases (2 ou 3)
-     * @param imbalance facteur de déséquilibre (ex: 0.03 = 3%)
-     * @return tableau des valeurs par phase
-     */
-    private double[] distributeWithImbalance(double total, int phases, double imbalance) {
-        double[] result = new double[phases];
-        double base = total / phases;
-
-        // Créer un léger déséquilibre réaliste
-        for (int i = 0; i < phases; i++) {
-            // Phase 0 (L1) légèrement plus haute, Phase 1 (L2) nominale, Phase 2 (L3) légèrement plus basse
-            double factor = 1.0 + imbalance * (1 - i);
-            result[i] = base * factor;
-        }
-
-        // Normaliser pour que la somme soit exacte
-        double sum = 0;
-        for (double v : result) sum += v;
-        double correction = total / sum;
-        for (int i = 0; i < phases; i++) {
-            result[i] *= correction;
-        }
-
-        return result;
-    }
-
-    /**
-     * Applique un léger déséquilibre à chaque phase SANS diviser la valeur.
-     * Utilisé pour le courant en triphasé où chaque phase porte le courant nominal.
-     * @param nominalValue valeur nominale par phase
-     * @param phases nombre de phases (2 ou 3)
-     * @param imbalance facteur de déséquilibre (ex: 0.03 = 3%)
-     * @return tableau des valeurs par phase (chaque valeur proche de nominalValue)
-     */
-    private double[] applyImbalanceToEachPhase(double nominalValue, int phases, double imbalance) {
-        double[] result = new double[phases];
-
-        // Créer un léger déséquilibre réaliste autour de la valeur nominale
-        for (int i = 0; i < phases; i++) {
-            // Phase 0 (L1) légèrement plus haute, Phase 1 (L2) nominale, Phase 2 (L3) légèrement plus basse
-            double factor = 1.0 + imbalance * (1 - i);
-            result[i] = nominalValue * factor;
-        }
-
-        return result;
-    }
-
-    /**
-     * Crée une valeur échantillonnée avec support optionnel de la phase.
+     * Crée une valeur échantillonnée avec context Sample.Periodic.
      */
     private Map<String, Object> createSampledValue(String value, String measurand, String unit, String location, String phase) {
         Map<String, Object> sv = createPayload(
             "value", value,
+            "context", CONTEXT_PERIODIC,
             "measurand", measurand,
             "unit", unit
         );

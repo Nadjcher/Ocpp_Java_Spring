@@ -129,7 +129,7 @@ function initSessionStateCache(): Map<string, PerSessionLocalState> {
           // Migrer les nouveaux champs avec valeurs par défaut uniques
           cpId: state.cpId || `CP-SESSION-${String(index + 1).padStart(3, '0')}`,
           idTag: state.idTag || '',
-          evseType: state.evseType || 'ac-mono',
+          evseType: state.evseType || 'ac-tri',
           maxA: state.maxA ?? 32,
           mvEvery: state.mvEvery ?? 10,
           mvMask: state.mvMask || {
@@ -212,7 +212,7 @@ function getDefaultSessionState(sessionIndex?: number): PerSessionLocalState {
     // === Config session-spécifique avec valeurs uniques ===
     cpId: `CP-SESSION-${uniqueSuffix}`,
     idTag: '',
-    evseType: 'ac-mono',
+    evseType: 'ac-tri',
     maxA: 32,
     mvEvery: 10,
     mvMask: {
@@ -1002,7 +1002,7 @@ export default function SimuEvseTab() {
   const [cpId, setCpId] = useState("POP-REGULATION-TEST-TOMY2");
   const [idTag, setIdTag] = useState<string>("");
 
-  const [evseType, setEvseType] = useState<"ac-mono" | "ac-bi" | "ac-tri" | "dc">("ac-mono");
+  const [evseType, setEvseType] = useState<"ac-mono" | "ac-bi" | "ac-tri" | "dc">("ac-tri");
   const [maxA, setMaxA] = useState<number>(32);
   // Mode test: ignorer les limites véhicule pour la puissance physique
   const [bypassVehicleLimits, setBypassVehicleLimits] = useState<boolean>(false);
@@ -1599,7 +1599,7 @@ export default function SimuEvseTab() {
           cpId: newCpId,
           idTag: newIdTag,
           auto: false,
-          evseType: 'ac-mono', // Valeur par défaut pour nouvelle session
+          evseType: 'ac-tri', // Valeur par défaut pour nouvelle session
           maxA: 32,
         }),
       });
@@ -1625,7 +1625,7 @@ export default function SimuEvseTab() {
           // Config spécifique pour cette nouvelle session
           cpId: newCpId,
           idTag: newIdTag,
-          evseType: 'ac-mono',
+          evseType: 'ac-tri',
           maxA: 32,
           mvEvery: 10,
           mvMask: {
@@ -2274,12 +2274,30 @@ export default function SimuEvseTab() {
     if (!isChargingStatus) return;
     const id = setInterval(() => {
       const vehKw = vehMaxKwAtSoc(socFiltRef.current ?? socStart);
-      const targetKw = Math.min(vehKw, appliedLimitKw);
+      // Utiliser la limite basée sur les phases du backend si disponibles
+      const backendPhases = selSession?.metrics?.phases;
+      const effectiveLimitKw = backendPhases && backendPhases > 1
+        ? Math.min(appliedLimitKw, (maxA * voltage * backendPhases) / 1000)
+        : appliedLimitKw;
+      const targetKw = Math.min(vehKw, effectiveLimitKw);
       const prev = pActiveFiltRef.current ?? 0;
-      const ramped = clampRamp(prev, targetKw, 1);
-      const noisy = ramped * (1 + (Math.random() * 2 - 1) * NOISE);
 
-      pActiveFiltRef.current = ewma(prev, Math.max(0, noisy));
+      // Ne pas écraser la puissance si on a reçu des MeterValues récemment (< 3s)
+      // pour respecter la valeur réelle du backend
+      const hasRecentMv = Date.now() - lastRealMvMsRef.current < 3000;
+
+      let newPower: number;
+      if (hasRecentMv && prev > 0) {
+        // Garder la valeur des MeterValues, juste ajouter un léger bruit
+        newPower = prev * (1 + (Math.random() * 2 - 1) * NOISE * 0.1);
+      } else {
+        // Simulation locale si pas de MeterValues récents
+        const ramped = clampRamp(prev, targetKw, 1);
+        const noisy = ramped * (1 + (Math.random() * 2 - 1) * NOISE);
+        newPower = ewma(prev, Math.max(0, noisy));
+      }
+
+      pActiveFiltRef.current = newPower;
       setSeries((s) => ({
         ...s,
         pActive: [
@@ -2292,7 +2310,7 @@ export default function SimuEvseTab() {
       }));
 
       const dtH = 1 / 3600;
-      if (Date.now() - lastRealMvMsRef.current > 3000) {
+      if (!hasRecentMv) {
         energyFromPowerKWhRef.current += Math.max(
             0,
             pActiveFiltRef.current!
@@ -2337,7 +2355,7 @@ export default function SimuEvseTab() {
       });
     }, 1000);
     return () => clearInterval(id);
-  }, [selSession?.status, appliedLimitKw, vehMaxKwAtSoc, socStart, vehicleCapacityKWh, vehicleEfficiency, clampRamp, anomalyAnalysis, gpmSetpointKw]);
+  }, [selSession?.status, selSession?.metrics?.phases, appliedLimitKw, maxA, voltage, vehMaxKwAtSoc, socStart, vehicleCapacityKWh, vehicleEfficiency, clampRamp, anomalyAnalysis, gpmSetpointKw]);
 
   // ========= 12. RENDER =========
   // Si bootAccepted === false, les boutons d'action OCPP sont désactivés
