@@ -57,8 +57,8 @@ public class RealisticCurrentCalculator {
         }
 
         // 1. Vérifier si une transaction est active
-        Integer transactionId = session.getTransactionId();
-        if (transactionId == null || transactionId <= 0) {
+        String transactionId = session.getTransactionId();
+        if (transactionId == null || transactionId.isEmpty()) {
             return new CurrentResult(IDLE_CURRENT_A, "no_transaction", false);
         }
 
@@ -96,7 +96,7 @@ public class RealisticCurrentCalculator {
         }
 
         log.debug("[{}] Realistic current: {}A (limited by: {}, soc: {}%, vehicle: {})",
-                session.getSessionId(),
+                session.getId(),
                 String.format("%.2f", effectiveCurrentA),
                 limitedBy,
                 String.format("%.1f", soc),

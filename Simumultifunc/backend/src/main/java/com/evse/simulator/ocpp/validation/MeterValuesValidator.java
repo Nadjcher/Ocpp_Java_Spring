@@ -90,7 +90,7 @@ public class MeterValuesValidator {
 
         if (!warnings.isEmpty() || !errors.isEmpty()) {
             log.warn("[{}] MeterValues validation: valid={}, warnings={}, errors={}",
-                    session.getSessionId(), isValid, warnings, errors);
+                    session.getId(), isValid, warnings, errors);
         }
 
         return new ValidationResult(isValid, warnings, errors);
