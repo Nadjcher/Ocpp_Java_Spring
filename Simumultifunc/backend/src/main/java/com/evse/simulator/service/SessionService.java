@@ -87,6 +87,10 @@ public class SessionService implements com.evse.simulator.domain.service.Session
         if (session.getChargerType() == null) {
             session.setChargerType(ChargerType.AC_TRI);
         }
+        // Initialiser activePhases si non défini
+        if (session.getActivePhases() == null || session.getActivePhases() <= 0) {
+            session.setActivePhases(session.getChargerType().getPhases());
+        }
         if (session.getConnectorId() <= 0) {
             session.setConnectorId(1);
         }

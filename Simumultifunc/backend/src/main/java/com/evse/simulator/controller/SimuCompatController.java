@@ -102,7 +102,10 @@ public class SimuCompatController {
             if (evseType != null) {
                 ChargerType chargerType = ChargerType.fromValue(evseType);
                 session.setChargerType(chargerType);
-                log.info("Session charger type set to: {} (from evseType: {})", chargerType, evseType);
+                // Initialiser activePhases selon le type de chargeur
+                session.setActivePhases(chargerType.getPhases());
+                log.info("Session charger type set to: {} (from evseType: {}), phases: {}",
+                    chargerType, evseType, chargerType.getPhases());
 
                 // Pour DC, utiliser la puissance max configurée ou celle du type de chargeur
                 if (chargerType.isDC()) {
