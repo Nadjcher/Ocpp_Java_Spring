@@ -67,18 +67,29 @@ public class MeterValuesHandler extends AbstractOcppHandler {
         ));
 
         if (session != null) {
-            double currentA = session.getMaxCurrentA();
             double voltageV = session.getVoltage();
-            double powerOfferedW = session.getMaxPowerKw() * 1000;
+            double powerActiveW = session.getCurrentPowerKw() * 1000;  // Puissance actuelle consommée
+            double powerOfferedW = session.getMaxPowerKw() * 1000;     // Puissance max offerte
 
             // Calculer la tension phase-neutre si nécessaire
             double phaseVoltage = voltageV > 350 ? voltageV / Math.sqrt(3) : voltageV;
 
-            // 2. Courant par phase (L1, L2, L3)
+            // Calculer le courant réel depuis la puissance actuelle
+            // P = √3 × V × I (triphasé) ou P = V × I (monophasé)
+            double currentA;
+            if (phases >= 3) {
+                // Triphasé: I = P / (√3 × V)
+                currentA = powerActiveW / (Math.sqrt(3) * phaseVoltage * phases / 3);
+            } else {
+                // Monophasé: I = P / V
+                currentA = powerActiveW / (phaseVoltage * phases);
+            }
+
+            // 2. Courant par phase (L1, L2, L3) - calculé depuis puissance réelle
             String[] phaseNames = {"L1", "L2", "L3"};
             for (int i = 0; i < Math.min(phases, 3); i++) {
                 sampledValues.add(createSampledValue(
-                    String.format("%.3f", currentA),
+                    String.format("%.2f", currentA),
                     "Current.Import",
                     "A",
                     LOCATION_INLET,
@@ -113,7 +124,16 @@ public class MeterValuesHandler extends AbstractOcppHandler {
                 null
             ));
 
-            // 5. Power.Offered (puissance maximale offerte)
+            // 5. Power.Active.Import (puissance actuelle consommée)
+            sampledValues.add(createSampledValue(
+                String.valueOf((int) powerActiveW),
+                "Power.Active.Import",
+                "W",
+                null,
+                null
+            ));
+
+            // 6. Power.Offered (puissance maximale offerte)
             sampledValues.add(createSampledValue(
                 String.valueOf((int) powerOfferedW),
                 "Power.Offered",
