@@ -2020,18 +2020,56 @@ export default function SimuEvseTab() {
         return;
       }
 
-      // Statuts qui impliquent que la voiture est garée (inclut "booted" pour après unplug)
+      // Statuts qui impliquent clairement que la voiture est garée
       const parkedStatuses = ["booted", "parked", "plugged", "preparing", "authorizing", "authorized", "starting", "started", "charging", "finishing", "stopping", "stopped"];
-      // Statuts qui impliquent que le câble est branché
+      // Statuts qui impliquent clairement que le câble est branché
       const pluggedStatuses = ["plugged", "preparing", "authorizing", "authorized", "starting", "started", "charging", "finishing", "stopping", "stopped"];
+      // Statuts ambigus où on doit préserver l'état local du cache
+      const ambiguousStatuses = ["available", "closed", "disconnected", "connecting", "connected"];
 
       // Déduire depuis le status en priorité (plus fiable)
       const statusImpliesParked = parkedStatuses.includes(selSession.status);
       const statusImpliesPlugged = pluggedStatuses.includes(selSession.status);
+      const isAmbiguousStatus = ambiguousStatuses.includes(selSession.status);
 
-      // Utiliser le flag backend OU le statut (pour éviter les incohérences)
-      const shouldBeParked = selSession.isParked === true || statusImpliesParked;
-      const shouldBePlugged = selSession.isPlugged === true || statusImpliesPlugged;
+      // Récupérer l'état caché pour cette session
+      const cachedState = sessionStateCache.get(selSession.id);
+
+      // Logique de synchronisation:
+      // 1. Si backend fournit une valeur explicite (isParked !== undefined), l'utiliser
+      // 2. Si le status indique clairement l'état (parkedStatuses/pluggedStatuses), l'utiliser
+      // 3. Si le status est ambigu (available, closed, etc.), préserver l'état du cache
+      //    pour éviter de perdre l'état lors du changement d'onglet
+      let shouldBeParked: boolean;
+      let shouldBePlugged: boolean;
+
+      if (selSession.isParked !== undefined && selSession.isParked !== null) {
+        // Backend fournit une valeur explicite
+        shouldBeParked = selSession.isParked;
+      } else if (statusImpliesParked) {
+        // Status indique clairement que la voiture est garée
+        shouldBeParked = true;
+      } else if (isAmbiguousStatus && cachedState?.isParked) {
+        // Status ambigu mais cache dit garée - préserver l'état
+        shouldBeParked = true;
+      } else {
+        // Sinon, pas garée
+        shouldBeParked = false;
+      }
+
+      if (selSession.isPlugged !== undefined && selSession.isPlugged !== null) {
+        // Backend fournit une valeur explicite
+        shouldBePlugged = selSession.isPlugged;
+      } else if (statusImpliesPlugged) {
+        // Status indique clairement que le câble est branché
+        shouldBePlugged = true;
+      } else if (isAmbiguousStatus && cachedState?.isPlugged) {
+        // Status ambigu mais cache dit branché - préserver l'état
+        shouldBePlugged = true;
+      } else {
+        // Sinon, pas branché
+        shouldBePlugged = false;
+      }
 
       setIsParked(shouldBeParked);
       setIsPlugged(shouldBePlugged);
