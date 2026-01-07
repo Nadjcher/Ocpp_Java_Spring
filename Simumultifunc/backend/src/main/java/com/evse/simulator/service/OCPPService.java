@@ -744,6 +744,19 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
                     powerKw = scpLimit;
                     limitedBy = "scp";
                     session.setScpLimitKw(scpLimit);
+
+                    // Calculer aussi scpLimitA depuis la limite kW
+                    double voltage = session.getVoltage() > 0 ? session.getVoltage() : 230.0;
+                    int phases = session.getEffectivePhases();
+                    double scpLimitA;
+                    if (phases > 1 && voltage < 300) {
+                        scpLimitA = (scpLimit * 1000) / (voltage * phases);
+                    } else if (phases > 1) {
+                        scpLimitA = (scpLimit * 1000) / (voltage * Math.sqrt(3));
+                    } else {
+                        scpLimitA = (scpLimit * 1000) / voltage;
+                    }
+                    session.setScpLimitA(scpLimitA);
                 }
             } catch (Exception e) {
                 log.warn("[SIM] Session {}: Error getting SCP limit: {}", sessionId, e.getMessage());

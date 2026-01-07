@@ -313,6 +313,9 @@ public class SessionService implements com.evse.simulator.domain.service.Session
                 .powerPoint(ChartPoint.of(powerKw))
                 .timestamp(LocalDateTime.now())
                 .build());
+
+        // Diffusion de la session complète pour synchronisation SCP avec le frontend
+        broadcaster.broadcastSession(session);
     }
 
     /**

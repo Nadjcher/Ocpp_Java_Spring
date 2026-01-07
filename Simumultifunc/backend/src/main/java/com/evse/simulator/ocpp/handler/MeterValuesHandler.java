@@ -69,7 +69,12 @@ public class MeterValuesHandler extends AbstractOcppHandler {
         if (session != null) {
             double voltageV = session.getVoltage();
             double powerActiveW = session.getCurrentPowerKw() * 1000;  // Puissance actuelle consommée
-            double powerOfferedW = session.getMaxPowerKw() * 1000;     // Puissance max offerte
+
+            // Power.Offered = MIN(maxPower, scpLimit) - la puissance réellement disponible
+            double maxPowerKw = session.getMaxPowerKw();
+            double scpLimitKw = session.getScpLimitKw();
+            double effectiveOfferedKw = (scpLimitKw > 0 && scpLimitKw < maxPowerKw) ? scpLimitKw : maxPowerKw;
+            double powerOfferedW = effectiveOfferedKw * 1000;
 
             // Calculer la tension phase-neutre si nécessaire
             double phaseVoltage = voltageV > 350 ? voltageV / Math.sqrt(3) : voltageV;

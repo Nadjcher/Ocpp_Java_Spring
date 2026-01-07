@@ -63,9 +63,22 @@ public class ClearChargingProfileHandler extends AbstractOcpp16IncomingHandler {
             double newLimit = smartChargingService.getCurrentLimit(session.getId());
             if (newLimit < session.getMaxPowerKw()) {
                 session.setScpLimitKw(newLimit);
+                // Recalculer scpLimitA depuis la nouvelle limite kW
+                double voltage = session.getVoltage() > 0 ? session.getVoltage() : 230.0;
+                int phases = session.getEffectivePhases();
+                double newLimitA;
+                if (phases > 1 && voltage < 300) {
+                    newLimitA = (newLimit * 1000) / (voltage * phases);
+                } else if (phases > 1) {
+                    newLimitA = (newLimit * 1000) / (voltage * Math.sqrt(3));
+                } else {
+                    newLimitA = (newLimit * 1000) / voltage;
+                }
+                session.setScpLimitA(newLimitA);
             } else {
                 // Plus de profil actif limitant
                 session.setScpLimitKw(0);
+                session.setScpLimitA(0);
                 session.setScpProfileId(null);
                 session.setScpPurpose(null);
                 session.setActiveChargingProfile(null);

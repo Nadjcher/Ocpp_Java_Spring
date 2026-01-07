@@ -94,8 +94,25 @@ public class SetChargingProfileHandler extends AbstractOcpp16IncomingHandler {
             // Calculer et afficher la limite effective
             double effectiveLimitKw = smartChargingService.getCurrentLimit(session.getId());
 
+            // Calculer la limite en Ampères depuis kW
+            // I = P / (V × √3) pour triphasé, I = P / V pour monophasé
+            double voltage = session.getVoltage() > 0 ? session.getVoltage() : 230.0;
+            int phases = session.getEffectivePhases();
+            double effectiveLimitA;
+            if (phases > 1 && voltage < 300) {
+                // Triphasé avec tension phase-neutre (230V): I = P / (V × phases)
+                effectiveLimitA = (effectiveLimitKw * 1000) / (voltage * phases);
+            } else if (phases > 1) {
+                // Triphasé avec tension ligne-ligne (400V): I = P / (V × √3)
+                effectiveLimitA = (effectiveLimitKw * 1000) / (voltage * Math.sqrt(3));
+            } else {
+                // Monophasé: I = P / V
+                effectiveLimitA = (effectiveLimitKw * 1000) / voltage;
+            }
+
             // Mettre à jour les champs SCP de la session pour l'affichage frontend
             session.setScpLimitKw(effectiveLimitKw);
+            session.setScpLimitA(effectiveLimitA);
             session.setScpProfileId(profile.getChargingProfileId());
             session.setScpPurpose(profile.getChargingProfilePurpose() != null
                 ? profile.getChargingProfilePurpose().getValue() : null);
