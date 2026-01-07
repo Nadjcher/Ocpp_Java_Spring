@@ -59,7 +59,8 @@ public class SmartChargingController {
                         .chargingSchedulePeriod(List.of(
                                 ChargingSchedulePeriod.builder()
                                         .startPeriod(0)
-                                        .limit(request.limitKw() * 1000 / (230 * Math.sqrt(3))) // kW to A
+                                        // kW to A: pour 230V (phase-neutre), factor = phases
+                                        .limit(request.limitKw() * 1000 / (230 * request.phases()))
                                         .numberPhases(request.phases())
                                         .build()
                         ))

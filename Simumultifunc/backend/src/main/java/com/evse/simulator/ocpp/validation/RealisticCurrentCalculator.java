@@ -169,13 +169,15 @@ public class RealisticCurrentCalculator {
         }
 
         if (phases >= 3) {
-            // Triphasé: P = √3 × V × I (V = tension phase-neutre ou ligne)
+            // Triphasé:
+            // - Tension phase-neutre (230V): P = phases × V × I = 3 × V × I
+            // - Tension ligne-ligne (400V): P = √3 × V × I
             if (voltage > 300) {
                 // Tension ligne-ligne (400V)
                 return Math.sqrt(3) * voltage * currentA;
             } else {
                 // Tension phase-neutre (230V)
-                return Math.sqrt(3) * voltage * currentA;
+                return phases * voltage * currentA;
             }
         } else if (phases == 2) {
             return 2 * voltage * currentA;

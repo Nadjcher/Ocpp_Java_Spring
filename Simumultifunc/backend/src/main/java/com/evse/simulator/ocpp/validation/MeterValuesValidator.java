@@ -112,8 +112,14 @@ public class MeterValuesValidator {
         double expectedPowerW;
 
         if (chargerType != null && chargerType.isAC() && phases >= 3) {
-            // Triphasé: P = √3 × V × I (V = tension phase-neutre)
-            expectedPowerW = Math.sqrt(3) * voltage * currentA;
+            // Triphasé:
+            // - Tension phase-neutre (230V): P = phases × V × I = 3 × V × I
+            // - Tension ligne-ligne (400V): P = √3 × V × I
+            if (voltage < 300) {
+                expectedPowerW = phases * voltage * currentA;
+            } else {
+                expectedPowerW = Math.sqrt(3) * voltage * currentA;
+            }
         } else if (chargerType != null && chargerType.isAC() && phases == 2) {
             // Biphasé: P = 2 × V × I
             expectedPowerW = 2 * voltage * currentA;
@@ -290,7 +296,12 @@ public class MeterValuesValidator {
             double expectedPower;
 
             if (phases >= 3) {
-                expectedPower = Math.sqrt(3) * voltage * totalCurrentA;
+                // Triphasé: vérifier si tension phase-neutre ou ligne-ligne
+                if (voltage < 300) {
+                    expectedPower = phases * voltage * totalCurrentA;
+                } else {
+                    expectedPower = Math.sqrt(3) * voltage * totalCurrentA;
+                }
             } else {
                 expectedPower = voltage * totalCurrentA * phases;
             }

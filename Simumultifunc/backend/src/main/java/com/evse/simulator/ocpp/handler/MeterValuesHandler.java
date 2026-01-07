@@ -80,11 +80,16 @@ public class MeterValuesHandler extends AbstractOcppHandler {
             double phaseVoltage = voltageV > 350 ? voltageV / Math.sqrt(3) : voltageV;
 
             // Calculer le courant réel depuis la puissance actuelle
-            // P = √3 × V × I (triphasé) ou P = V × I (monophasé)
+            // Triphasé avec tension phase-neutre (230V): I = P / (V × phases) = P / (3 × V)
+            // Triphasé avec tension ligne-ligne (400V): I = P / (√3 × V)
+            // Monophasé: I = P / V
             double currentA;
-            if (phases >= 3) {
-                // Triphasé: I = P / (√3 × V)
-                currentA = powerActiveW / (Math.sqrt(3) * phaseVoltage * phases / 3);
+            if (phases >= 3 && voltageV < 300) {
+                // Triphasé avec tension phase-neutre: I = P / (V × phases)
+                currentA = powerActiveW / (phaseVoltage * phases);
+            } else if (phases >= 3) {
+                // Triphasé avec tension ligne-ligne: I = P / (√3 × V)
+                currentA = powerActiveW / (Math.sqrt(3) * phaseVoltage);
             } else {
                 // Monophasé: I = P / V
                 currentA = powerActiveW / (phaseVoltage * phases);

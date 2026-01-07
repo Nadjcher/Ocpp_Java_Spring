@@ -623,8 +623,20 @@ public class SmartChargingService implements com.evse.simulator.domain.service.S
 
         Double resultKw;
         if (schedule.getChargingRateUnit() == ChargingRateUnit.A) {
-            // A → kW: P = U × I × √3 (triphasé) ou P = U × I (monophasé)
-            double factor = numPhases == 1 ? 1.0 : Math.sqrt(3);
+            // A → kW: P = V × I × factor
+            // Triphasé avec tension phase-neutre (230V): factor = 3 (car P = 3 × V_phase × I)
+            // Triphasé avec tension ligne-ligne (400V): factor = √3 (car P = √3 × V_ligne × I)
+            // Monophasé: factor = 1
+            double factor;
+            if (numPhases == 1) {
+                factor = 1.0;
+            } else if (voltage < 300) {
+                // Tension phase-neutre (typiquement 230V)
+                factor = numPhases;  // 2 ou 3 selon le nombre de phases
+            } else {
+                // Tension ligne-ligne (typiquement 400V)
+                factor = Math.sqrt(3);
+            }
             resultKw = (voltage * limit * factor) / 1000.0;
         } else {
             // Déjà en W, convertir en kW
@@ -830,8 +842,18 @@ public class SmartChargingService implements com.evse.simulator.domain.service.S
         if (targetUnit == ChargingRateUnit.W) {
             return limitKw * 1000.0;
         } else {
-            // kW → A
-            double factor = phases == 1 ? 1.0 : Math.sqrt(3);
+            // kW → A: I = P / (V × factor)
+            // Triphasé avec tension phase-neutre (230V): factor = phases
+            // Triphasé avec tension ligne-ligne (400V): factor = √3
+            // Monophasé: factor = 1
+            double factor;
+            if (phases == 1) {
+                factor = 1.0;
+            } else if (voltage < 300) {
+                factor = phases;
+            } else {
+                factor = Math.sqrt(3);
+            }
             return (limitKw * 1000.0) / (voltage * factor);
         }
     }

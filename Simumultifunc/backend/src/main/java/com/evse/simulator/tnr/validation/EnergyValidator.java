@@ -162,33 +162,49 @@ public class EnergyValidator {
 
     /**
      * Calcule la puissance à partir de la tension et du courant.
-     * P = U × I (monophasé) ou P = U × I × √3 (triphasé)
+     * Triphasé avec tension phase-neutre (230V): P = phases × V × I
+     * Triphasé avec tension ligne-ligne (400V): P = √3 × V × I
+     * Monophasé: P = V × I
      *
      * @param voltageV Tension en Volts
      * @param currentA Courant en Ampères
-     * @param phases   Nombre de phases (1 ou 3)
+     * @param phases   Nombre de phases (1, 2 ou 3)
      * @return Puissance en Watts
      */
     public double calculatePower(double voltageV, double currentA, int phases) {
         if (phases == 1) {
             return voltageV * currentA;
-        } else if (phases == 3) {
-            return voltageV * currentA * Math.sqrt(3);
+        } else if (phases >= 3) {
+            // Triphasé: vérifier si tension phase-neutre ou ligne-ligne
+            if (voltageV < 300) {
+                return phases * voltageV * currentA;
+            } else {
+                return Math.sqrt(3) * voltageV * currentA;
+            }
         } else {
+            // Biphasé
             return voltageV * currentA * phases;
         }
     }
 
     /**
      * Calcule le courant à partir de la puissance.
-     * I = P / U (monophasé) ou I = P / (U × √3) (triphasé)
+     * Triphasé avec tension phase-neutre (230V): I = P / (phases × V)
+     * Triphasé avec tension ligne-ligne (400V): I = P / (√3 × V)
+     * Monophasé: I = P / V
      */
     public double calculateCurrent(double powerW, double voltageV, int phases) {
         if (phases == 1) {
             return powerW / voltageV;
-        } else if (phases == 3) {
-            return powerW / (voltageV * Math.sqrt(3));
+        } else if (phases >= 3) {
+            // Triphasé: vérifier si tension phase-neutre ou ligne-ligne
+            if (voltageV < 300) {
+                return powerW / (phases * voltageV);
+            } else {
+                return powerW / (Math.sqrt(3) * voltageV);
+            }
         } else {
+            // Biphasé
             return powerW / (voltageV * phases);
         }
     }

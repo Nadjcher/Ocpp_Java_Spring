@@ -334,8 +334,17 @@ public class ChargingProfile {
 
         // Conversion selon l'unité
         if (chargingSchedule.getChargingRateUnit() == ChargingRateUnit.A) {
-            // P = U * I * sqrt(3) pour triphasé
-            double factor = numPhases == 1 ? 1.0 : (numPhases == 2 ? 2.0 : Math.sqrt(3));
+            // A → kW: P = V × I × factor
+            // Triphasé avec tension phase-neutre (230V): factor = numPhases
+            // Triphasé avec tension ligne-ligne (400V): factor = √3
+            double factor;
+            if (numPhases == 1) {
+                factor = 1.0;
+            } else if (voltage < 300) {
+                factor = numPhases;
+            } else {
+                factor = Math.sqrt(3);
+            }
             return (voltage * limit * factor) / 1000.0;
         } else {
             // Déjà en Watts

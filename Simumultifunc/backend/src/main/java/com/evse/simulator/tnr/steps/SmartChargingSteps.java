@@ -431,7 +431,16 @@ public class SmartChargingSteps {
             int expectedW = Integer.parseInt(row.get("expectedW"));
 
             // Calculer la conversion
-            double factor = phases == 1 ? 1.0 : (phases == 2 ? 2.0 : Math.sqrt(3));
+            // Triphasé avec tension phase-neutre (230V): factor = phases
+            // Triphasé avec tension ligne-ligne (400V): factor = √3
+            double factor;
+            if (phases == 1) {
+                factor = 1.0;
+            } else if (voltage < 300) {
+                factor = phases;
+            } else {
+                factor = Math.sqrt(3);
+            }
             double calculatedW = voltage * limitA * factor;
 
             // Tolérance de 1%
@@ -456,7 +465,16 @@ public class SmartChargingSteps {
             double expectedA = Double.parseDouble(row.get("expectedA"));
 
             // Calculer la conversion
-            double factor = phases == 1 ? 1.0 : (phases == 2 ? 2.0 : Math.sqrt(3));
+            // Triphasé avec tension phase-neutre (230V): factor = phases
+            // Triphasé avec tension ligne-ligne (400V): factor = √3
+            double factor;
+            if (phases == 1) {
+                factor = 1.0;
+            } else if (voltage < 300) {
+                factor = phases;
+            } else {
+                factor = Math.sqrt(3);
+            }
             double calculatedA = limitW / (voltage * factor);
 
             // Tolérance de 1%
@@ -514,8 +532,18 @@ public class SmartChargingSteps {
             String sessionId = context.getCurrentSessionId();
             Session session = sessionService.getSession(sessionId);
             int phases = session.getChargerType().getPhases();
-            double factor = phases == 1 ? 1.0 : (phases == 2 ? 2.0 : Math.sqrt(3));
-            actualLimit = session.getVoltage() * actualLimit * factor;
+            double voltage = session.getVoltage();
+            // Triphasé avec tension phase-neutre (230V): factor = phases
+            // Triphasé avec tension ligne-ligne (400V): factor = √3
+            double factor;
+            if (phases == 1) {
+                factor = 1.0;
+            } else if (voltage < 300) {
+                factor = phases;
+            } else {
+                factor = Math.sqrt(3);
+            }
+            actualLimit = voltage * actualLimit * factor;
         }
 
         if (Math.abs(actualLimit - expectedLimitW) > 1) {

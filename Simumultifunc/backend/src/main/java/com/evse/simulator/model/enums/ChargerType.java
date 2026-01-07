@@ -121,9 +121,18 @@ public enum ChargerType {
         if (isDC()) {
             return (voltage * currentA) / 1000.0;
         } else {
-            // AC: P = U * I * sqrt(3) * cos(phi) pour triphasé
-            // Simplifié avec cos(phi) = 1
-            double factor = phases == 1 ? 1.0 : (phases == 2 ? 2.0 : Math.sqrt(3));
+            // AC: P = V × I × factor
+            // Triphasé avec tension phase-neutre (230V): factor = phases
+            // Triphasé avec tension ligne-ligne (400V): factor = √3
+            // Monophasé: factor = 1
+            double factor;
+            if (phases == 1) {
+                factor = 1.0;
+            } else if (voltage < 300) {
+                factor = phases;  // 2 ou 3 selon le nombre de phases
+            } else {
+                factor = Math.sqrt(3);
+            }
             return (voltage * currentA * factor) / 1000.0;
         }
     }
