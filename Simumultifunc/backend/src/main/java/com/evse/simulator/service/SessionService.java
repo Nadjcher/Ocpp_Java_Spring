@@ -166,10 +166,10 @@ public class SessionService implements com.evse.simulator.domain.service.Session
         // Note: idleFeeEnabled is a boolean, so we check if it's explicitly set in updates
         session.setIdleFeeEnabled(updates.isIdleFeeEnabled());
         if (updates.getChargingDurationMinutes() > 0) {
-            session.setChargingDurationMinutes(updates.getChargingDurationMinutes());
+            session.setChargingDurationMinutes((int) updates.getChargingDurationMinutes());
         }
         if (updates.getIdleDurationMinutes() > 0) {
-            session.setIdleDurationMinutes(updates.getIdleDurationMinutes());
+            session.setIdleDurationMinutes((int) updates.getIdleDurationMinutes());
         }
 
         Session saved = repository.saveSession(session);
