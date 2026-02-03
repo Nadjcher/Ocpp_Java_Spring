@@ -171,6 +171,67 @@ export function SessionConfigPanel({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
             />
           </div>
+
+          {/* Idle Fee Mode Section */}
+          <div className="border-t border-gray-200 pt-4 mt-4">
+            <div className="flex items-center mb-3">
+              <input
+                type="checkbox"
+                id="idleFeeEnabled"
+                checked={config.idleFeeEnabled ?? false}
+                onChange={e => onChange({ idleFeeEnabled: e.target.checked })}
+                disabled={disabled}
+                className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+              />
+              <label htmlFor="idleFeeEnabled" className="ml-2 text-sm font-medium text-gray-700">
+                Mode Idle Fee
+              </label>
+              <span className="ml-2 text-xs text-gray-500">
+                (Charge + période d'inactivité)
+              </span>
+            </div>
+
+            {config.idleFeeEnabled && (
+              <div className="ml-6 space-y-3 bg-yellow-50 p-3 rounded-lg border border-yellow-200">
+                <p className="text-xs text-yellow-700 mb-2">
+                  💡 La charge durera {config.chargingDurationMinutes ?? 20} min puis le véhicule restera branché sans charger pendant {config.idleDurationMinutes ?? 50} min (idle fee)
+                </p>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Durée charge (min)
+                    </label>
+                    <NumericInput
+                      value={config.chargingDurationMinutes ?? 20}
+                      onChange={val => onChange({ chargingDurationMinutes: val })}
+                      disabled={disabled}
+                      min={1}
+                      max={240}
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      Durée idle (min)
+                    </label>
+                    <NumericInput
+                      value={config.idleDurationMinutes ?? 50}
+                      onChange={val => onChange({ idleDurationMinutes: val })}
+                      disabled={disabled}
+                      min={1}
+                      max={240}
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+                    />
+                  </div>
+                </div>
+
+                <p className="text-xs text-gray-500">
+                  Total: {(config.chargingDurationMinutes ?? 20) + (config.idleDurationMinutes ?? 50)} min
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

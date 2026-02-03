@@ -440,6 +440,43 @@ public class Session {
     private ChargingProfile activeChargingProfile;
 
     // =========================================================================
+    // Idle Fee Mode (simulation charge + idle sans consommation)
+    // =========================================================================
+
+    /**
+     * Activer le mode idle fee (charge limitée + période d'idle).
+     */
+    @Builder.Default
+    private boolean idleFeeEnabled = false;
+
+    /**
+     * Durée de charge en minutes avant de passer en idle.
+     * Par défaut: 20 minutes.
+     */
+    @Builder.Default
+    @Min(1)
+    private int chargingDurationMinutes = 20;
+
+    /**
+     * Durée d'idle en minutes (véhicule branché sans charger).
+     * Par défaut: 50 minutes.
+     */
+    @Builder.Default
+    @Min(1)
+    private int idleDurationMinutes = 50;
+
+    /**
+     * Flag indiquant si la session est en mode idle (charge terminée, véhicule encore branché).
+     */
+    @Builder.Default
+    private boolean inIdleMode = false;
+
+    /**
+     * Timestamp du début de la période d'idle.
+     */
+    private LocalDateTime idleStartTime;
+
+    // =========================================================================
     // Méthodes utilitaires
     // =========================================================================
 
@@ -721,5 +758,89 @@ public class Session {
         this.disconnectReason = null;
         this.backgrounded = false;
         this.touch();
+    }
+
+    // =========================================================================
+    // Idle Fee Mode Methods
+    // =========================================================================
+
+    /**
+     * Vérifie si la charge doit passer en mode idle.
+     * Basé sur la durée de charge écoulée depuis startTime.
+     *
+     * @return true si le temps de charge a dépassé chargingDurationMinutes
+     */
+    public boolean shouldEnterIdleMode() {
+        if (!idleFeeEnabled || startTime == null || inIdleMode) {
+            return false;
+        }
+        long chargingMinutes = java.time.Duration.between(startTime, LocalDateTime.now()).toMinutes();
+        return chargingMinutes >= chargingDurationMinutes;
+    }
+
+    /**
+     * Passe en mode idle.
+     */
+    public void enterIdleMode() {
+        this.inIdleMode = true;
+        this.idleStartTime = LocalDateTime.now();
+        this.touch();
+    }
+
+    /**
+     * Vérifie si la période d'idle est terminée.
+     *
+     * @return true si le temps d'idle a dépassé idleDurationMinutes
+     */
+    public boolean isIdlePeriodComplete() {
+        if (!inIdleMode || idleStartTime == null) {
+            return false;
+        }
+        long idleMinutes = java.time.Duration.between(idleStartTime, LocalDateTime.now()).toMinutes();
+        return idleMinutes >= idleDurationMinutes;
+    }
+
+    /**
+     * Retourne la durée totale de la session idle fee (charge + idle) en minutes.
+     */
+    public int getTotalIdleFeeSessionMinutes() {
+        return chargingDurationMinutes + idleDurationMinutes;
+    }
+
+    /**
+     * Retourne le temps restant avant la fin de la session idle fee en minutes.
+     *
+     * @return minutes restantes, ou 0 si terminé
+     */
+    public long getIdleFeeRemainingMinutes() {
+        if (!idleFeeEnabled || startTime == null) {
+            return 0;
+        }
+        long elapsedMinutes = java.time.Duration.between(startTime, LocalDateTime.now()).toMinutes();
+        long remaining = getTotalIdleFeeSessionMinutes() - elapsedMinutes;
+        return Math.max(0, remaining);
+    }
+
+    /**
+     * Réinitialise le mode idle (pour une nouvelle charge).
+     */
+    public void resetIdleMode() {
+        this.inIdleMode = false;
+        this.idleStartTime = null;
+    }
+
+    /**
+     * Retourne les informations idle fee pour la compatibilité frontend.
+     */
+    @JsonProperty("idleFeeInfo")
+    public java.util.Map<String, Object> getIdleFeeInfo() {
+        java.util.Map<String, Object> info = new java.util.HashMap<>();
+        info.put("enabled", idleFeeEnabled);
+        info.put("chargingDurationMinutes", chargingDurationMinutes);
+        info.put("idleDurationMinutes", idleDurationMinutes);
+        info.put("inIdleMode", inIdleMode);
+        info.put("idleStartTime", idleStartTime);
+        info.put("remainingMinutes", getIdleFeeRemainingMinutes());
+        return info;
     }
 }
