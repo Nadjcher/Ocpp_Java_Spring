@@ -23,7 +23,7 @@ import java.util.List;
 @Slf4j
 public class CorsConfig implements WebMvcConfigurer {
 
-    @Value("${cors.allowed-origins:http://localhost:3000,http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:8080}")
+    @Value("${cors.allowed-origins:http://localhost:3000,http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:3005,http://localhost:8080}")
     private List<String> allowedOrigins;
 
     @Value("${cors.allowed-methods:GET,POST,PUT,DELETE,OPTIONS,PATCH}")
