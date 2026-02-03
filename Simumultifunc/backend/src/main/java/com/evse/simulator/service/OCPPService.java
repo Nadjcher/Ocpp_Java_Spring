@@ -721,7 +721,10 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
                     limitedBy = "idle-fee";
 
                     // Vérifier si la période d'idle est terminée
-                    if (session.isIdlePeriodComplete()) {
+                    // Si idleDurationMinutes >= 999, c'est un idle manuel infini - pas d'arrêt automatique
+                    boolean isManualIdleMode = session.getIdleDurationMinutes() >= 999;
+
+                    if (!isManualIdleMode && session.isIdlePeriodComplete()) {
                         log.info("[IDLE-FEE] Session {}: Idle period complete, stopping transaction",
                             sessionId);
                         sessionService.addLog(sessionId, LogEntry.success("IDLE-FEE",
@@ -731,11 +734,20 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
                         return;
                     }
 
-                    // Log de progression idle
+                    // Log de progression idle (toutes les 10 itérations pour éviter spam)
                     long idleMinutes = session.getIdleStartTime() != null ?
                         java.time.Duration.between(session.getIdleStartTime(), LocalDateTime.now()).toMinutes() : 0;
-                    log.info("[IDLE-FEE] Session {}: IDLE mode - {} min elapsed, {} min remaining, power=0 kW",
-                        sessionId, idleMinutes, session.getIdleFeeRemainingMinutes());
+
+                    if (isManualIdleMode) {
+                        // Mode idle manuel - log moins fréquent
+                        if (idleMinutes % 5 == 0) {
+                            log.info("[IDLE] Session {}: Manual IDLE mode - {} min elapsed, power=0 kW (session stays alive)",
+                                sessionId, idleMinutes);
+                        }
+                    } else {
+                        log.info("[IDLE-FEE] Session {}: IDLE mode - {} min elapsed, {} min remaining, power=0 kW",
+                            sessionId, idleMinutes, session.getIdleFeeRemainingMinutes());
+                    }
 
                     // Mettre à jour les données (power=0, énergie inchangée)
                     sessionService.updateChargingData(sessionId, soc, powerKw, session.getEnergyDeliveredKwh());
