@@ -41,6 +41,10 @@ export interface SessionConfig {
   socTarget: number;
   mvEvery: number;
   mvMask: MeterValuesMask;
+  // Idle Fee Mode
+  idleFeeEnabled: boolean;
+  chargingDurationMinutes: number;
+  idleDurationMinutes: number;
 }
 
 /**
@@ -56,7 +60,11 @@ export const DEFAULT_SESSION_CONFIG: SessionConfig = {
   socStart: 20,
   socTarget: 80,
   mvEvery: 10,
-  mvMask: { powerActive: true, energy: true, soc: true, powerOffered: true }
+  mvMask: { powerActive: true, energy: true, soc: true, powerOffered: true },
+  // Idle Fee Mode - defaults
+  idleFeeEnabled: false,
+  chargingDurationMinutes: 20,
+  idleDurationMinutes: 50
 };
 
 // =============================================================================

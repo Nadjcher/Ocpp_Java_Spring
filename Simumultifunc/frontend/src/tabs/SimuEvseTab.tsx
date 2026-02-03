@@ -1874,6 +1874,39 @@ export default function SimuEvseTab() {
     }, 1500);
   };
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Mode Idle: Active le mode sans consommation pour tester idle fee
+  // ═══════════════════════════════════════════════════════════════════════════
+  const [isIdleMode, setIsIdleMode] = useState(false);
+
+  const onIdle = async () => {
+    if (!selId) return;
+
+    if (isIdleMode) {
+      // Désactiver le mode idle
+      addLog('INFO', 'IDLE', `>> Désactivation du mode idle...`);
+      try {
+        const res = await fetchJSON<any>(`/api/sessions/${selId}/idle`, { method: "DELETE" });
+        addLog('INFO', 'IDLE', `<< Mode idle désactivé`, res);
+        setIsIdleMode(false);
+        toasts.push("Mode idle désactivé - La charge reprend");
+      } catch (e: any) {
+        addLog('ERROR', 'IDLE', `<< Erreur: ${e?.message || e}`);
+      }
+    } else {
+      // Activer le mode idle
+      addLog('INFO', 'IDLE', `>> Activation du mode idle (power=0, session reste en vie)...`);
+      try {
+        const res = await fetchJSON<any>(`/api/sessions/${selId}/idle`, { method: "POST" });
+        addLog('INFO', 'IDLE', `<< Mode idle activé - Pas de consommation`, res);
+        setIsIdleMode(true);
+        toasts.push("Mode idle activé - Consommation: 0 kW");
+      } catch (e: any) {
+        addLog('ERROR', 'IDLE', `<< Erreur: ${e?.message || e}`);
+      }
+    }
+  };
+
   const onApplyMv = async () => {
     if (!selId) return;
     await fetchJSON(`/api/simu/${selId}/status/mv-mask`, {
@@ -2956,6 +2989,20 @@ export default function SimuEvseTab() {
                         onClick={onStop}
                     >
                       Stop
+                    </button>
+                    <button
+                        className={`px-3 py-2 rounded text-sm ${
+                            (selSession?.status === "charging" || selSession?.status === "started")
+                                ? isIdleMode
+                                    ? "bg-amber-600 text-white hover:bg-amber-700"
+                                    : "bg-amber-500 text-white hover:bg-amber-600"
+                                : "bg-amber-200 text-amber-700"
+                        }`}
+                        disabled={!selId || !(selSession?.status === "charging" || selSession?.status === "started")}
+                        onClick={onIdle}
+                        title="Active/désactive le mode idle (puissance=0, session reste en vie)"
+                    >
+                      {isIdleMode ? "⏸️ Idle ON" : "⏸️ Idle"}
                     </button>
                   </div>
                 </div>

@@ -369,4 +369,88 @@ public class SessionController {
     public ResponseEntity<List<Map<String, Object>>> getStaleSessions() {
         return ResponseEntity.ok(sessionService.getStaleSessions().stream().map(this::toSummary).toList());
     }
+
+    // =========================================================================
+    // Idle Fee Mode Control
+    // =========================================================================
+
+    @PostMapping("/{id}/idle")
+    @Operation(summary = "Activer le mode idle (pas de consommation d'energie)")
+    public ResponseEntity<Map<String, Object>> activateIdleMode(@PathVariable String id) {
+        try {
+            Session session = sessionService.getSession(id);
+
+            // Activer le mode idle manuellement
+            session.setIdleFeeEnabled(true);
+            session.setIdleDurationMinutes(999); // Très longue durée pour rester en idle
+            session.enterIdleMode();
+            session.setCurrentPowerKw(0); // Puissance à 0
+
+            sessionService.updateSession(id, session);
+
+            log.info("[IDLE] Session {} - Idle mode activated manually, power=0", id);
+            sessionService.addLog(id, com.evse.simulator.model.LogEntry.info("IDLE",
+                "Mode idle activé manuellement - Consommation: 0 kW"));
+
+            return ResponseEntity.ok(Map.of(
+                "status", "idle_activated",
+                "sessionId", id,
+                "inIdleMode", true,
+                "powerKw", 0,
+                "message", "Mode idle activé - La session reste en vie sans consommer d'énergie"
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("status", "error", "message", e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/{id}/idle")
+    @Operation(summary = "Desactiver le mode idle (reprendre la charge)")
+    public ResponseEntity<Map<String, Object>> deactivateIdleMode(@PathVariable String id) {
+        try {
+            Session session = sessionService.getSession(id);
+
+            // Désactiver le mode idle
+            session.resetIdleMode();
+            session.setIdleFeeEnabled(false);
+
+            sessionService.updateSession(id, session);
+
+            log.info("[IDLE] Session {} - Idle mode deactivated, resuming charge", id);
+            sessionService.addLog(id, com.evse.simulator.model.LogEntry.info("IDLE",
+                "Mode idle désactivé - Reprise de la charge"));
+
+            return ResponseEntity.ok(Map.of(
+                "status", "idle_deactivated",
+                "sessionId", id,
+                "inIdleMode", false,
+                "message", "Mode idle désactivé - La charge reprend"
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("status", "error", "message", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/{id}/idle")
+    @Operation(summary = "Statut du mode idle")
+    public ResponseEntity<Map<String, Object>> getIdleStatus(@PathVariable String id) {
+        try {
+            Session session = sessionService.getSession(id);
+
+            return ResponseEntity.ok(Map.of(
+                "sessionId", id,
+                "idleFeeEnabled", session.isIdleFeeEnabled(),
+                "inIdleMode", session.isInIdleMode(),
+                "idleStartTime", session.getIdleStartTime() != null ? session.getIdleStartTime().toString() : null,
+                "currentPowerKw", session.getCurrentPowerKw(),
+                "chargingDurationMinutes", session.getChargingDurationMinutes(),
+                "idleDurationMinutes", session.getIdleDurationMinutes()
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("status", "error", "message", e.getMessage()));
+        }
+    }
 }

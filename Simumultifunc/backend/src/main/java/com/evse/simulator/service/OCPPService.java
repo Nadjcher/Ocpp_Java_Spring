@@ -689,6 +689,7 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
     /**
      * Simule la progression de la charge.
      * Applique les limites Smart Charging si un profil est actif.
+     * Supporte le mode Idle Fee: charge pendant X minutes puis idle (power=0) pendant Y minutes.
      */
     private void simulateCharging(String sessionId) {
         sessionService.findSession(sessionId).ifPresent(session -> {
@@ -696,6 +697,73 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
 
             double soc = session.getSoc();
             double targetSoc = session.getTargetSoc();
+            double powerKw = 0;
+            double energyKwh = 0;
+            String limitedBy = "vehicle/evse";
+
+            // ═══════════════════════════════════════════════════════════════════
+            // MODE IDLE FEE: Charge limitée dans le temps + période d'idle
+            // ═══════════════════════════════════════════════════════════════════
+            if (session.isIdleFeeEnabled()) {
+                // Vérifier si on doit passer en mode idle
+                if (session.shouldEnterIdleMode() && !session.isInIdleMode()) {
+                    session.enterIdleMode();
+                    log.info("[IDLE-FEE] Session {}: Entering IDLE mode after {} minutes of charging",
+                        sessionId, session.getChargingDurationMinutes());
+                    sessionService.addLog(sessionId, LogEntry.info("IDLE-FEE",
+                        "Charge terminée, début de la période d'idle (" + session.getIdleDurationMinutes() + " min)"));
+                }
+
+                // En mode idle: power = 0, pas de consommation d'énergie
+                if (session.isInIdleMode()) {
+                    powerKw = 0;
+                    energyKwh = 0;
+                    limitedBy = "idle-fee";
+
+                    // Vérifier si la période d'idle est terminée
+                    // Si idleDurationMinutes >= 999, c'est un idle manuel infini - pas d'arrêt automatique
+                    boolean isManualIdleMode = session.getIdleDurationMinutes() >= 999;
+
+                    if (!isManualIdleMode && session.isIdlePeriodComplete()) {
+                        log.info("[IDLE-FEE] Session {}: Idle period complete, stopping transaction",
+                            sessionId);
+                        sessionService.addLog(sessionId, LogEntry.success("IDLE-FEE",
+                            "Période d'idle terminée, arrêt de la transaction"));
+                        // Arrêter la transaction
+                        scheduler.schedule(() -> sendStopTransaction(sessionId), 1, TimeUnit.SECONDS);
+                        return;
+                    }
+
+                    // Log de progression idle (toutes les 10 itérations pour éviter spam)
+                    long idleMinutes = session.getIdleStartTime() != null ?
+                        java.time.Duration.between(session.getIdleStartTime(), LocalDateTime.now()).toMinutes() : 0;
+
+                    if (isManualIdleMode) {
+                        // Mode idle manuel - log moins fréquent
+                        if (idleMinutes % 5 == 0) {
+                            log.info("[IDLE] Session {}: Manual IDLE mode - {} min elapsed, power=0 kW (session stays alive)",
+                                sessionId, idleMinutes);
+                        }
+                    } else {
+                        log.info("[IDLE-FEE] Session {}: IDLE mode - {} min elapsed, {} min remaining, power=0 kW",
+                            sessionId, idleMinutes, session.getIdleFeeRemainingMinutes());
+                    }
+
+                    // Mettre à jour les données (power=0, énergie inchangée)
+                    sessionService.updateChargingData(sessionId, soc, powerKw, session.getEnergyDeliveredKwh());
+                    return;
+                }
+
+                // Sinon, charge normale jusqu'à la fin de la durée de charge
+                log.info("[IDLE-FEE] Session {}: Charging mode - {} min remaining before idle",
+                    sessionId, session.getChargingDurationMinutes() -
+                    (session.getStartTime() != null ?
+                        java.time.Duration.between(session.getStartTime(), LocalDateTime.now()).toMinutes() : 0));
+            }
+
+            // ═══════════════════════════════════════════════════════════════════
+            // CALCUL DE LA PUISSANCE (mode normal ou mode idle-fee en charge)
+            // ═══════════════════════════════════════════════════════════════════
 
             // Déterminer la puissance maximale selon le type de chargeur
             ChargerType chargerType = session.getChargerType();
@@ -706,7 +774,6 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
             double effectiveMaxPower = Math.min(chargerMaxPower, sessionMaxPower > 0 ? sessionMaxPower : chargerMaxPower);
 
             // Calculer la puissance selon la courbe de charge
-            double powerKw;
             if (chargerType != null && chargerType.isDC()) {
                 // Courbe DC réaliste
                 if (soc < 20) {
@@ -732,7 +799,6 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
             // ═══════════════════════════════════════════════════════════════════
             // APPLIQUER LA LIMITE SMART CHARGING (SCP)
             // ═══════════════════════════════════════════════════════════════════
-            String limitedBy = "vehicle/evse";
             try {
                 double scpLimit = smartChargingService.getCurrentLimit(sessionId);
                 log.info("[SIM] Session {}: Calculated power={} kW, SCP limit={} kW",
@@ -766,15 +832,15 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
             int actualIntervalSec = session.getMeterValuesInterval() > 0 ?
                     session.getMeterValuesInterval() : meterValuesInterval / 1000;
             double intervalHours = actualIntervalSec / 3600.0;
-            double energyKwh = powerKw * intervalHours;
+            energyKwh = powerKw * intervalHours;
 
             // Mise à jour du SoC (simulation)
             double batteryCapacity = 60.0; // kWh par défaut
             double socIncrement = (energyKwh / batteryCapacity) * 100;
             double newSoc = Math.min(soc + socIncrement, targetSoc);
 
-            // Arrêt si cible atteinte
-            if (newSoc >= targetSoc) {
+            // Arrêt si cible atteinte (seulement si idle fee n'est pas activé)
+            if (!session.isIdleFeeEnabled() && newSoc >= targetSoc) {
                 newSoc = targetSoc;
                 powerKw = 0;
                 // Arrêter automatiquement
@@ -783,9 +849,10 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
 
             double newEnergy = session.getEnergyDeliveredKwh() + energyKwh;
 
-            log.info("[SIM] Session {}: SoC={}%, power={} kW, energy={} kWh, limitedBy={}",
+            log.info("[SIM] Session {}: SoC={}%, power={} kW, energy={} kWh, limitedBy={}{}",
                 sessionId, String.format("%.1f", newSoc), String.format("%.2f", powerKw),
-                String.format("%.3f", newEnergy), limitedBy);
+                String.format("%.3f", newEnergy), limitedBy,
+                session.isIdleFeeEnabled() ? " [IDLE-FEE enabled]" : "");
 
             sessionService.updateChargingData(sessionId, newSoc, powerKw, newEnergy);
         });

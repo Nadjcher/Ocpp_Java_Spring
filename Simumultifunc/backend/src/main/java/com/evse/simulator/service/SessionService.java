@@ -162,6 +162,16 @@ public class SessionService implements com.evse.simulator.domain.service.Session
             session.setMeterValuesInterval(updates.getMeterValuesInterval());
         }
 
+        // Idle Fee Mode configuration
+        // Note: idleFeeEnabled is a boolean, so we check if it's explicitly set in updates
+        session.setIdleFeeEnabled(updates.isIdleFeeEnabled());
+        if (updates.getChargingDurationMinutes() > 0) {
+            session.setChargingDurationMinutes(updates.getChargingDurationMinutes());
+        }
+        if (updates.getIdleDurationMinutes() > 0) {
+            session.setIdleDurationMinutes(updates.getIdleDurationMinutes());
+        }
+
         Session saved = repository.saveSession(session);
         log.debug("Updated session: {}", saved.getId());
 
@@ -213,6 +223,8 @@ public class SessionService implements com.evse.simulator.domain.service.Session
                 if (session.getStartTime() == null) {
                     session.setStartTime(LocalDateTime.now());
                 }
+                // Reset idle mode for new charging session
+                session.resetIdleMode();
             }
             case SUSPENDED_EVSE, SUSPENDED_EV -> {
                 session.setConnected(true);
