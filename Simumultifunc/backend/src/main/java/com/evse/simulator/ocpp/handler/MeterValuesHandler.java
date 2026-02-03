@@ -18,6 +18,7 @@ import java.util.concurrent.CompletableFuture;
 public class MeterValuesHandler extends AbstractOcppHandler {
 
     private static final String CONTEXT_PERIODIC = "Sample.Periodic";
+    private static final String CONTEXT_CLOCK_ALIGNED = "Sample.Clock";
     private static final String LOCATION_INLET = "Inlet";
     private static final String LOCATION_BODY = "Body";
 
@@ -56,6 +57,10 @@ public class MeterValuesHandler extends AbstractOcppHandler {
         Session session = context.getSession();
         int phases = session != null ? session.getEffectivePhases() : 3;
 
+        // Déterminer le contexte de lecture (Sample.Periodic ou Sample.Clock)
+        String readingContext = context.getReadingContext() != null ?
+            context.getReadingContext() : CONTEXT_PERIODIC;
+
         // 1. Énergie active importée totale (Wh)
         long energyWh = context.getMeterValue() != null ? context.getMeterValue() : 0L;
         sampledValues.add(createSampledValue(
@@ -63,7 +68,8 @@ public class MeterValuesHandler extends AbstractOcppHandler {
             "Energy.Active.Import.Register",
             "Wh",
             LOCATION_INLET,
-            null
+            null,
+            readingContext
         ));
 
         if (session != null) {
@@ -98,7 +104,8 @@ public class MeterValuesHandler extends AbstractOcppHandler {
                     "Current.Import",
                     "A",
                     LOCATION_INLET,
-                    phaseNames[i]
+                    phaseNames[i],
+                    readingContext
                 ));
             }
 
@@ -112,7 +119,8 @@ public class MeterValuesHandler extends AbstractOcppHandler {
                     "Voltage",
                     "V",
                     LOCATION_INLET,
-                    phaseNames[i]
+                    phaseNames[i],
+                    readingContext
                 ));
             }
 
@@ -126,7 +134,8 @@ public class MeterValuesHandler extends AbstractOcppHandler {
                 "Temperature",
                 "Celsius",
                 LOCATION_BODY,
-                null
+                null,
+                readingContext
             ));
 
             // 5. Power.Active.Import (puissance actuelle consommée)
@@ -135,7 +144,8 @@ public class MeterValuesHandler extends AbstractOcppHandler {
                 "Power.Active.Import",
                 "W",
                 null,
-                null
+                null,
+                readingContext
             ));
 
             // 6. Power.Offered (puissance maximale offerte)
@@ -144,7 +154,8 @@ public class MeterValuesHandler extends AbstractOcppHandler {
                 "Power.Offered",
                 "W",
                 null,
-                null
+                null,
+                readingContext
             ));
         }
 
@@ -155,12 +166,21 @@ public class MeterValuesHandler extends AbstractOcppHandler {
     }
 
     /**
-     * Crée une valeur échantillonnée avec context Sample.Periodic.
+     * Crée une valeur échantillonnée avec le contexte spécifié.
+     *
+     * @param value valeur mesurée
+     * @param measurand type de mesure
+     * @param unit unité de mesure
+     * @param location emplacement (Inlet, Body, etc.)
+     * @param phase phase (L1, L2, L3) ou null
+     * @param context contexte de lecture (Sample.Periodic ou Sample.Clock)
+     * @return SampledValue au format OCPP
      */
-    private Map<String, Object> createSampledValue(String value, String measurand, String unit, String location, String phase) {
+    private Map<String, Object> createSampledValue(String value, String measurand, String unit,
+                                                    String location, String phase, String context) {
         Map<String, Object> sv = createPayload(
             "value", value,
-            "context", CONTEXT_PERIODIC,
+            "context", context,
             "measurand", measurand,
             "unit", unit
         );
