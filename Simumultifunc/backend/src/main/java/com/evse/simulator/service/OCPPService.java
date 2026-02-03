@@ -75,8 +75,11 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
     // Schedulers pour heartbeat et meter values
     private final Map<String, ScheduledFuture<?>> heartbeatTasks = new ConcurrentHashMap<>();
     private final Map<String, ScheduledFuture<?>> meterValuesTasks = new ConcurrentHashMap<>();
+    private final Map<String, ScheduledFuture<?>> clockAlignedDataTasks = new ConcurrentHashMap<>();
 
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(10);
+
+    private static final String CONTEXT_CLOCK_ALIGNED = "Sample.Clock";
 
     private static final DateTimeFormatter OCPP_DATE_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
@@ -167,6 +170,7 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
         // Arrêter les tâches planifiées
         stopHeartbeat(sessionId);
         stopMeterValues(sessionId);
+        stopClockAlignedData(sessionId);
 
         // Fermer le client WebSocket
         OCPPWebSocketClient client = clients.remove(sessionId);
@@ -684,6 +688,133 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
             log.info("Stopped meter values for session {}", sessionId);
         }
         sessionService.findSession(sessionId).ifPresent(s -> s.setMeterValuesActive(false));
+    }
+
+    // =========================================================================
+    // Clock Aligned Data (MeterValues alignés sur l'horloge)
+    // =========================================================================
+
+    /**
+     * Démarre l'envoi des MeterValues alignés sur l'horloge.
+     * Les envois sont programmés aux minutes alignées (ex: 00, 15, 30, 45 pour un intervalle de 900s).
+     *
+     * @param sessionId ID de la session
+     * @param intervalSec Intervalle en secondes (ex: 900 = 15 minutes)
+     */
+    public void startClockAlignedData(String sessionId, int intervalSec) {
+        if (intervalSec <= 0) {
+            log.info("ClockAlignedData disabled for session {} (interval=0)", sessionId);
+            return;
+        }
+
+        // D'abord arrêter toute tâche existante
+        stopClockAlignedData(sessionId);
+
+        Session session = sessionService.getSession(sessionId);
+        session.setClockAlignedDataInterval(intervalSec);
+
+        // Calculer le délai initial jusqu'au prochain moment aligné
+        long delayMs = calculateDelayToNextAlignedTime(intervalSec);
+
+        log.info("Starting ClockAlignedData for session {} every {}s, first in {}ms",
+                sessionId, intervalSec, delayMs);
+        sessionService.addLog(sessionId, LogEntry.info("ClockAlignedData",
+                "Activé: envoi toutes les " + intervalSec + "s, prochain dans " + (delayMs / 1000) + "s"));
+
+        // Programmer la tâche avec scheduleAtFixedRate à partir du moment aligné
+        ScheduledFuture<?> task = scheduler.scheduleAtFixedRate(
+                () -> sendClockAlignedMeterValues(sessionId),
+                delayMs, intervalSec * 1000L, TimeUnit.MILLISECONDS);
+
+        clockAlignedDataTasks.put(sessionId, task);
+        session.setClockAlignedDataActive(true);
+    }
+
+    /**
+     * Arrête l'envoi des MeterValues alignés sur l'horloge.
+     *
+     * @param sessionId ID de la session
+     */
+    public void stopClockAlignedData(String sessionId) {
+        ScheduledFuture<?> task = clockAlignedDataTasks.remove(sessionId);
+        if (task != null) {
+            task.cancel(false);
+            log.info("Stopped ClockAlignedData for session {}", sessionId);
+            sessionService.addLog(sessionId, LogEntry.info("ClockAlignedData", "Désactivé"));
+        }
+        sessionService.findSession(sessionId).ifPresent(s -> {
+            s.setClockAlignedDataActive(false);
+            s.setClockAlignedDataInterval(0);
+        });
+    }
+
+    /**
+     * Calcule le délai en millisecondes jusqu'au prochain moment aligné sur l'horloge.
+     * Par exemple, pour un intervalle de 900s (15 min), aligne sur :00, :15, :30, :45.
+     *
+     * @param intervalSec Intervalle en secondes
+     * @return Délai en millisecondes
+     */
+    private long calculateDelayToNextAlignedTime(int intervalSec) {
+        long now = System.currentTimeMillis();
+        long intervalMs = intervalSec * 1000L;
+
+        // Calculer le prochain moment aligné
+        // On se base sur le début de l'heure (ou du jour pour des intervalles > 1h)
+        java.time.ZonedDateTime nowZdt = java.time.Instant.ofEpochMilli(now)
+                .atZone(java.time.ZoneId.systemDefault());
+
+        // Trouver le début de l'heure actuelle
+        java.time.ZonedDateTime hourStart = nowZdt.truncatedTo(java.time.temporal.ChronoUnit.HOURS);
+        long hourStartMs = hourStart.toInstant().toEpochMilli();
+
+        // Calculer combien de périodes complètes depuis le début de l'heure
+        long elapsedSinceHourStart = now - hourStartMs;
+        long periodsElapsed = elapsedSinceHourStart / intervalMs;
+
+        // Le prochain moment aligné
+        long nextAlignedMs = hourStartMs + (periodsElapsed + 1) * intervalMs;
+        long delay = nextAlignedMs - now;
+
+        // Si le délai est trop court (< 1s), passer au suivant
+        if (delay < 1000) {
+            delay += intervalMs;
+        }
+
+        log.debug("ClockAligned: now={}, nextAligned={}, delay={}ms",
+                nowZdt, java.time.Instant.ofEpochMilli(nextAlignedMs), delay);
+
+        return delay;
+    }
+
+    /**
+     * Envoie MeterValues avec le contexte Sample.Clock (ClockAlignedData).
+     *
+     * @param sessionId ID de la session
+     * @return CompletableFuture avec la réponse
+     */
+    public CompletableFuture<Map<String, Object>> sendClockAlignedMeterValues(String sessionId) {
+        Session session = sessionService.getSession(sessionId);
+
+        // Utiliser le handler pour construire le payload avec context = Sample.Clock
+        Integer transactionId = session.getTransactionId() != null ?
+                Integer.parseInt(session.getTransactionId()) : null;
+
+        OcppMessageContext context = OcppMessageContext.builder()
+                .sessionId(sessionId)
+                .session(session)
+                .connectorId(session.getConnectorId())
+                .transactionId(transactionId)
+                .meterValue((long) session.getMeterValue())
+                .readingContext(CONTEXT_CLOCK_ALIGNED)
+                .build();
+
+        Map<String, Object> payload = handlerRegistry
+                .getHandlerOrThrow(OCPPAction.METER_VALUES)
+                .buildPayload(context);
+
+        log.info("[ClockAligned] Session {}: Sending MeterValues at aligned time", sessionId);
+        return sendCall(sessionId, OCPPAction.METER_VALUES, payload);
     }
 
     /**

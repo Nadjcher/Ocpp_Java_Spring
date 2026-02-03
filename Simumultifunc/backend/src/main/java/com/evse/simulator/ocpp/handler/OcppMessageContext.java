@@ -65,6 +65,12 @@ public class OcppMessageContext {
     private String vendorInfo;
 
     /**
+     * Contexte de lecture pour MeterValues (Sample.Periodic, Sample.Clock, etc.).
+     * Si null, utilise Sample.Periodic par défaut.
+     */
+    private String readingContext;
+
+    /**
      * Données supplémentaires.
      */
     private Map<String, Object> additionalData;

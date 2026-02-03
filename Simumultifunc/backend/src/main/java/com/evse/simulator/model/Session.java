@@ -338,6 +338,19 @@ public class Session {
     private int meterValuesInterval = 10;
 
     /**
+     * Intervalle de ClockAlignedData en secondes (0 = désactivé).
+     * Ex: 900 = envoi à :00, :15, :30, :45
+     */
+    @Builder.Default
+    private int clockAlignedDataInterval = 0;
+
+    /**
+     * ClockAlignedData actif.
+     */
+    @Builder.Default
+    private boolean clockAlignedDataActive = false;
+
+    /**
      * Vendor du Charge Point.
      */
     @Builder.Default

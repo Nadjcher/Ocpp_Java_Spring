@@ -5,7 +5,10 @@ import com.evse.simulator.model.enums.OCPPAction;
 import com.evse.simulator.ocpp.v16.AbstractOcpp16IncomingHandler;
 import com.evse.simulator.ocpp.v16.Ocpp16Exception;
 import com.evse.simulator.ocpp.v16.model.types.ConfigurationStatus;
+import com.evse.simulator.service.OCPPService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -16,7 +19,11 @@ import java.util.Set;
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class ChangeConfigurationHandler extends AbstractOcpp16IncomingHandler {
+
+    @Lazy
+    private final OCPPService ocppService;
 
     // Clés de configuration supportées et modifiables
     private static final Set<String> WRITABLE_KEYS = Set.of(
@@ -90,7 +97,20 @@ public class ChangeConfigurationHandler extends AbstractOcpp16IncomingHandler {
                     session.setMeterValuesInterval(interval);
                     logToSession(session, String.format("MeterValueSampleInterval set to %d", interval));
                 }
-                case "ConnectionTimeOut", "ClockAlignedDataInterval", "MeterValuesSampledData" -> {
+                case "ClockAlignedDataInterval" -> {
+                    int interval = Integer.parseInt(value);
+                    session.setClockAlignedDataInterval(interval);
+                    if (interval > 0) {
+                        // Démarrer ou redémarrer ClockAlignedData avec le nouvel intervalle
+                        ocppService.startClockAlignedData(session.getId(), interval);
+                        logToSession(session, String.format("ClockAlignedDataInterval set to %d seconds", interval));
+                    } else {
+                        // Désactiver ClockAlignedData
+                        ocppService.stopClockAlignedData(session.getId());
+                        logToSession(session, "ClockAlignedDataInterval disabled (interval=0)");
+                    }
+                }
+                case "ConnectionTimeOut", "MeterValuesSampledData" -> {
                     // Accepter mais pas d'effet réel dans le simulateur
                     logToSession(session, String.format("%s set to %s (simulé)", key, value));
                 }

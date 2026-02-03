@@ -130,6 +130,12 @@ public class GetConfigurationHandler extends AbstractOcpp16IncomingHandler {
             .value("Energy.Active.Import.Register,Power.Active.Import,SoC,Current.Import,Voltage")
             .build().toMap());
 
+        configs.add(KeyValue.builder()
+            .key("ClockAlignedDataInterval")
+            .readonly(false)
+            .value(String.valueOf(session.getClockAlignedDataInterval()))
+            .build().toMap());
+
         return configs;
     }
 
@@ -165,6 +171,10 @@ public class GetConfigurationHandler extends AbstractOcpp16IncomingHandler {
             case "SupportedFeatureProfiles" -> KeyValue.builder()
                 .key(key).readonly(true)
                 .value("Core,SmartCharging,RemoteTrigger")
+                .build();
+            case "ClockAlignedDataInterval" -> KeyValue.builder()
+                .key(key).readonly(false)
+                .value(String.valueOf(session.getClockAlignedDataInterval()))
                 .build();
             default -> null;
         };
