@@ -444,11 +444,12 @@ export function useSessionController(sessionId: string, options: UseSessionContr
 
   const plug = useCallback(() => {
     const store = useMultiSessionStore.getState();
+    const currentSession = store.sessions.get(sessionId);
     store.updateSession(sessionId, { isPlugged: true });
     store.addLog(sessionId, 'info', 'Cable branche');
-    // Envoyer StatusNotification
+    // Envoyer StatusNotification avec le connectorId de la session
     sendOCPP('StatusNotification', {
-      connectorId: 1,
+      connectorId: currentSession?.config?.connectorId || 1,
       errorCode: 'NoError',
       status: 'Preparing',
     }).catch(() => {});
@@ -456,11 +457,12 @@ export function useSessionController(sessionId: string, options: UseSessionContr
 
   const unplug = useCallback(() => {
     const store = useMultiSessionStore.getState();
+    const currentSession = store.sessions.get(sessionId);
     store.updateSession(sessionId, { isPlugged: false });
     store.addLog(sessionId, 'info', 'Cable debranche');
-    // Envoyer StatusNotification
+    // Envoyer StatusNotification avec le connectorId de la session
     sendOCPP('StatusNotification', {
-      connectorId: 1,
+      connectorId: currentSession?.config?.connectorId || 1,
       errorCode: 'NoError',
       status: 'Available',
     }).catch(() => {});
