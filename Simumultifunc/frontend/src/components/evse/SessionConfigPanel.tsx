@@ -48,19 +48,36 @@ export function SessionConfigPanel({
 
       {isExpanded && (
         <div className="p-4 space-y-4">
-          {/* ChargePoint ID */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              ChargePoint ID
-            </label>
-            <input
-              type="text"
-              value={config.cpId}
-              onChange={e => onChange({ cpId: e.target.value })}
-              disabled={disabled}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
-              placeholder="CP_001"
-            />
+          {/* ChargePoint ID & Connector ID */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                ChargePoint ID
+              </label>
+              <input
+                type="text"
+                value={config.cpId}
+                onChange={e => onChange({ cpId: e.target.value })}
+                disabled={disabled}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+                placeholder="CP_001"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Connecteur
+              </label>
+              <select
+                value={config.connectorId ?? 1}
+                onChange={e => onChange({ connectorId: parseInt(e.target.value) })}
+                disabled={disabled}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* Environment */}

@@ -32,6 +32,7 @@ export interface MeterValuesMask {
  */
 export interface SessionConfig {
   cpId: string;
+  connectorId: number;
   environment: Environment;
   evseType: EvseType;
   maxA: number;
@@ -52,6 +53,7 @@ export interface SessionConfig {
  */
 export const DEFAULT_SESSION_CONFIG: SessionConfig = {
   cpId: '',
+  connectorId: 1,
   environment: 'test',
   evseType: 'ac-mono',
   maxA: 32,
