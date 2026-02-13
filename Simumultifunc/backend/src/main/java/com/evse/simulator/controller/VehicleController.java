@@ -12,6 +12,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.evse.simulator.model.enums.ChargerType;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -192,6 +195,44 @@ public class VehicleController {
     @Operation(summary = "Liste les véhicules avec architecture 800V")
     public ResponseEntity<List<VehicleProfile>> get800VVehicles() {
         return ResponseEntity.ok(VehicleDatabase.get800VVehicles());
+    }
+
+    @GetMapping("/{id}/compatible-charger-types")
+    @Operation(summary = "Retourne les types de chargeurs compatibles avec le véhicule")
+    public ResponseEntity<Map<String, Object>> getCompatibleChargerTypes(@PathVariable String id) {
+        VehicleProfile vehicle = vehicleService.getVehicle(id);
+        List<String> connectors = vehicle.getConnectorTypes() != null
+                ? vehicle.getConnectorTypes()
+                : List.of("TYPE2", "CCS");
+        int acPhases = vehicle.getMaxAcPhases();
+
+        List<String> compatible = new ArrayList<>();
+        boolean supportsAC = connectors.stream()
+                .anyMatch(c -> c.equalsIgnoreCase("TYPE2") || c.equalsIgnoreCase("CCS"));
+        boolean supportsDC = connectors.stream()
+                .anyMatch(c -> c.equalsIgnoreCase("CCS") || c.equalsIgnoreCase("CHADEMO"));
+
+        if (supportsAC) {
+            compatible.add(ChargerType.AC_MONO.getValue());
+            if (acPhases >= 2) compatible.add(ChargerType.AC_BI.getValue());
+            if (acPhases >= 3) {
+                compatible.add(ChargerType.AC_TRI.getValue());
+                compatible.add(ChargerType.AC_TRI_43.getValue());
+            }
+        }
+        if (supportsDC) {
+            compatible.add(ChargerType.DC_50.getValue());
+            compatible.add(ChargerType.DC_150.getValue());
+            compatible.add(ChargerType.DC_350.getValue());
+        }
+
+        return ResponseEntity.ok(Map.of(
+            "vehicleId", vehicle.getId(),
+            "displayName", vehicle.getDisplayName(),
+            "connectorTypes", connectors,
+            "maxAcPhases", acPhases,
+            "compatibleChargerTypes", compatible
+        ));
     }
 
     @GetMapping("/database/{id}/ac-power")

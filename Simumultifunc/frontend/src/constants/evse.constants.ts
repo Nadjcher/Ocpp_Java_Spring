@@ -1,7 +1,7 @@
 // frontend/src/constants/evse.constants.ts
 // Constantes extraites de SimuEvseTab.tsx pour modularisation
 
-import type { Vehicle } from '@/types/evse.types';
+import type { Vehicle, EvseType } from '@/types/evse.types';
 
 /**
  * URL de base de l'API - détecte automatiquement l'environnement
@@ -88,17 +88,66 @@ export const VEHICLE_SCALE = SIMULATION.VEHICLE_SCALE;
  * Règle: La puissance effective = min(EVSE, véhicule) pour phases ET courant
  */
 export const DEFAULT_VEHICLES: Vehicle[] = [
-  { id: "1", name: "Tesla Model 3", capacityKWh: 75, efficiency: 0.95, maxPowerKW: 250, acMaxKW: 11, acPhases: 3, acMaxA: 16, imageUrl: "/images/tesla-model3 white.png" },
-  { id: "2", name: "Renault ZOE", capacityKWh: 52, efficiency: 0.90, maxPowerKW: 50, acMaxKW: 22, acPhases: 3, acMaxA: 32, imageUrl: "/images/renault-zoe-silver.jpg" },
-  { id: "3", name: "Nissan Leaf", capacityKWh: 62, efficiency: 0.88, maxPowerKW: 100, acMaxKW: 6.6, acPhases: 1, acMaxA: 29, imageUrl: "/images/generic-ev.png" },
-  { id: "4", name: "Hyundai Kona", capacityKWh: 64, efficiency: 0.92, maxPowerKW: 77, acMaxKW: 11, acPhases: 3, acMaxA: 16, imageUrl: "/images/generic-ev.png" },
-  { id: "5", name: "BMW i3", capacityKWh: 42, efficiency: 0.93, maxPowerKW: 50, acMaxKW: 11, acPhases: 3, acMaxA: 16, imageUrl: "/images/generic-ev.png" },
-  { id: "6", name: "Audi e-tron", capacityKWh: 95, efficiency: 0.91, maxPowerKW: 150, acMaxKW: 22, acPhases: 3, acMaxA: 32, imageUrl: "/images/generic-ev.png" },
-  { id: "7", name: "Volkswagen ID.3", capacityKWh: 58, efficiency: 0.90, maxPowerKW: 120, acMaxKW: 11, acPhases: 3, acMaxA: 16, imageUrl: "/images/generic-ev.png" },
-  { id: "8", name: "Peugeot e-208", capacityKWh: 50, efficiency: 0.89, maxPowerKW: 100, acMaxKW: 11, acPhases: 3, acMaxA: 16, imageUrl: "/images/generic-ev.png" },
-  { id: "9", name: "Mercedes EQC", capacityKWh: 80, efficiency: 0.91, maxPowerKW: 110, acMaxKW: 11, acPhases: 3, acMaxA: 16, imageUrl: "/images/generic-ev.png" },
-  { id: "10", name: "Porsche Taycan", capacityKWh: 93, efficiency: 0.94, maxPowerKW: 270, acMaxKW: 22, acPhases: 3, acMaxA: 32, imageUrl: "/images/generic-ev.png" }
+  { id: "1", name: "Tesla Model 3", capacityKWh: 75, efficiency: 0.95, maxPowerKW: 250, acMaxKW: 11, acPhases: 3, acMaxA: 16, connectorTypes: ["TYPE2", "CCS"], imageUrl: "/images/tesla-model3 white.png" },
+  { id: "2", name: "Renault ZOE", capacityKWh: 52, efficiency: 0.90, maxPowerKW: 50, acMaxKW: 22, acPhases: 3, acMaxA: 32, connectorTypes: ["TYPE2"], imageUrl: "/images/renault-zoe-silver.jpg" },
+  { id: "3", name: "Nissan Leaf", capacityKWh: 62, efficiency: 0.88, maxPowerKW: 100, acMaxKW: 6.6, acPhases: 1, acMaxA: 29, connectorTypes: ["TYPE2", "CHADEMO"], imageUrl: "/images/generic-ev.png" },
+  { id: "4", name: "Hyundai Kona", capacityKWh: 64, efficiency: 0.92, maxPowerKW: 77, acMaxKW: 11, acPhases: 3, acMaxA: 16, connectorTypes: ["TYPE2", "CCS"], imageUrl: "/images/generic-ev.png" },
+  { id: "5", name: "BMW i3", capacityKWh: 42, efficiency: 0.93, maxPowerKW: 50, acMaxKW: 11, acPhases: 3, acMaxA: 16, connectorTypes: ["TYPE2", "CCS"], imageUrl: "/images/generic-ev.png" },
+  { id: "6", name: "Audi e-tron", capacityKWh: 95, efficiency: 0.91, maxPowerKW: 150, acMaxKW: 22, acPhases: 3, acMaxA: 32, connectorTypes: ["TYPE2", "CCS"], imageUrl: "/images/generic-ev.png" },
+  { id: "7", name: "Volkswagen ID.3", capacityKWh: 58, efficiency: 0.90, maxPowerKW: 120, acMaxKW: 11, acPhases: 3, acMaxA: 16, connectorTypes: ["TYPE2", "CCS"], imageUrl: "/images/generic-ev.png" },
+  { id: "8", name: "Peugeot e-208", capacityKWh: 50, efficiency: 0.89, maxPowerKW: 100, acMaxKW: 11, acPhases: 3, acMaxA: 16, connectorTypes: ["TYPE2", "CCS"], imageUrl: "/images/generic-ev.png" },
+  { id: "9", name: "Mercedes EQC", capacityKWh: 80, efficiency: 0.91, maxPowerKW: 110, acMaxKW: 11, acPhases: 3, acMaxA: 16, connectorTypes: ["TYPE2", "CCS"], imageUrl: "/images/generic-ev.png" },
+  { id: "10", name: "Porsche Taycan", capacityKWh: 93, efficiency: 0.94, maxPowerKW: 270, acMaxKW: 22, acPhases: 3, acMaxA: 32, connectorTypes: ["TYPE2", "CCS"], imageUrl: "/images/generic-ev.png" }
 ];
+
+/**
+ * Retourne la liste des types EVSE compatibles avec un véhicule donné.
+ *
+ * Règles de compatibilité:
+ * - TYPE2 → AC (mono/bi/tri selon acPhases du véhicule)
+ * - CCS → DC (tous niveaux) + AC via TYPE2
+ * - CHADEMO → DC uniquement
+ * - Si aucun connectorTypes défini → tous les types sont disponibles (fallback)
+ *
+ * @param vehicle Le profil du véhicule sélectionné
+ * @returns Liste ordonnée des EvseType compatibles
+ */
+export function getCompatibleEvseTypes(vehicle: { connectorTypes?: string[]; acPhases?: number } | null | undefined): { value: EvseType; label: string }[] {
+  const allTypes: { value: EvseType; label: string }[] = [
+    { value: 'ac-mono', label: 'AC Mono (1 phase)' },
+    { value: 'ac-bi', label: 'AC Bi (2 phases)' },
+    { value: 'ac-tri', label: 'AC Tri (3 phases)' },
+    { value: 'dc', label: 'DC' },
+  ];
+
+  if (!vehicle || !vehicle.connectorTypes || vehicle.connectorTypes.length === 0) {
+    return allTypes;
+  }
+
+  const connectors = vehicle.connectorTypes.map(c => c.toUpperCase());
+  const acPhases = vehicle.acPhases ?? 3;
+  const result: { value: EvseType; label: string }[] = [];
+
+  // AC: le véhicule doit avoir un connecteur TYPE2 (ou CCS qui inclut TYPE2)
+  const supportsAC = connectors.includes('TYPE2') || connectors.includes('CCS');
+  if (supportsAC) {
+    result.push({ value: 'ac-mono', label: 'AC Mono (1 phase)' });
+    if (acPhases >= 2) {
+      result.push({ value: 'ac-bi', label: 'AC Bi (2 phases)' });
+    }
+    if (acPhases >= 3) {
+      result.push({ value: 'ac-tri', label: 'AC Tri (3 phases)' });
+    }
+  }
+
+  // DC: le véhicule doit avoir CCS ou CHAdeMO
+  const supportsDC = connectors.includes('CCS') || connectors.includes('CHADEMO');
+  if (supportsDC) {
+    result.push({ value: 'dc', label: 'DC' });
+  }
+
+  return result.length > 0 ? result : allTypes;
+}
 
 /**
  * Calcule la puissance effective AC en prenant en compte les limites EVSE et véhicule.
