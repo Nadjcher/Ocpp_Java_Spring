@@ -33,7 +33,7 @@ import {
   VEHICLE_SCALE,
   DEFAULT_VEHICLES,
   calculateEffectiveACPower,
-  getCompatibleEvseTypes
+  getVehicleConnectors
 } from '@/constants/evse.constants';
 
 // Utilitaires extraits dans un fichier dédié
@@ -1041,26 +1041,25 @@ export default function SimuEvseTab() {
   }>>([]);
   const [vehicleId, setVehicleId] = useState<string>("");
 
-  // Connecteurs compatibles selon le véhicule sélectionné
+  // Connecteurs physiques du véhicule sélectionné
   const selectedVehicle = useMemo(
     () => vehicles.find(v => v.id === vehicleId),
     [vehicles, vehicleId]
   );
-  const compatibleEvseTypes = useMemo(
-    () => getCompatibleEvseTypes(selectedVehicle),
+  const vehicleConnectors = useMemo(
+    () => getVehicleConnectors(selectedVehicle),
     [selectedVehicle]
   );
+  const [selectedConnectorIdx, setSelectedConnectorIdx] = useState<number>(0);
 
-  // Auto-sélection d'un type EVSE compatible quand le véhicule change
+  // Quand le véhicule change, reset le connecteur à 0 et maj evseType
   useEffect(() => {
-    if (compatibleEvseTypes.length > 0) {
-      const isCurrentCompatible = compatibleEvseTypes.some(t => t.value === evseType);
-      if (!isCurrentCompatible) {
-        setEvseType(compatibleEvseTypes[0].value);
-      }
+    setSelectedConnectorIdx(0);
+    if (vehicleConnectors.length > 0) {
+      setEvseType(vehicleConnectors[0].evseType);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compatibleEvseTypes]);
+  }, [vehicleConnectors]);
 
   const [mvEvery, setMvEvery] = useState<number>(10);
   const [mvMask, setMvMask] = useState<MvMask>({
@@ -2704,23 +2703,21 @@ export default function SimuEvseTab() {
 
             <div className="grid grid-cols-12 gap-2">
               <div className="col-span-3">
-                <div className="text-xs mb-1">Type EVSE</div>
+                <div className="text-xs mb-1">Connecteur</div>
                 <select
                     className="w-full border rounded px-2 py-1"
-                    value={evseType}
-                    onChange={(e) =>
-                        setEvseType(e.target.value as any)
-                    }
+                    value={selectedConnectorIdx}
+                    onChange={(e) => {
+                      const idx = Number(e.target.value);
+                      setSelectedConnectorIdx(idx);
+                      const conn = vehicleConnectors[idx];
+                      if (conn) setEvseType(conn.evseType);
+                    }}
                 >
-                  {compatibleEvseTypes.map((t) => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
+                  {vehicleConnectors.map((c) => (
+                    <option key={c.index} value={c.index}>{c.label}</option>
                   ))}
                 </select>
-                {selectedVehicle?.connectorTypes && (
-                  <div className="text-[10px] text-slate-400 mt-0.5">
-                    {selectedVehicle.connectorTypes.join(', ')}
-                  </div>
-                )}
               </div>
               <div className="col-span-2">
                 <div className="text-xs mb-1">{isDCCharging ? 'Max (kW)' : 'Max (A)'}</div>

@@ -150,6 +150,59 @@ export function getCompatibleEvseTypes(vehicle: { connectorTypes?: string[]; acP
 }
 
 /**
+ * Connecteur physique d'un véhicule avec label et type EVSE associé.
+ */
+export interface VehicleConnector {
+  index: number;       // 0-based
+  label: string;       // ex: "Connecteur 1 — TYPE2 (AC Tri)"
+  type: string;        // ex: "TYPE2", "CCS", "CHADEMO"
+  evseType: EvseType;  // type EVSE auto-déterminé
+}
+
+/**
+ * Retourne les connecteurs physiques du véhicule sous forme de liste numérotée.
+ * Chaque connecteur est associé automatiquement au bon type EVSE.
+ *
+ * Mapping:
+ * - TYPE2 → AC (mono/bi/tri selon acPhases du véhicule)
+ * - CCS   → DC
+ * - CHADEMO → DC
+ */
+export function getVehicleConnectors(vehicle: { connectorTypes?: string[]; acPhases?: number } | null | undefined): VehicleConnector[] {
+  if (!vehicle?.connectorTypes?.length) {
+    // Fallback: connecteur AC générique + DC
+    return [
+      { index: 0, label: 'Connecteur 1 — TYPE2 (AC Tri)', type: 'TYPE2', evseType: 'ac-tri' },
+      { index: 1, label: 'Connecteur 2 — CCS (DC)', type: 'CCS', evseType: 'dc' },
+    ];
+  }
+
+  const acPhases = vehicle.acPhases ?? 3;
+
+  return vehicle.connectorTypes.map((raw, i) => {
+    const type = raw.toUpperCase();
+    let evseType: EvseType;
+    let detail: string;
+
+    if (type === 'TYPE2') {
+      if (acPhases <= 1) { evseType = 'ac-mono'; detail = 'AC Mono'; }
+      else if (acPhases === 2) { evseType = 'ac-bi'; detail = 'AC Bi'; }
+      else { evseType = 'ac-tri'; detail = 'AC Tri'; }
+    } else {
+      evseType = 'dc';
+      detail = 'DC';
+    }
+
+    return {
+      index: i,
+      label: `Connecteur ${i + 1} — ${type} (${detail})`,
+      type,
+      evseType,
+    };
+  });
+}
+
+/**
  * Calcule la puissance effective AC en prenant en compte les limites EVSE et véhicule.
  *
  * @param evsePhases Nombre de phases de l'EVSE (1, 2 ou 3)
