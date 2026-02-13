@@ -7,21 +7,25 @@ interface SessionConfigPanelProps {
   config: SessionConfig;
   onChange: (config: Partial<SessionConfig>) => void;
   disabled?: boolean;
+  compatibleEvseTypes?: { value: EvseType; label: string }[];
 }
 
 export function SessionConfigPanel({
   config,
   onChange,
-  disabled = false
+  disabled = false,
+  compatibleEvseTypes
 }: SessionConfigPanelProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const evseTypes: { value: EvseType; label: string }[] = [
+  const defaultEvseTypes: { value: EvseType; label: string }[] = [
     { value: 'ac-mono', label: 'AC Mono (1 phase)' },
     { value: 'ac-bi', label: 'AC Bi (2 phases)' },
     { value: 'ac-tri', label: 'AC Tri (3 phases)' },
     { value: 'dc', label: 'DC' }
   ];
+
+  const evseTypes = compatibleEvseTypes ?? defaultEvseTypes;
 
   const environments: { value: Environment; label: string }[] = [
     { value: 'test', label: 'Test' },

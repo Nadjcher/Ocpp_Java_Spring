@@ -14,6 +14,7 @@ export type VehicleProfile = {
   maxPowerKW?: number;
   efficiency?: number;
   connectorType?: 'Type2' | 'CCS' | 'CHAdeMO' | string;
+  connectorTypes?: string[];
   imageUrl?: string;
   chargingCurve?: ChargingPoint[];
   curve?: ChargingPoint[];
@@ -35,6 +36,16 @@ function normalize(input: any): VehicleProfile[] {
 
     const name = (v.name ?? `${v.manufacturer ?? ''} ${v.model ?? ''} ${v.variant ?? ''}`.trim()) || 'EV';
 
+    // Normaliser connectorTypes: depuis connectorTypes[], connectorType ou dcConnectors
+    let connTypes: string[] | undefined = v.connectorTypes;
+    if (!connTypes && v.connectorType) {
+      connTypes = [v.connectorType.toUpperCase()];
+    }
+    if (!connTypes && v.dcConnectors) {
+      connTypes = [...(v.dcConnectors as string[]).map((c: string) => c.toUpperCase())];
+      if (!connTypes.includes('TYPE2')) connTypes.unshift('TYPE2');
+    }
+
     return {
       id: String(v.id ?? v.key ?? name.toLowerCase().replace(/\s+/g, '_')),
       manufacturer: v.manufacturer ?? v.make,
@@ -46,6 +57,7 @@ function normalize(input: any): VehicleProfile[] {
       maxPowerKW: Number(v.maxPowerKW ?? v.maxPower ?? (Math.max(...curve.map((c: ChargingPoint) => c.powerKW), 22) || 22)),
       efficiency: Number(v.efficiency ?? 0.92),
       connectorType: v.connectorType,
+      connectorTypes: connTypes,
       imageUrl: v.imageUrl ?? v.image,
       chargingCurve: curve,
       curve
