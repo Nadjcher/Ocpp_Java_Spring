@@ -39,6 +39,20 @@ export default defineConfig({
                 changeOrigin: true,
                 ws: true
             },
+            // Proxy pour l'API Gateway (environnement PP)
+            "/apigw": {
+                target: "https://pp.total-ev-charge.com",
+                changeOrigin: true,
+                secure: true,
+                configure: (proxy) => {
+                    proxy.on('proxyReq', (proxyReq, req) => {
+                        console.log(`[Proxy APIGW] ${req.method} ${req.url} -> pp.total-ev-charge.com`);
+                    });
+                    proxy.on('error', (err) => {
+                        console.error('[Proxy APIGW Error]', err.message);
+                    });
+                }
+            },
         },
     },
     resolve: {

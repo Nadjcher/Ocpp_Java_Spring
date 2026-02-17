@@ -1,4 +1,5 @@
 import { config } from "@/config/env";
+import { TokenService } from "@/auth/TokenService";
 
 // API client pour parler au runner (Swagger)
 // En développement, utiliser une chaîne vide pour passer par le proxy Vite
@@ -12,10 +13,32 @@ export const RUNNER = (() => {
 
 /** Helper JSON tolérant (pas de crash si body vide) */
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
+    // Construire les headers avec injection Bearer pour /apigw
+    const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...(init?.headers as Record<string, string> || {}),
+    };
+
+    // Injecter le token Bearer pour les appels /apigw
+    if (path.includes('/apigw/')) {
+        const token = TokenService.getAccessToken();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+    }
+
     const res = await fetch(`${RUNNER}${path}`, {
-        headers: { "Content-Type": "application/json" },
         ...init,
+        headers,
+        credentials: path.includes('/apigw/') ? 'include' : 'same-origin',
     });
+
+    // Gérer les erreurs 401/403 pour les appels /apigw -> redirection vers EVP
+    if ((res.status === 401 || res.status === 403) && path.includes('/apigw/')) {
+        window.dispatchEvent(new CustomEvent('auth:logout'));
+        throw new Error(`Authentication required (${res.status})`);
+    }
+
     const txt = await res.text();
     if (!res.ok) throw new Error(`${res.status} ${txt}`);
     try {
@@ -208,6 +231,32 @@ export const tnr = {
 };
 
 /* ---------- Generic API Client (axios-like interface) ---------- */
+
+/** Helper pour construire les headers avec Bearer token si nécessaire */
+function buildHeaders(url: string, extraHeaders?: Record<string, string>): Record<string, string> {
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...extraHeaders,
+    };
+
+    if (url.includes('/apigw/')) {
+        const token = TokenService.getAccessToken();
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+    }
+
+    return headers;
+}
+
+/** Helper pour gérer les erreurs auth -> redirection vers EVP */
+async function handleAuthError(res: Response, url: string): Promise<void> {
+    if ((res.status === 401 || res.status === 403) && url.includes('/apigw/')) {
+        window.dispatchEvent(new CustomEvent('auth:logout'));
+        throw new Error(`Authentication required (${res.status})`);
+    }
+}
+
 export const apiClient = {
     get: async <T>(url: string): Promise<{ data: T }> => {
         const data = await http<T>(url);
@@ -215,11 +264,14 @@ export const apiClient = {
     },
     post: async <T>(url: string, body?: any, options?: { headers?: Record<string, string>; responseType?: string }): Promise<{ data: T }> => {
         if (options?.responseType === 'blob') {
+            const headers = buildHeaders(url, options?.headers);
             const res = await fetch(`${RUNNER}${url}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...options?.headers },
+                headers,
                 body: body ? JSON.stringify(body) : undefined,
+                credentials: url.includes('/apigw/') ? 'include' : 'same-origin',
             });
+            await handleAuthError(res, url);
             const data = await res.blob();
             return { data: data as unknown as T };
         }
