@@ -6,7 +6,6 @@ import com.evse.simulator.ocpp.v16.AbstractOcpp16IncomingHandler;
 import com.evse.simulator.ocpp.v16.Ocpp16Exception;
 import com.evse.simulator.ocpp.v16.model.types.ConfigurationStatus;
 import com.evse.simulator.service.OCPPService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -19,11 +18,13 @@ import java.util.Set;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class ChangeConfigurationHandler extends AbstractOcpp16IncomingHandler {
 
-    @Lazy
     private final OCPPService ocppService;
+
+    public ChangeConfigurationHandler(@Lazy OCPPService ocppService) {
+        this.ocppService = ocppService;
+    }
 
     // Clés de configuration supportées et modifiables
     private static final Set<String> WRITABLE_KEYS = Set.of(
