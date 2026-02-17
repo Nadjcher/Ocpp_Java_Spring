@@ -4,6 +4,9 @@
 
 const EVP_LOGIN_URL = 'https://pp.total-ev-charge.com/powerplatform/';
 
+// Mode dev: bypass auth en local (désactiver en prod)
+const DEV_MODE = import.meta.env.DEV;
+
 export const TokenService = {
   /**
    * Récupère le token d'accès. Priorité :
@@ -27,7 +30,41 @@ export const TokenService = {
   },
 
   isAuthenticated(): boolean {
+    // En mode dev, permettre de bypasser l'auth avec une variable localStorage
+    if (DEV_MODE && localStorage.getItem('dev_bypass_auth') === 'true') {
+      return true;
+    }
     return this.getAccessToken() !== null;
+  },
+
+  /**
+   * Active le bypass auth en mode dev.
+   * Usage console: TokenService.enableDevBypass()
+   */
+  enableDevBypass(): void {
+    if (DEV_MODE) {
+      localStorage.setItem('dev_bypass_auth', 'true');
+      console.log('[Auth] Dev bypass enabled. Reload the page.');
+    } else {
+      console.warn('[Auth] Dev bypass only works in development mode.');
+    }
+  },
+
+  /**
+   * Désactive le bypass auth.
+   */
+  disableDevBypass(): void {
+    localStorage.removeItem('dev_bypass_auth');
+    console.log('[Auth] Dev bypass disabled.');
+  },
+
+  /**
+   * Injecte un token manuellement (pour tests).
+   * Usage console: TokenService.setToken('eyJ...')
+   */
+  setToken(token: string): void {
+    localStorage.setItem('access_token', token.trim());
+    console.log('[Auth] Token set. Reload the page.');
   },
 
   /**
@@ -130,3 +167,11 @@ export const TokenService = {
     return null;
   },
 };
+
+// Exposer TokenService sur window en mode dev pour debug console
+if (DEV_MODE && typeof window !== 'undefined') {
+  (window as any).TokenService = TokenService;
+  console.log('[Auth] Dev mode - TokenService disponible. Commandes:');
+  console.log('  TokenService.enableDevBypass() - Bypass auth');
+  console.log('  TokenService.setToken("eyJ...") - Injecter un token');
+}
