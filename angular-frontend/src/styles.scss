@@ -1,0 +1,15 @@
+/* Global styles for GPM Simulator */
+
+:root {
+  --tds-color-primary: #e10600;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+  background-color: var(--tds-color-surface-primary, #f5f5f5);
+}
+
+* {
+  box-sizing: border-box;
+}
