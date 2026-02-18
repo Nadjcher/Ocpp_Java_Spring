@@ -1,8 +1,4 @@
 {
-  "LOGIN": {
-    "TITLE": "Connexion au Simulateur GPM",
-    "BUTTON": "Se connecter via"
-  },
   "PAGE_NOT_FOUND": {
     "BUTTON": "Retour a l'accueil",
     "MESSAGE": "La page que vous recherchez n'existe pas ou est temporairement indisponible.",

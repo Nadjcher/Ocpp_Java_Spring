@@ -1,6 +1,4 @@
-import { AuthenticationConfig } from './authentication-config.model';
-
 export interface Environment {
-  authentication: AuthenticationConfig;
-  portalSdkUrl: string;
+  // Configuration du simulateur GPM
+  // L'authentification est geree automatiquement via les cookies EVP
 }

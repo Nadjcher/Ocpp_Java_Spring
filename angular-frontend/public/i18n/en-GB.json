@@ -1,8 +1,4 @@
 {
-  "LOGIN": {
-    "TITLE": "GPM Simulator Login",
-    "BUTTON": "Sign in with"
-  },
   "PAGE_NOT_FOUND": {
     "BUTTON": "Return to home",
     "MESSAGE": "The page you are looking for does not exist or is temporarily unavailable.",

@@ -1,8 +1,0 @@
-<h1>{{ 'LOGIN.TITLE' | transloco }}</h1>
-<div class="login-button-container">
-  @for (identityProvider of identityProviders; track identityProvider.id) {
-    <button tds-button class="login-button" (click)="login(identityProvider)">
-      {{ 'LOGIN.BUTTON' | transloco }} {{ identityProvider.displayedName | uppercase }}
-    </button>
-  }
-</div>

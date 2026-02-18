@@ -1,21 +1,20 @@
 import { Component, inject, OnInit } from '@angular/core';
-import { AuthenticationService } from '../authentication/authentication.service';
-import { ButtonComponent } from '@totalenergiescode/tds-angular';
+import { Router } from '@angular/router';
+import { TokenService } from '../authentication/token.service';
+import { DecimalPipe } from '@angular/common';
 
 @Component({
   selector: 'app-simulator',
-  imports: [ButtonComponent],
+  imports: [DecimalPipe],
   template: `
     <div class="simulator-container">
       <header class="simulator-header">
         <h1>GPM Simulator</h1>
         <div class="header-actions">
-          @if (tokenInfo) {
-            <span class="token-info">
-              Token expire dans {{ tokenInfo.expiresIn | number:'1.0-0' }}s
-            </span>
-          }
-          <button tds-button variant="secondary" (click)="logout()">
+          <span class="token-info">
+            Token expire dans {{ timeRemaining | number:'1.0-0' }}s
+          </span>
+          <button class="btn-secondary" (click)="logout()">
             Deconnexion
           </button>
         </div>
@@ -24,13 +23,6 @@ import { ButtonComponent } from '@totalenergiescode/tds-angular';
       <main class="simulator-content">
         <p>Bienvenue dans le simulateur GPM.</p>
         <p>Vous etes authentifie avec succes.</p>
-
-        @if (tokenInfo) {
-          <div class="token-details">
-            <h3>Informations du token</h3>
-            <pre>{{ tokenInfo | json }}</pre>
-          </div>
-        }
 
         <!-- TODO: Ajouter les composants du simulateur ici -->
       </main>
@@ -60,27 +52,19 @@ import { ButtonComponent } from '@totalenergiescode/tds-angular';
     .simulator-content {
       padding: var(--tds-size-spacing-200);
     }
-    .token-details {
-      margin-top: var(--tds-size-spacing-200);
-      padding: var(--tds-size-spacing-100);
-      background: var(--tds-color-surface-secondary);
-      border-radius: var(--tds-size-radius-100);
-    }
-    .token-details pre {
-      font-size: 0.75rem;
-      overflow-x: auto;
-    }
   `]
 })
 export class Simulator implements OnInit {
-  private authService = inject(AuthenticationService);
-  tokenInfo: { sub: string; exp: number; scope: string; expiresIn: number } | null = null;
+  private tokenService = inject(TokenService);
+  private router = inject(Router);
+  timeRemaining = 0;
 
   ngOnInit(): void {
-    this.tokenInfo = this.authService.getTokenInfo();
+    this.timeRemaining = this.tokenService.getTimeRemaining();
   }
 
   logout(): void {
-    this.authService.logout();
+    this.tokenService.clear();
+    this.router.navigate(['/unauthorized']);
   }
 }

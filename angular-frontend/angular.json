@@ -31,7 +31,6 @@
               }
             ],
             "styles": [
-              "node_modules/@totalenergiescode/tds-css/dist/tds.css",
               "src/styles.scss"
             ],
             "scripts": []

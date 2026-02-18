@@ -2,14 +2,55 @@
 
 :root {
   --tds-color-primary: #e10600;
+  --tds-color-surface-primary: #f5f5f5;
+  --tds-color-surface-secondary: #ffffff;
+  --tds-color-border-default: #e0e0e0;
+  --tds-color-text-secondary: #666666;
+  --tds-size-spacing-100: 8px;
+  --tds-size-spacing-200: 16px;
+  --tds-size-radius-100: 4px;
 }
 
 body {
   margin: 0;
-  font-family: 'Inter', sans-serif;
-  background-color: var(--tds-color-surface-primary, #f5f5f5);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--tds-color-surface-primary);
 }
 
 * {
   box-sizing: border-box;
+}
+
+/* Button styles to replace TDS components */
+button, .btn-primary, .btn-secondary, .login-button {
+  padding: 12px 24px;
+  border-radius: var(--tds-size-radius-100);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: background-color 0.2s, transform 0.1s;
+}
+
+.btn-primary, .login-button {
+  background-color: var(--tds-color-primary);
+  color: white;
+}
+
+.btn-primary:hover, .login-button:hover {
+  background-color: #c10500;
+}
+
+.btn-secondary {
+  background-color: white;
+  color: var(--tds-color-primary);
+  border: 1px solid var(--tds-color-primary);
+}
+
+.btn-secondary:hover {
+  background-color: #fff5f5;
+}
+
+button:active {
+  transform: scale(0.98);
 }
