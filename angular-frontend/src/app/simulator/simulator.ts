@@ -1,6 +1,6 @@
 import { Component, inject, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
-import { TokenService } from '../authentication/token.service';
+import { TokenService } from '../core/auth/token.service';
 import { DecimalPipe } from '@angular/common';
 
 @Component({
