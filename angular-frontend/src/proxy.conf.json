@@ -1,6 +1,6 @@
 {
   "/apigw/": {
-    "target": "https://evplatform.evcharge-pp.totalenergies.com",
+    "target": "https://pp.total-ev-charge.com",
     "secure": true,
     "changeOrigin": true
   }
