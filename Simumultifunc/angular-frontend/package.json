@@ -4,7 +4,7 @@
   "description": "GPM Simulator - Angular Frontend with OAuth2 Authentication",
   "scripts": {
     "ng": "ng",
-    "setup:env": "test -f public/env.js || cp public/env.example.js public/env.js",
+    "setup:env": "node -e \"const fs=require('fs'); if(!fs.existsSync('public/env.js')) fs.copyFileSync('public/env.example.js','public/env.js')\"",
     "prestart": "npm run setup:env",
     "start": "ng serve --proxy-config src/proxy.conf.json",
     "prebuild": "npm run setup:env",
