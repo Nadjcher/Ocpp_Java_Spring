@@ -1254,7 +1254,6 @@ export default function SimuEvseTab() {
   const isCharging = selSession?.status === "charging" || selSession?.status === "started";
   const voltage = selSession?.metrics?.voltage || DEFAULT_VOLTAGE;
   const phases = selSession?.metrics?.phases || DEFAULT_PHASES[evseType] || 1;
-  const selectedVehicle = vehicles.find((v) => v.id === vehicleId) || undefined;
   const vehicleCapacityKWh = selectedVehicle?.capacityKWh ?? 60;
   const vehicleEfficiency = selectedVehicle?.efficiency ?? EFFICIENCY_DEFAULT;
   const vehicleImage = selectedVehicle?.imageUrl || ASSETS.genericEV;
