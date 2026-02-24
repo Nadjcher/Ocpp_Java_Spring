@@ -94,6 +94,7 @@ interface PerSessionLocalState {
   idTag: string;
   evseType: "ac-mono" | "ac-bi" | "ac-tri" | "dc";
   maxA: number;
+  connectorId: number;
   mvEvery: number;
   mvMask: MeterValuesMask;
   environment: "test" | "pp";
@@ -131,6 +132,7 @@ function initSessionStateCache(): Map<string, PerSessionLocalState> {
           idTag: state.idTag || '',
           evseType: state.evseType || 'ac-tri',
           maxA: state.maxA ?? 32,
+          connectorId: state.connectorId ?? 1,
           mvEvery: state.mvEvery ?? 10,
           mvMask: state.mvMask || {
             powerActive: true,
@@ -214,6 +216,7 @@ function getDefaultSessionState(sessionIndex?: number): PerSessionLocalState {
     idTag: '',
     evseType: 'ac-tri',
     maxA: 32,
+    connectorId: 1,
     mvEvery: 10,
     mvMask: {
       powerActive: true,
@@ -1004,6 +1007,7 @@ export default function SimuEvseTab() {
 
   const [evseType, setEvseType] = useState<"ac-mono" | "ac-bi" | "ac-tri" | "dc">("ac-tri");
   const [maxA, setMaxA] = useState<number>(32);
+  const [connectorId, setConnectorId] = useState<number>(1);
   // Mode test: ignorer les limites véhicule pour la puissance physique
   const [bypassVehicleLimits, setBypassVehicleLimits] = useState<boolean>(false);
 
@@ -1123,6 +1127,7 @@ export default function SimuEvseTab() {
         idTag,
         evseType,
         maxA,
+        connectorId,
         mvEvery,
         mvMask,
         environment
@@ -1131,7 +1136,7 @@ export default function SimuEvseTab() {
       persistSessionCache(); // Persister dans localStorage
       console.log('[SessionIsolation] Saved state for session:', currentId, 'cpId:', cpId);
     }
-  }, [logs, series, isParked, isPlugged, mvRunning, socStart, socTarget, vehicleId, cpId, idTag, evseType, maxA, mvEvery, mvMask, environment]);
+  }, [logs, series, isParked, isPlugged, mvRunning, socStart, socTarget, vehicleId, cpId, idTag, evseType, maxA, connectorId, mvEvery, mvMask, environment]);
 
   // Charger l'état depuis le cache ou créer un nouvel état
   const loadSessionState = useCallback((newId: string | null) => {
@@ -1161,6 +1166,7 @@ export default function SimuEvseTab() {
       setIdTag(cached.idTag);
       setEvseType(cached.evseType);
       setMaxA(cached.maxA);
+      setConnectorId(cached.connectorId ?? 1);
       setMvEvery(cached.mvEvery);
       setMvMask(cached.mvMask);
       setEnvironment(cached.environment);
@@ -1187,6 +1193,7 @@ export default function SimuEvseTab() {
       setIdTag(defaultState.idTag);
       setEvseType(defaultState.evseType);
       setMaxA(defaultState.maxA);
+      setConnectorId(defaultState.connectorId);
       setMvEvery(defaultState.mvEvery);
       setMvMask(defaultState.mvMask);
       setEnvironment(defaultState.environment);
@@ -1273,7 +1280,7 @@ export default function SimuEvseTab() {
           })
   );
 
-  const profileState = profilesManager.getConnectorState(1);
+  const profileState = profilesManager.getConnectorState(connectorId);
 
   // ========= 9. CALCULS USEMEMO (peuvent maintenant utiliser vehMaxKwAtSoc) =========
   // Puissance max de la borne DC (configurable, typiquement 50-350 kW)
@@ -1375,7 +1382,7 @@ export default function SimuEvseTab() {
   useEffect(() => {
     const maxPowerW = physicalLimitKw * 1000;
     profilesManager.setMaxPowerW(maxPowerW);
-    profilesManager.updateConnectorConfig(1, { voltage, phases });
+    profilesManager.updateConnectorConfig(connectorId, { voltage, phases });
   }, [physicalLimitKw, voltage, phases, profilesManager]);
 
   // ========= 10. FONCTIONS ACTIONS =========
@@ -1768,12 +1775,12 @@ export default function SimuEvseTab() {
 
   const onStart = async () => {
     if (!selId) return;
-    profilesManager.markTransactionStart(1);
-    addLog('INFO', 'OCPP', `>> Sending StartTransaction`, { connectorId: 1 });
+    profilesManager.markTransactionStart(connectorId);
+    addLog('INFO', 'OCPP', `>> Sending StartTransaction`, { connectorId });
     try {
       const res = await fetchJSON<any>(`/api/simu/${selId}/startTx`, {
         method: "POST",
-        body: JSON.stringify({ connectorId: 1 }),
+        body: JSON.stringify({ connectorId }),
       });
       addLog('INFO', 'OCPP', `<< StartTransaction Response`, res);
     } catch (e: any) {
@@ -1793,7 +1800,7 @@ export default function SimuEvseTab() {
     await tnr.tapEvent(
         "session",
         "StartTransaction",
-        { connectorId: 1, mvEvery },
+        { connectorId, mvEvery },
         selId
     );
   };
@@ -1802,7 +1809,7 @@ export default function SimuEvseTab() {
     if (!selId) return;
 
     // 1. Marquer fin de transaction dans le profiles manager
-    profilesManager.markTransactionStop(1);
+    profilesManager.markTransactionStop(connectorId);
 
     // 2. Arreter les MeterValues periodiques
     addLog('INFO', 'MV', `>> Stopping MeterValues`);
@@ -1826,7 +1833,7 @@ export default function SimuEvseTab() {
     await fetchJSON(`/api/simu/${selId}/status`, {
       method: "POST",
       body: JSON.stringify({
-        connectorId: 1,
+        connectorId,
         status: "Finishing",
         errorCode: "NoError",
         timestamp: new Date().toISOString()
@@ -1840,7 +1847,7 @@ export default function SimuEvseTab() {
       await fetchJSON(`/api/simu/${selId}/status`, {
         method: "POST",
         body: JSON.stringify({
-          connectorId: 1,
+          connectorId,
           status: "Available",
           errorCode: "NoError",
           timestamp: new Date().toISOString()
@@ -2531,13 +2538,29 @@ export default function SimuEvseTab() {
               {cpUrl}
             </div>
 
-            {/* CP-ID reste éditable */}
-            <div className="text-xs mb-1">CP-ID</div>
-            <input
-                className="w-full border rounded px-2 py-1 mb-3"
-                value={cpId}
-                onChange={(e) => setCpId(e.target.value)}
-            />
+            {/* CP-ID et Connecteur */}
+            <div className="flex gap-2 mb-3">
+              <div className="flex-1">
+                <div className="text-xs mb-1">CP-ID</div>
+                <input
+                    className="w-full border rounded px-2 py-1"
+                    value={cpId}
+                    onChange={(e) => setCpId(e.target.value)}
+                />
+              </div>
+              <div className="w-20">
+                <div className="text-xs mb-1">Connecteur</div>
+                <select
+                    className="w-full border rounded px-2 py-1"
+                    value={connectorId}
+                    onChange={(e) => setConnectorId(Number(e.target.value))}
+                >
+                  {[1, 2, 3, 4].map(n => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
             {/* Boutons de connexion */}
             <div className="flex gap-2">
@@ -2586,7 +2609,7 @@ export default function SimuEvseTab() {
             <div className="mt-4">
               <ChargingProfileCard
                   profilesManager={profilesManager}
-                  connectorId={1}
+                  connectorId={connectorId}
               />
             </div>
 
@@ -3236,7 +3259,7 @@ export default function SimuEvseTab() {
             <div className="mb-3">
               <ChargingProfileCard
                   profilesManager={profilesManager}
-                  connectorId={1}
+                  connectorId={connectorId}
               />
             </div>
 

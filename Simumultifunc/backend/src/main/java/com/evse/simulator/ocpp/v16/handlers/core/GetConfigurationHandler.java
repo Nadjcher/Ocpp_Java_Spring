@@ -85,7 +85,7 @@ public class GetConfigurationHandler extends AbstractOcpp16IncomingHandler {
         configs.add(KeyValue.builder()
             .key("NumberOfConnectors")
             .readonly(true)
-            .value("1")
+            .value(String.valueOf(session.getConnectorId()))
             .build().toMap());
 
         configs.add(KeyValue.builder()
@@ -150,7 +150,8 @@ public class GetConfigurationHandler extends AbstractOcpp16IncomingHandler {
                 .value(String.valueOf(session.getMeterValuesInterval()))
                 .build();
             case "NumberOfConnectors" -> KeyValue.builder()
-                .key(key).readonly(true).value("1")
+                .key(key).readonly(true)
+                .value(String.valueOf(session.getConnectorId()))
                 .build();
             case "ChargePointVendor" -> KeyValue.builder()
                 .key(key).readonly(true)
