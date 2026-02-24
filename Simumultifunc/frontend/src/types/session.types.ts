@@ -238,6 +238,7 @@ export interface VehicleProfile {
   acMaxKW?: number;     // Puissance AC max (chargeur embarqué)
   acPhases?: number;    // Nombre de phases AC supportées (1, 2 ou 3)
   acMaxA?: number;      // Courant max par phase en AC
+  connectorTypes?: string[];  // Types de connecteurs supportés (ex: ["TYPE2", "CCS"])
   efficiency?: number;
   imageUrl?: string;
   chargingCurve?: Record<number, number>;
