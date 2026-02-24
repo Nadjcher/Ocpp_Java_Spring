@@ -22,16 +22,27 @@ export class TokenService {
 
   /**
    * Charge le token dans cet ordre :
-   * 1. Cookie "evp_access_token"
-   * 2. localStorage "evp_access_token" (fallback dev)
+   * 1. URL query param "?token=..." ou fragment "#access_token=..."
+   * 2. Cookie "evp_access_token"
+   * 3. localStorage "evp_access_token" (fallback dev)
    */
   loadToken(): void {
+    // 1. Token dans l'URL (redirect depuis gpm-auth-proxy ou OAuth)
+    const fromUrl = this.extractTokenFromUrl();
+    if (fromUrl && !this.isExpired(fromUrl)) {
+      this.setToken(fromUrl);
+      this.cleanUrl();
+      return;
+    }
+
+    // 2. Cookie EVP (production, meme domaine)
     const fromCookie = this.getCookie('evp_access_token');
     if (fromCookie && !this.isExpired(fromCookie)) {
       this.tokenSignal.set(fromCookie);
       return;
     }
 
+    // 3. localStorage (dev fallback)
     const fromStorage = localStorage.getItem('evp_access_token');
     if (fromStorage && !this.isExpired(fromStorage)) {
       this.tokenSignal.set(fromStorage);
@@ -97,5 +108,26 @@ export class TokenService {
     if (!payload?.exp) return true;
     // Expiré si moins de 60 secondes restantes
     return payload.exp * 1000 < Date.now() + 60_000;
+  }
+
+  private extractTokenFromUrl(): string | null {
+    const urlParams = new URLSearchParams(window.location.search);
+    const queryToken = urlParams.get('token');
+    if (queryToken) return queryToken;
+
+    const hash = window.location.hash;
+    if (hash) {
+      const hashParams = new URLSearchParams(hash.substring(1));
+      const fragmentToken = hashParams.get('access_token');
+      if (fragmentToken) return fragmentToken;
+    }
+    return null;
+  }
+
+  private cleanUrl(): void {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('token');
+    url.hash = '';
+    window.history.replaceState({}, document.title, url.toString());
   }
 }

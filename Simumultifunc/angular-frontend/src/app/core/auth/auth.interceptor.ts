@@ -1,5 +1,6 @@
 import { HttpInterceptorFn, HttpErrorResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
+import { Router } from '@angular/router';
 import { TokenService } from './token.service';
 import { tap } from 'rxjs';
 
@@ -10,6 +11,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   }
 
   const tokenService = inject(TokenService);
+  const router = inject(Router);
   const token = tokenService.getToken();
 
   let authReq = req;
@@ -28,6 +30,7 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         if (err instanceof HttpErrorResponse && (err.status === 401 || err.status === 403)) {
           console.warn('[Auth] Token rejeté par la gateway (', err.status, ')');
           tokenService.clear();
+          router.navigate(['/unauthorized']);
         }
       }
     })

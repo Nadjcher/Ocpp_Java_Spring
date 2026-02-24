@@ -15,20 +15,6 @@ const {
 let accessToken = null;
 let tokenExpiresAt = 0;
 
-// Script injecté pour appeler TokenService.setToken()
-const createInjectedScript = (token) => `
-<script>
-(function waitForTokenService() {
-  if (typeof TokenService !== 'undefined') {
-    TokenService.setToken("${token}");
-    console.log('[AuthProxy] Token injecte via TokenService.setToken()');
-  } else {
-    setTimeout(waitForTokenService, 100);
-  }
-})();
-</script>
-</head>`;
-
 // Obtenir un token Cognito
 async function fetchToken() {
   console.log('Obtention du token Cognito...');
@@ -90,7 +76,7 @@ async function startProxy() {
   });
   app.use('/ws', wsProxy);
 
-  // Proxy HTML avec injection du script
+  // Proxy HTML avec injection du token via redirect URL
   app.use('/', async (req, res, next) => {
     const accept = req.headers.accept || '';
 
@@ -103,31 +89,23 @@ async function startProxy() {
       })(req, res, next);
     }
 
-    // Requête HTML: intercepter et injecter le script
+    // Si le token est déjà dans l'URL, proxy direct
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    if (url.searchParams.has('token')) {
+      return createProxyMiddleware({
+        target: SIMULATOR_URL,
+        changeOrigin: true,
+        logLevel: 'silent'
+      })(req, res, next);
+    }
+
+    // Redirect avec le token dans l'URL
     try {
       const token = await ensureToken();
-      const url = `${SIMULATOR_URL}${req.url}`;
-
-      const proxyRes = await fetch(url, {
-        headers: { ...req.headers, host: new URL(SIMULATOR_URL).host, 'accept-encoding': 'identity' }
-      });
-
-      // Copier les headers de réponse
-      proxyRes.headers.forEach((value, key) => {
-        if (key.toLowerCase() !== 'content-length' && key.toLowerCase() !== 'content-encoding') {
-          res.setHeader(key, value);
-        }
-      });
-
-      let body = await proxyRes.text();
-
-      // Injecter le script avant </head>
-      if (body.includes('</head>')) {
-        body = body.replace('</head>', createInjectedScript(token));
-        console.log('[HTML] Script d\'authentification injecte');
-      }
-
-      res.status(proxyRes.status).send(body);
+      url.searchParams.set('token', token);
+      const redirectUrl = url.pathname + url.search;
+      console.log('[Proxy] Redirect avec token vers', url.pathname);
+      res.redirect(302, redirectUrl);
     } catch (err) {
       console.error('[Proxy] Erreur:', err.message);
       next(err);
@@ -139,7 +117,7 @@ async function startProxy() {
     console.log(`\nProxy demarre sur http://localhost:${PROXY_PORT}`);
     console.log(`   Simulateur : ${SIMULATOR_URL} (+ WebSocket)`);
     console.log(`   API cible   : ${API_TARGET_URL}`);
-    console.log(`   Token auto-injecte via TokenService.setToken()\n`);
+    console.log(`   Token auto-injecte via redirect URL (?token=...)\n`);
   });
 
   // Upgrade WebSocket
