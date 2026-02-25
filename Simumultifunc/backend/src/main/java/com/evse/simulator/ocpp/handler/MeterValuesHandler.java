@@ -2,6 +2,7 @@ package com.evse.simulator.ocpp.handler;
 
 import com.evse.simulator.model.Session;
 import com.evse.simulator.model.enums.OCPPAction;
+import com.evse.simulator.ocpp.v16.model.types.*;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -10,17 +11,14 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Handler pour le message MeterValues.
- * Envoie les valeurs de compteur pendant une charge.
- * Format simplifié: Energy, Current/Voltage par phase, Temperature, Power.Offered
+ * Handler pour le message MeterValues (OCPP 1.6).
+ * Envoie les mesures essentielles pendant une charge :
+ * Energy.Active.Import.Register, Power.Active.Import, Current.Import/phase, Voltage/phase, SoC.
  */
 @Component
 public class MeterValuesHandler extends AbstractOcppHandler {
 
-    private static final String CONTEXT_PERIODIC = "Sample.Periodic";
-    private static final String CONTEXT_CLOCK_ALIGNED = "Sample.Clock";
-    private static final String LOCATION_INLET = "Inlet";
-    private static final String LOCATION_BODY = "Body";
+    private static final Phase[] PHASE_NAMES = {Phase.L1, Phase.L2, Phase.L3};
 
     @Override
     public OCPPAction getAction() {
@@ -48,127 +46,88 @@ public class MeterValuesHandler extends AbstractOcppHandler {
     }
 
     /**
-     * Construit un échantillon de valeurs de compteur simplifié.
-     * Format: Energy totale, Current par phase, Voltage par phase, Temperature, Power.Offered
+     * Construit un échantillon MeterValue conforme OCPP 1.6.
+     * Mesurands envoyés : Energy, Power, Current/phase, Voltage/phase, SoC (si disponible).
      */
     private Map<String, Object> buildMeterValueSample(OcppMessageContext context) {
         List<Map<String, Object>> sampledValues = new ArrayList<>();
 
         Session session = context.getSession();
-        int phases = session != null ? session.getEffectivePhases() : 3;
+        int phases = session != null ? session.getEffectivePhases() : 1;
 
-        // Déterminer le contexte de lecture (Sample.Periodic ou Sample.Clock)
-        String readingContext = context.getReadingContext() != null ?
-            context.getReadingContext() : CONTEXT_PERIODIC;
+        ReadingContext readingContext = resolveReadingContext(context);
 
-        // 1. Énergie active importée totale (Wh)
+        // 1. Energy.Active.Import.Register (Wh) - cumulative
         long energyWh = context.getMeterValue() != null ? context.getMeterValue() : 0L;
         sampledValues.add(createSampledValue(
             String.valueOf(energyWh),
-            "Energy.Active.Import.Register",
-            "Wh",
-            LOCATION_INLET,
+            Measurand.ENERGY_ACTIVE_IMPORT_REGISTER,
+            UnitOfMeasure.WH,
+            Location.OUTLET,
             null,
             readingContext
         ));
 
         if (session != null) {
             double voltageV = session.getVoltage();
-            double powerActiveW = session.getCurrentPowerKw() * 1000;  // Puissance actuelle consommée (Import)
+            double powerActiveW = session.getCurrentPowerKw() * 1000;
 
-            // Power.Offered = MIN(setpoint, physLim) - calculé dans simulateCharging
-            double offeredPowerKw = session.getOfferedPowerKw();
-            double powerOfferedW = offeredPowerKw > 0 ? offeredPowerKw * 1000 : session.getMaxPowerKw() * 1000;
-
-            // Current.Offered (pour AC) = MIN(setpoint_A, physLim_A)
-            double offeredCurrentA = session.getOfferedCurrentA();
-            boolean isDC = session.getChargerType() != null && session.getChargerType().isDC();
-
-            // Calculer la tension phase-neutre si nécessaire
+            // Tension phase-neutre (conversion si tension ligne-ligne > 350V)
             double phaseVoltage = voltageV > 350 ? voltageV / Math.sqrt(3) : voltageV;
 
-            // Calculer le courant réel par phase depuis la puissance actuelle
-            // phaseVoltage est toujours la tension phase-neutre (convertie si V_ll > 350)
-            // I_phase = P / (V_pn × nb_phases)
-            double currentA = powerActiveW / (phaseVoltage * phases);
+            // Courant par phase : I = P / (V_pn × nb_phases)
+            double currentA = phaseVoltage > 0 && phases > 0
+                ? powerActiveW / (phaseVoltage * phases)
+                : 0;
 
-            // 2. Courant par phase (L1, L2, L3) - calculé depuis puissance réelle
-            //    AC: currentImport = MIN(setpoint, CNL, physLim)
-            String[] phaseNames = {"L1", "L2", "L3"};
+            // 2. Power.Active.Import (W)
+            sampledValues.add(createSampledValue(
+                String.valueOf((int) Math.round(powerActiveW)),
+                Measurand.POWER_ACTIVE_IMPORT,
+                UnitOfMeasure.W,
+                Location.OUTLET,
+                null,
+                readingContext
+            ));
+
+            // 3. Current.Import par phase (A)
             for (int i = 0; i < Math.min(phases, 3); i++) {
                 sampledValues.add(createSampledValue(
-                    String.format("%.2f", currentA),
-                    "Current.Import",
-                    "A",
-                    LOCATION_INLET,
-                    phaseNames[i],
+                    String.format("%.1f", currentA),
+                    Measurand.CURRENT_IMPORT,
+                    UnitOfMeasure.A,
+                    Location.OUTLET,
+                    PHASE_NAMES[i],
                     readingContext
                 ));
             }
 
-            // 2b. Current.Offered par phase (AC uniquement)
-            //     AC: currentOffered = MIN(setpoint, physLim) - sans CNL véhicule
-            if (!isDC && offeredCurrentA > 0) {
-                for (int i = 0; i < Math.min(phases, 3); i++) {
-                    sampledValues.add(createSampledValue(
-                        String.format("%.2f", offeredCurrentA),
-                        "Current.Offered",
-                        "A",
-                        LOCATION_INLET,
-                        phaseNames[i],
-                        readingContext
-                    ));
-                }
-            }
-
-            // 3. Tension par phase (L1, L2, L3)
-            // Légère variation réaliste entre phases
-            double[] voltageVariations = {0, -3, 1};
+            // 4. Voltage par phase (V)
+            double[] voltageVariations = {0, -2, 1};
             for (int i = 0; i < Math.min(phases, 3); i++) {
                 int voltage = (int) Math.round(phaseVoltage + voltageVariations[i]);
                 sampledValues.add(createSampledValue(
                     String.valueOf(voltage),
-                    "Voltage",
-                    "V",
-                    LOCATION_INLET,
-                    phaseNames[i],
+                    Measurand.VOLTAGE,
+                    UnitOfMeasure.V,
+                    Location.OUTLET,
+                    PHASE_NAMES[i],
                     readingContext
                 ));
             }
 
-            // 4. Température
-            double temperature = session.getTemperature();
-            if (temperature <= 0 || temperature == 25.0) {
-                temperature = 12; // Valeur par défaut réaliste
+            // 5. SoC (%) - uniquement si disponible (location = EV)
+            double soc = session.getSoc();
+            if (soc > 0 && soc <= 100) {
+                sampledValues.add(createSampledValue(
+                    String.valueOf((int) Math.round(soc)),
+                    Measurand.SOC,
+                    UnitOfMeasure.PERCENT,
+                    Location.EV,
+                    null,
+                    readingContext
+                ));
             }
-            sampledValues.add(createSampledValue(
-                String.valueOf((int) temperature),
-                "Temperature",
-                "Celsius",
-                LOCATION_BODY,
-                null,
-                readingContext
-            ));
-
-            // 5. Power.Active.Import (puissance actuelle consommée)
-            sampledValues.add(createSampledValue(
-                String.valueOf((int) powerActiveW),
-                "Power.Active.Import",
-                "W",
-                null,
-                null,
-                readingContext
-            ));
-
-            // 6. Power.Offered (puissance maximale offerte)
-            sampledValues.add(createSampledValue(
-                String.valueOf((int) powerOfferedW),
-                "Power.Offered",
-                "W",
-                null,
-                null,
-                readingContext
-            ));
         }
 
         return createPayload(
@@ -178,31 +137,45 @@ public class MeterValuesHandler extends AbstractOcppHandler {
     }
 
     /**
-     * Crée une valeur échantillonnée avec le contexte spécifié.
-     *
-     * @param value valeur mesurée
-     * @param measurand type de mesure
-     * @param unit unité de mesure
-     * @param location emplacement (Inlet, Body, etc.)
-     * @param phase phase (L1, L2, L3) ou null
-     * @param context contexte de lecture (Sample.Periodic ou Sample.Clock)
-     * @return SampledValue au format OCPP
+     * Résout le contexte de lecture depuis le contexte du message.
      */
-    private Map<String, Object> createSampledValue(String value, String measurand, String unit,
-                                                    String location, String phase, String context) {
+    private ReadingContext resolveReadingContext(OcppMessageContext context) {
+        if (context.getReadingContext() != null) {
+            try {
+                return ReadingContext.valueOf(context.getReadingContext()
+                    .replace(".", "_").toUpperCase());
+            } catch (IllegalArgumentException e) {
+                // Fallback : essayer de matcher la valeur OCPP directement
+                for (ReadingContext rc : ReadingContext.values()) {
+                    if (rc.getValue().equals(context.getReadingContext())) {
+                        return rc;
+                    }
+                }
+            }
+        }
+        return ReadingContext.SAMPLE_PERIODIC;
+    }
+
+    /**
+     * Crée une SampledValue conforme OCPP 1.6.
+     */
+    private Map<String, Object> createSampledValue(String value, Measurand measurand,
+                                                    UnitOfMeasure unit, Location location,
+                                                    Phase phase, ReadingContext context) {
         Map<String, Object> sv = createPayload(
             "value", value,
-            "context", context,
-            "measurand", measurand,
-            "unit", unit
+            "context", context.getValue(),
+            "format", ValueFormat.RAW.getValue(),
+            "measurand", measurand.getValue(),
+            "unit", unit.getValue()
         );
 
         if (location != null) {
-            sv.put("location", location);
+            sv.put("location", location.getValue());
         }
 
         if (phase != null) {
-            sv.put("phase", phase);
+            sv.put("phase", phase.getValue());
         }
 
         return sv;

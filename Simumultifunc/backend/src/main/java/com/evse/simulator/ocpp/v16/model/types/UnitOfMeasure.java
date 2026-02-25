@@ -20,7 +20,6 @@ public enum UnitOfMeasure {
     A("A"),
     V("V"),
     K("K"),
-    CELCIUS("Celcius"),
     CELSIUS("Celsius"),
     FAHRENHEIT("Fahrenheit"),
     PERCENT("Percent");
