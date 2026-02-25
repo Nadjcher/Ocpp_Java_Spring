@@ -904,6 +904,15 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
             // Utiliser le min entre la capacité du chargeur et la limite de session
             double effectiveMaxPower = Math.min(chargerMaxPower, sessionMaxPower > 0 ? sessionMaxPower : chargerMaxPower);
 
+            // Limiter par le courant max configuré (maxCurrentA) pour AC
+            if (chargerType != null && chargerType.isAC()) {
+                double maxCurrentA = session.getMaxCurrentA();
+                int phases = session.getEffectivePhases();
+                double voltage = session.getVoltage() > 0 ? session.getVoltage() : 230.0;
+                double maxPowerFromCurrent = (voltage * maxCurrentA * phases) / 1000.0;
+                effectiveMaxPower = Math.min(effectiveMaxPower, maxPowerFromCurrent);
+            }
+
             // Calculer la puissance selon la courbe de charge
             if (chargerType != null && chargerType.isDC()) {
                 // Courbe DC réaliste
