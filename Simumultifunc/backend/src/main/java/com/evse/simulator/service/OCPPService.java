@@ -3,6 +3,7 @@ package com.evse.simulator.service;
 import com.evse.simulator.domain.service.BroadcastService;
 import com.evse.simulator.exception.OCPPException;
 import com.evse.simulator.exception.SessionNotFoundException;
+import com.evse.simulator.data.VehicleDatabase;
 import com.evse.simulator.model.*;
 import com.evse.simulator.model.enums.*;
 import com.evse.simulator.model.enums.ChargerType;
@@ -910,26 +911,26 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
                 physLimPowerKw = sessionMaxPower;
             }
 
-            // CNL = Cable/Network Limit (limite véhicule/câble)
+            // CNL = Cable/Network Limit (limite véhicule depuis son profil)
+            VehicleProfile vehicle = VehicleDatabase.getById(session.getVehicleProfile());
             double cnlPowerKw;
             if (chargerType != null && chargerType.isDC()) {
-                // DC: CNL depuis la courbe de charge du véhicule
-                if (soc < 20) {
-                    cnlPowerKw = physLimPowerKw * 0.9;
-                } else if (soc < 50) {
-                    cnlPowerKw = physLimPowerKw;
-                } else if (soc < 80) {
-                    cnlPowerKw = physLimPowerKw * (1.0 - (soc - 50) / 100);
-                } else {
-                    cnlPowerKw = physLimPowerKw * 0.3 * (1.0 - (soc - 80) / 40);
-                }
+                // DC: CNL depuis la courbe de charge réelle du véhicule
+                cnlPowerKw = vehicle.getDcPowerAtSoc((int) soc);
             } else {
-                // AC: CNL depuis la réduction à haut SoC + limite courant
-                double maxCurrentA = session.getMaxCurrentA();
+                // AC: CNL depuis les limites du véhicule (maxAcCurrentA, maxAcPowerKw)
+                double vehicleMaxCurrentA = vehicle.getMaxAcCurrentA();
                 int phases = session.getEffectivePhases();
                 double voltage = session.getVoltage() > 0 ? session.getVoltage() : 230.0;
-                double maxPowerFromCurrent = (voltage * maxCurrentA * phases) / 1000.0;
-                double basePower = Math.min(physLimPowerKw, maxPowerFromCurrent);
+                double cnlPowerFromCurrent;
+                if (phases > 1 && voltage >= 300) {
+                    // Tension ligne-ligne (ex: 400V) → P = √3 × V_ll × I
+                    cnlPowerFromCurrent = (Math.sqrt(3) * voltage * vehicleMaxCurrentA) / 1000.0;
+                } else {
+                    // Tension phase-neutre (ex: 230V) ou monophasé → P = V × I × phases
+                    cnlPowerFromCurrent = (voltage * vehicleMaxCurrentA * phases) / 1000.0;
+                }
+                double basePower = Math.min(vehicle.getMaxAcPowerKw(), cnlPowerFromCurrent);
 
                 if (soc > 90) {
                     cnlPowerKw = basePower * 0.25;
@@ -938,6 +939,9 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
                 } else {
                     cnlPowerKw = basePower;
                 }
+
+                log.debug("[SIM] Session {}: Vehicle CNL: maxAcCurrentA={} A, maxAcPowerKw={} kW, cnlPower={} kW",
+                    sessionId, vehicleMaxCurrentA, vehicle.getMaxAcPowerKw(), String.format("%.2f", cnlPowerKw));
             }
 
             // setpoint = limite Smart Charging Profile (SCP)
