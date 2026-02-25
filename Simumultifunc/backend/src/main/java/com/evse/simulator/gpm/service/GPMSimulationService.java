@@ -344,33 +344,54 @@ public class GPMSimulationService {
     private GPMVehicleTickResult calculateVehicleCharge(GPMVehicleState vehicle, int tickMinutes) {
         EVTypeConfig vehicleType = vehicleDatabase.getById(vehicle.getEvTypeId());
         double soc = vehicle.getCurrentSoc();
+        GPMChargeType chargeType = vehicle.getChargeType();
 
-        // Puissance demandée par le véhicule selon sa courbe
-        double requestedPowerW = vehicleType != null ?
+        // physLim: puissance demandée par le véhicule selon sa courbe de charge (varie avec le SoC)
+        double physLim = vehicleType != null ?
             vehicleType.getPowerAtSoc(soc) : vehicle.getMaxPowerW();
 
-        // Appliquer le setpoint si défini
+        // CNL: limite nominale du connecteur/câble (Cable/Connector Nominal Limit)
+        double cnlW = chargeType.getMaxPowerW();
+
+        // setpoint: limite de régulation (smart charging)
         Double setpointLimit = vehicle.getLastSetpointW();
-        double actualPowerW = setpointLimit != null && setpointLimit > 0 ?
-            Math.min(requestedPowerW, setpointLimit) : requestedPowerW;
+
+        // ═══ Formules DC/AC ═══
+        // powerImport = min(setpoint, CNL, physLim)
+        double powerImport = Math.min(physLim, cnlW);
+        if (setpointLimit != null && setpointLimit > 0) {
+            powerImport = Math.min(powerImport, setpointLimit);
+        }
+
+        // powerOffered = min(setpoint, physLim)
+        double powerOffered = physLim;
+        if (setpointLimit != null && setpointLimit > 0) {
+            powerOffered = Math.min(powerOffered, setpointLimit);
+        }
+
+        log.debug("Vehicle {} ({}): physLim={}W, CNL={}W, setpoint={}W → powerImport={}W, powerOffered={}W",
+            vehicle.getEvseId(), chargeType,
+            (int) physLim, (int) cnlW, setpointLimit,
+            (int) powerImport, (int) powerOffered);
 
         // Énergie chargée pendant ce tick
         double tickHours = tickMinutes / 60.0;
-        double energyWh = actualPowerW * tickHours;
+        double energyWh = powerImport * tickHours;
 
         // Nouveau SOC
         double newSoc = soc + (energyWh / vehicle.getCapacityWh()) * 100;
         newSoc = Math.min(newSoc, vehicle.getTargetSoc());
 
         // Calculer les courants par phase
-        GPMChargeType chargeType = vehicle.getChargeType();
-        Double[] phaseCurrents = calculatePhaseCurrents(actualPowerW, chargeType);
+        Double[] phaseCurrents = calculatePhaseCurrents(powerImport, chargeType);
 
         return GPMVehicleTickResult.builder()
             .evseId(vehicle.getEvseId())
             .transactionId(vehicle.getTransactionId())
-            .requestedPowerW(requestedPowerW)
-            .actualPowerW(actualPowerW)
+            .requestedPowerW(physLim)
+            .actualPowerW(powerImport)
+            .powerOfferedW(powerOffered)
+            .cnlW(cnlW)
             .setpointAppliedW(setpointLimit)
             .energyChargedWh(energyWh)
             .socBefore(soc)
@@ -444,12 +465,14 @@ public class GPMSimulationService {
                                   GPMVehicleTickResult result, int tick, Instant timestamp) {
         try {
             // Format attendu par l'API TTE
+            // powerOffered = min(setpoint, physLim) — calculé dans calculateVehicleCharge
+            // activePower = powerImport = min(setpoint, CNL, physLim)
             DryRunMeterValueRequest.MeterValue meterValue = DryRunMeterValueRequest.MeterValue.builder()
                 .evseId(vehicle.getEvseId())
                 .ocppTransactionId(vehicle.getTransactionId())
                 .timestamp(timestamp)
                 .energyRegister(vehicle.getEnergyRegisterWh())
-                .powerOffered(vehicle.getMaxPowerW())
+                .powerOffered(result.getPowerOfferedW())
                 .activePower(result.getActualPowerW())
                 .stateOfCharge(result.getSocAfter())
                 .build();
