@@ -33,7 +33,8 @@ import {
   VEHICLE_SCALE,
   DEFAULT_VEHICLES,
   calculateEffectiveACPower,
-  getVehicleConnectors
+  getVehicleConnectors,
+  getCompatibleEvseTypes
 } from '@/constants/evse.constants';
 
 // Utilitaires extraits dans un fichier dédié
@@ -1052,6 +1053,10 @@ export default function SimuEvseTab() {
   );
   const vehicleConnectors = useMemo(
     () => getVehicleConnectors(selectedVehicle),
+    [selectedVehicle]
+  );
+  const compatibleEvseTypes = useMemo(
+    () => getCompatibleEvseTypes(selectedVehicle),
     [selectedVehicle]
   );
   const [selectedConnectorIdx, setSelectedConnectorIdx] = useState<number>(0);
@@ -2724,7 +2729,7 @@ export default function SimuEvseTab() {
             <div className="font-semibold mb-2">Contrôle de charge</div>
 
             <div className="grid grid-cols-12 gap-2">
-              <div className="col-span-3">
+              <div className="col-span-2">
                 <div className="text-xs mb-1">Connecteur</div>
                 <select
                     className="w-full border rounded px-2 py-1"
@@ -2738,6 +2743,18 @@ export default function SimuEvseTab() {
                 >
                   {vehicleConnectors.map((c) => (
                     <option key={c.index} value={c.index}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-span-2">
+                <div className="text-xs mb-1">Type EVSE</div>
+                <select
+                    className="w-full border rounded px-2 py-1"
+                    value={evseType}
+                    onChange={(e) => setEvseType(e.target.value as any)}
+                >
+                  {compatibleEvseTypes.map((t) => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
                   ))}
                 </select>
               </div>
@@ -2771,7 +2788,7 @@ export default function SimuEvseTab() {
                 )}
               </div>
 
-              <div className="col-span-4">
+              <div className="col-span-3">
                 <div className="text-xs mb-1">Véhicule</div>
                 <select
                     className="w-full border rounded px-2 py-1"
