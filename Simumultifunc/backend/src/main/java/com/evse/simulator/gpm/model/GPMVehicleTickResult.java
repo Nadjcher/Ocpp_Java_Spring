@@ -18,9 +18,11 @@ public class GPMVehicleTickResult {
     private String transactionId;
 
     // Puissance
-    private double requestedPowerW;
-    private double actualPowerW;
-    private Double setpointAppliedW;
+    private double requestedPowerW;    // physLim: puissance demandée par le véhicule selon courbe SoC
+    private double actualPowerW;       // powerImport = min(setpoint, CNL, physLim)
+    private double powerOfferedW;      // powerOffered = min(setpoint, physLim)
+    private Double setpointAppliedW;   // setpoint de régulation
+    private double cnlW;              // CNL: limite nominale du connecteur/câble
 
     // Énergie
     private double energyChargedWh;
