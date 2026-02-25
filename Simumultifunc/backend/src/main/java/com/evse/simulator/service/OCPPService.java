@@ -893,62 +893,59 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
             }
 
             // ═══════════════════════════════════════════════════════════════════
-            // CALCUL DE LA PUISSANCE (mode normal ou mode idle-fee en charge)
+            // CALCUL DE LA PUISSANCE avec formules Import/Offered
+            // AC: currentImport = MIN(setpoint, CNL, physLim)
+            //     currentOffered = MIN(setpoint, physLim)
+            // DC: powerImport  = MIN(setpoint, CNL, physLim)
+            //     powerOffered  = MIN(setpoint, physLim)
             // ═══════════════════════════════════════════════════════════════════
 
-            // Déterminer la puissance maximale selon le type de chargeur
             ChargerType chargerType = session.getChargerType();
-            double chargerMaxPower = chargerType != null ? chargerType.getMaxPowerKw() : 22.0;
+
+            // physLim = limite physique de la borne (hardware)
+            double physLimPowerKw = chargerType != null ? chargerType.getMaxPowerKw() : 22.0;
+            double physLimCurrentA = chargerType != null ? chargerType.getMaxCurrentA() : 32.0;
             double sessionMaxPower = session.getMaxPowerKw();
+            if (sessionMaxPower > 0 && sessionMaxPower < physLimPowerKw) {
+                physLimPowerKw = sessionMaxPower;
+            }
 
-            // Utiliser le min entre la capacité du chargeur et la limite de session
-            double effectiveMaxPower = Math.min(chargerMaxPower, sessionMaxPower > 0 ? sessionMaxPower : chargerMaxPower);
-
-            // Limiter par le courant max configuré (maxCurrentA) pour AC
-            if (chargerType != null && chargerType.isAC()) {
+            // CNL = Cable/Network Limit (limite véhicule/câble)
+            double cnlPowerKw;
+            if (chargerType != null && chargerType.isDC()) {
+                // DC: CNL depuis la courbe de charge du véhicule
+                if (soc < 20) {
+                    cnlPowerKw = physLimPowerKw * 0.9;
+                } else if (soc < 50) {
+                    cnlPowerKw = physLimPowerKw;
+                } else if (soc < 80) {
+                    cnlPowerKw = physLimPowerKw * (1.0 - (soc - 50) / 100);
+                } else {
+                    cnlPowerKw = physLimPowerKw * 0.3 * (1.0 - (soc - 80) / 40);
+                }
+            } else {
+                // AC: CNL depuis la réduction à haut SoC + limite courant
                 double maxCurrentA = session.getMaxCurrentA();
                 int phases = session.getEffectivePhases();
                 double voltage = session.getVoltage() > 0 ? session.getVoltage() : 230.0;
                 double maxPowerFromCurrent = (voltage * maxCurrentA * phases) / 1000.0;
-                effectiveMaxPower = Math.min(effectiveMaxPower, maxPowerFromCurrent);
-            }
+                double basePower = Math.min(physLimPowerKw, maxPowerFromCurrent);
 
-            // Calculer la puissance selon la courbe de charge
-            if (chargerType != null && chargerType.isDC()) {
-                // Courbe DC réaliste
-                if (soc < 20) {
-                    powerKw = effectiveMaxPower * 0.9; // Montée en charge
-                } else if (soc < 50) {
-                    powerKw = effectiveMaxPower; // Pleine puissance
-                } else if (soc < 80) {
-                    powerKw = effectiveMaxPower * (1.0 - (soc - 50) / 100); // Dégressif
-                } else {
-                    powerKw = effectiveMaxPower * 0.3 * (1.0 - (soc - 80) / 40); // Très réduit
-                }
-            } else {
-                // Courbe AC - réduction à haut SoC
                 if (soc > 90) {
-                    powerKw = effectiveMaxPower * 0.25;
+                    cnlPowerKw = basePower * 0.25;
                 } else if (soc > 80) {
-                    powerKw = effectiveMaxPower * 0.5;
+                    cnlPowerKw = basePower * 0.5;
                 } else {
-                    powerKw = effectiveMaxPower;
+                    cnlPowerKw = basePower;
                 }
             }
 
-            // ═══════════════════════════════════════════════════════════════════
-            // APPLIQUER LA LIMITE SMART CHARGING (SCP)
-            // ═══════════════════════════════════════════════════════════════════
+            // setpoint = limite Smart Charging Profile (SCP)
+            double setpointKw = Double.MAX_VALUE;
             try {
                 double scpLimit = smartChargingService.getCurrentLimit(sessionId);
-                log.info("[SIM] Session {}: Calculated power={} kW, SCP limit={} kW",
-                    sessionId, powerKw, scpLimit);
-
-                if (scpLimit < powerKw) {
-                    log.info("[SIM] Session {}: APPLYING SCP limit {} kW (was {} kW)",
-                        sessionId, scpLimit, powerKw);
-                    powerKw = scpLimit;
-                    limitedBy = "scp";
+                if (scpLimit < Double.MAX_VALUE && scpLimit > 0) {
+                    setpointKw = scpLimit;
                     session.setScpLimitKw(scpLimit);
 
                     // Calculer aussi scpLimitA depuis la limite kW
@@ -967,6 +964,54 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
             } catch (Exception e) {
                 log.warn("[SIM] Session {}: Error getting SCP limit: {}", sessionId, e.getMessage());
             }
+
+            // ═══════════════════════════════════════════════════════════════════
+            // APPLIQUER LES FORMULES Import / Offered
+            // ═══════════════════════════════════════════════════════════════════
+
+            // powerImport = MIN(setpoint, CNL, physLim) - puissance réellement consommée
+            powerKw = Math.min(setpointKw, Math.min(cnlPowerKw, physLimPowerKw));
+            if (setpointKw < physLimPowerKw && setpointKw <= powerKw) {
+                limitedBy = "scp";
+            } else if (cnlPowerKw < physLimPowerKw) {
+                limitedBy = "vehicle/cnl";
+            } else {
+                limitedBy = "evse";
+            }
+
+            // powerOffered = MIN(setpoint, physLim) - puissance offerte par la borne (sans CNL)
+            double offeredPowerKw = Math.min(setpointKw, physLimPowerKw);
+            session.setOfferedPowerKw(offeredPowerKw);
+
+            // Calcul des courants offerts (pour AC)
+            if (chargerType != null && chargerType.isAC()) {
+                double voltage = session.getVoltage() > 0 ? session.getVoltage() : 230.0;
+                int phases = session.getEffectivePhases();
+                double setpointA = setpointKw < Double.MAX_VALUE ?
+                    (phases > 1 && voltage >= 300 ?
+                        (setpointKw * 1000) / (voltage * Math.sqrt(3)) :
+                        (setpointKw * 1000) / (voltage * phases)) :
+                    Double.MAX_VALUE;
+                // currentOffered = MIN(setpoint_A, physLim_A)
+                double offeredCurrentA = Math.min(
+                    setpointA < Double.MAX_VALUE ? setpointA : physLimCurrentA,
+                    physLimCurrentA
+                );
+                session.setOfferedCurrentA(offeredCurrentA);
+            } else {
+                // DC: courant offert calculé depuis puissance et tension
+                double voltage = session.getVoltage() > 0 ? session.getVoltage() : 400.0;
+                session.setOfferedCurrentA((offeredPowerKw * 1000) / voltage);
+            }
+
+            log.info("[SIM] Session {}: physLim={} kW, CNL={} kW, setpoint={} kW → Import={} kW, Offered={} kW, limitedBy={}",
+                sessionId,
+                String.format("%.2f", physLimPowerKw),
+                String.format("%.2f", cnlPowerKw),
+                setpointKw < Double.MAX_VALUE ? String.format("%.2f", setpointKw) : "none",
+                String.format("%.2f", powerKw),
+                String.format("%.2f", offeredPowerKw),
+                limitedBy);
 
             // Calcul de l'énergie pour l'intervalle réel (en secondes, cohérent avec le scheduler)
             int actualIntervalSec = session.getMeterValuesInterval() > 0 ?

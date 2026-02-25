@@ -197,6 +197,21 @@ public class Session {
     // =========================================================================
 
     /**
+     * Puissance offerte par la borne en kW = MIN(setpoint, physLim).
+     * Ne tient pas compte de la limite véhicule (CNL).
+     */
+    @Builder.Default
+    private double offeredPowerKw = 0.0;
+
+    /**
+     * Courant offert par la borne en A = MIN(setpoint, physLim).
+     * Ne tient pas compte de la limite véhicule (CNL).
+     * Utilisé pour AC (Current.Offered par phase).
+     */
+    @Builder.Default
+    private double offeredCurrentA = 0.0;
+
+    /**
      * Limite de puissance SCP active en kW.
      */
     @Builder.Default
@@ -651,8 +666,8 @@ public class Session {
         java.util.Map<String, Object> metrics = new java.util.HashMap<>();
         // Conversion kW -> W pour activePower
         metrics.put("activePower", currentPowerKw * 1000);
-        // Conversion kW -> W pour offeredPower
-        metrics.put("offeredPower", maxPowerKw * 1000);
+        // Conversion kW -> W pour offeredPower (utilise la valeur calculée si disponible)
+        metrics.put("offeredPower", offeredPowerKw > 0 ? offeredPowerKw * 1000 : maxPowerKw * 1000);
         // SoC en %
         metrics.put("soc", soc);
         // Conversion kWh -> Wh pour energy
