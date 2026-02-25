@@ -74,13 +74,15 @@ public class MeterValuesHandler extends AbstractOcppHandler {
 
         if (session != null) {
             double voltageV = session.getVoltage();
-            double powerActiveW = session.getCurrentPowerKw() * 1000;  // Puissance actuelle consommée
+            double powerActiveW = session.getCurrentPowerKw() * 1000;  // Puissance actuelle consommée (Import)
 
-            // Power.Offered = MIN(maxPower, scpLimit) - la puissance réellement disponible
-            double maxPowerKw = session.getMaxPowerKw();
-            double scpLimitKw = session.getScpLimitKw();
-            double effectiveOfferedKw = (scpLimitKw > 0 && scpLimitKw < maxPowerKw) ? scpLimitKw : maxPowerKw;
-            double powerOfferedW = effectiveOfferedKw * 1000;
+            // Power.Offered = MIN(setpoint, physLim) - calculé dans simulateCharging
+            double offeredPowerKw = session.getOfferedPowerKw();
+            double powerOfferedW = offeredPowerKw > 0 ? offeredPowerKw * 1000 : session.getMaxPowerKw() * 1000;
+
+            // Current.Offered (pour AC) = MIN(setpoint_A, physLim_A)
+            double offeredCurrentA = session.getOfferedCurrentA();
+            boolean isDC = session.getChargerType() != null && session.getChargerType().isDC();
 
             // Calculer la tension phase-neutre si nécessaire
             double phaseVoltage = voltageV > 350 ? voltageV / Math.sqrt(3) : voltageV;
@@ -97,6 +99,7 @@ public class MeterValuesHandler extends AbstractOcppHandler {
             }
 
             // 2. Courant par phase (L1, L2, L3) - calculé depuis puissance réelle
+            //    AC: currentImport = MIN(setpoint, CNL, physLim)
             String[] phaseNames = {"L1", "L2", "L3"};
             for (int i = 0; i < Math.min(phases, 3); i++) {
                 sampledValues.add(createSampledValue(
@@ -107,6 +110,21 @@ public class MeterValuesHandler extends AbstractOcppHandler {
                     phaseNames[i],
                     readingContext
                 ));
+            }
+
+            // 2b. Current.Offered par phase (AC uniquement)
+            //     AC: currentOffered = MIN(setpoint, physLim) - sans CNL véhicule
+            if (!isDC && offeredCurrentA > 0) {
+                for (int i = 0; i < Math.min(phases, 3); i++) {
+                    sampledValues.add(createSampledValue(
+                        String.format("%.2f", offeredCurrentA),
+                        "Current.Offered",
+                        "A",
+                        LOCATION_INLET,
+                        phaseNames[i],
+                        readingContext
+                    ));
+                }
             }
 
             // 3. Tension par phase (L1, L2, L3)
