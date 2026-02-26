@@ -528,7 +528,7 @@ public class PerformanceEngine {
 
     private String buildMeterValuesMessage(String cpId, int meterValue) {
         return String.format(
-            "[2,\"%s\",\"MeterValues\",{\"connectorId\":1,\"meterValue\":[{\"timestamp\":\"%s\",\"sampledValue\":[{\"value\":\"%d\",\"measurand\":\"Energy.Active.Import.Register\",\"unit\":\"Wh\"}]}]}]",
+            "[2,\"%s\",\"MeterValues\",{\"connectorId\":1,\"meterValue\":[{\"timestamp\":\"%s\",\"sampledValue\":[{\"value\":\"%d\",\"context\":\"Sample.Periodic\",\"format\":\"Raw\",\"measurand\":\"Energy.Active.Import.Register\",\"unit\":\"Wh\",\"location\":\"Outlet\"}]}]}]",
             UUID.randomUUID().toString(), Instant.now().toString(), meterValue
         );
     }

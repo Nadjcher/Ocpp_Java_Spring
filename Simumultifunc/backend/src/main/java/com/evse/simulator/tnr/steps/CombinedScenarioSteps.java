@@ -440,21 +440,28 @@ public class CombinedScenarioSteps {
         payload.put("connectorId", 1);
         payload.put("transactionId", transactionId);
 
+        Map<String, Object> energySv = new HashMap<>(Map.of(
+                "value", String.valueOf(energyWh.intValue()),
+                "context", "Sample.Periodic",
+                "format", "Raw",
+                "measurand", "Energy.Active.Import.Register",
+                "unit", "Wh",
+                "location", "Outlet"
+        ));
+
+        Map<String, Object> powerSv = new HashMap<>(Map.of(
+                "value", String.valueOf(powerW.intValue()),
+                "context", "Sample.Periodic",
+                "format", "Raw",
+                "measurand", "Power.Active.Import",
+                "unit", "W",
+                "location", "Outlet"
+        ));
+
         List<Map<String, Object>> meterValue = List.of(
                 Map.of(
                         "timestamp", Instant.now().toString(),
-                        "sampledValue", List.of(
-                                Map.of(
-                                        "value", String.valueOf(energyWh.intValue()),
-                                        "measurand", "Energy.Active.Import.Register",
-                                        "unit", "Wh"
-                                ),
-                                Map.of(
-                                        "value", String.valueOf(powerW.intValue()),
-                                        "measurand", "Power.Active.Import",
-                                        "unit", "W"
-                                )
-                        )
+                        "sampledValue", List.of(energySv, powerSv)
                 )
         );
 

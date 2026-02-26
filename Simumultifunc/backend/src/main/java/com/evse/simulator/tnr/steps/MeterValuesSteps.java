@@ -379,41 +379,32 @@ public class MeterValuesSteps {
 
         List<Map<String, Object>> sampledValues = new ArrayList<>();
 
-        // Energy
-        sampledValues.add(Map.of(
-                "value", String.valueOf((int) energyWh),
-                "measurand", "Energy.Active.Import.Register",
-                "unit", "Wh"
-        ));
+        // Energy.Active.Import.Register
+        sampledValues.add(createSampledValue(
+                String.valueOf((int) energyWh),
+                "Energy.Active.Import.Register", "Wh", "Outlet", null));
 
-        // Power
-        sampledValues.add(Map.of(
-                "value", String.valueOf((int) powerW),
-                "measurand", "Power.Active.Import",
-                "unit", "W"
-        ));
+        // Power.Active.Import
+        sampledValues.add(createSampledValue(
+                String.valueOf((int) powerW),
+                "Power.Active.Import", "W", "Outlet", null));
 
-        // SoC
-        sampledValues.add(Map.of(
-                "value", String.valueOf((int) soc),
-                "measurand", "SoC",
-                "unit", "Percent"
-        ));
-
-        // Current
+        // Current.Import
         double current = powerW / 230.0;
-        sampledValues.add(Map.of(
-                "value", String.format("%.1f", current),
-                "measurand", "Current.Import",
-                "unit", "A"
-        ));
+        sampledValues.add(createSampledValue(
+                String.format("%.1f", current),
+                "Current.Import", "A", "Outlet", "L1"));
 
         // Voltage
-        sampledValues.add(Map.of(
-                "value", "230",
-                "measurand", "Voltage",
-                "unit", "V"
-        ));
+        sampledValues.add(createSampledValue(
+                "230", "Voltage", "V", "Outlet", "L1"));
+
+        // SoC
+        if (soc > 0 && soc <= 100) {
+            sampledValues.add(createSampledValue(
+                    String.valueOf((int) soc),
+                    "SoC", "Percent", "EV", null));
+        }
 
         List<Map<String, Object>> meterValue = List.of(
                 Map.of(
@@ -424,6 +415,21 @@ public class MeterValuesSteps {
 
         payload.put("meterValue", meterValue);
         return payload;
+    }
+
+    private Map<String, Object> createSampledValue(String value, String measurand,
+                                                    String unit, String location, String phase) {
+        Map<String, Object> sv = new HashMap<>();
+        sv.put("value", value);
+        sv.put("context", "Sample.Periodic");
+        sv.put("format", "Raw");
+        sv.put("measurand", measurand);
+        sv.put("unit", unit);
+        sv.put("location", location);
+        if (phase != null) {
+            sv.put("phase", phase);
+        }
+        return sv;
     }
 
     private void sendMeterValues(TnrContext context, Map<String, Object> payload) {
