@@ -14,7 +14,7 @@ import { TokenService } from './core/auth/token.service';
       <div class="unauthorized-container">
         <h1>401 — Non authentifie</h1>
         <p>Connectez-vous sur la plateforme EVP puis rechargez cette page.</p>
-        <a href="https://pp.total-ev-charge.com/powerplatform/" target="_blank" class="evp-link">
+        <a href="https://evplatform.evcharge-pp.totalenergies.com" target="_blank" class="evp-link">
           Se connecter sur EVP
         </a>
       </div>

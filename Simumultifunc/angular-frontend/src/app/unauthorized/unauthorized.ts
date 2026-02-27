@@ -9,7 +9,7 @@ import { Component } from '@angular/core';
       <h2>Session non authentifiee</h2>
       <p>Aucun token d'acces valide n'a ete trouve.</p>
       <p>Veuillez vous connecter sur la plateforme EVP puis revenir ici.</p>
-      <a href="https://pp.total-ev-charge.com" class="evp-link">
+      <a href="https://evplatform.evcharge-pp.totalenergies.com" class="evp-link">
         Se connecter sur EVP
       </a>
       <hr />
