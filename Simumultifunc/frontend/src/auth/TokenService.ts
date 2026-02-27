@@ -2,7 +2,7 @@
 // Lecture du cookie evp_access_token posé par EVP (même domaine)
 // Pas de token → page 401 → l'utilisateur va sur EVP → refresh
 
-const EVP_URL = 'https://evplatform.evcharge-pp.totalenergies.com';
+const EVP_URL = 'https://evplatform.evcharge-test.totalenergies.com';
 const COOKIE_NAME = 'evp_access_token';
 
 const DEV_MODE = import.meta.env.DEV;
