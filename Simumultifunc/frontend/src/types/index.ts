@@ -4,5 +4,8 @@
 // Exporter tous les types depuis le fichier unifié
 export * from './session.types';
 
+// Lifecycle types
+export * from './lifecycle.types';
+
 // Réexporter les types de status mapping pour compatibilité
 export type { FrontendStatus, BackendStatus } from '@/utils/statusMapping';

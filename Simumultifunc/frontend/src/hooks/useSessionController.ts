@@ -5,6 +5,8 @@
 import { useCallback, useRef, useEffect, useMemo } from 'react';
 import { useMultiSessionStore, useSession, type MultiSessionStatus } from '@/store/multiSessionStore';
 import wsPool from '@/services/WebSocketPool';
+import { createLifecycleEvent } from '@/types/lifecycle.types';
+import type { LifecycleEventType, EventSeverity } from '@/types/lifecycle.types';
 
 interface UseSessionControllerOptions {
   autoReconnect?: boolean;
@@ -29,6 +31,19 @@ const messageIdCounters = new Map<string, number>();
 export function useSessionController(sessionId: string, options: UseSessionControllerOptions = {}) {
   // IMPORTANT: Utiliser le selector reactif pour obtenir la session
   const session = useSession(sessionId);
+
+  // Helper pour emettre un evenement lifecycle
+  const emitLifecycleEvent = useCallback((
+    eventType: LifecycleEventType,
+    summary: string,
+    overrides?: Partial<import('@/types/lifecycle.types').SessionLifecycleEvent>
+  ) => {
+    const store = useMultiSessionStore.getState();
+    const currentSession = store.getSession(sessionId);
+    const ocppId = currentSession?.config.chargePointId || sessionId;
+    const event = createLifecycleEvent(sessionId, ocppId, eventType, summary, overrides);
+    store.addLifecycleEvent(sessionId, event);
+  }, [sessionId]);
 
   // Initialiser les structures pour cette session
   useEffect(() => {
@@ -72,6 +87,12 @@ export function useSessionController(sessionId: string, options: UseSessionContr
       const pending = pendingRequests?.get(messageId);
       if (pending) {
         store.addLog(sessionId, 'info', `<-- ${pending.action} Response`);
+        emitLifecycleEvent('ocpp_received', `${pending.action} Response`, {
+          ocppAction: pending.action,
+          ocppPayload: payload,
+          ocppMessageId: messageId,
+          severity: 'info',
+        });
         pending.resolve(payload);
         pendingRequests?.delete(messageId);
         handleCallResult(pending.action, payload);
@@ -80,12 +101,23 @@ export function useSessionController(sessionId: string, options: UseSessionContr
       // CALL from server
       const [action, payload] = rest;
       store.addLog(sessionId, 'info', `<-- CALL ${action}`);
+      emitLifecycleEvent('ocpp_received', `CALL ${action} recu du serveur`, {
+        ocppAction: action,
+        ocppPayload: payload,
+        ocppMessageId: messageId,
+        severity: 'info',
+      });
       handleServerCall(messageId, action, payload);
       options.onMessage?.(action, payload);
     } else if (type === 4) {
       // CALLERROR
       const [errorCode, errorDescription] = rest;
       store.addLog(sessionId, 'error', `<-- ERROR: ${errorCode} - ${errorDescription}`);
+      emitLifecycleEvent('error', `Erreur OCPP: ${errorCode} - ${errorDescription}`, {
+        ocppMessageId: messageId,
+        reason: `${errorCode}: ${errorDescription}`,
+        severity: 'error',
+      });
       const pending = pendingRequests?.get(messageId);
       if (pending) {
         pending.reject(new Error(`${errorCode}: ${errorDescription}`));
@@ -104,6 +136,9 @@ export function useSessionController(sessionId: string, options: UseSessionContr
       case 'open':
         store.updateSessionState(sessionId, 'CONNECTED');
         store.addLog(sessionId, 'info', 'WebSocket connecte');
+        emitLifecycleEvent('status_change', 'WebSocket connecte', {
+          severity: 'success',
+        });
         options.onStateChange?.('CONNECTED');
         // Envoyer BootNotification automatiquement
         sendBootNotification();
@@ -111,6 +146,10 @@ export function useSessionController(sessionId: string, options: UseSessionContr
       case 'close':
         store.updateSessionState(sessionId, 'DISCONNECTED');
         store.addLog(sessionId, 'info', `WebSocket ferme (${data?.code || 'unknown'})`);
+        emitLifecycleEvent('status_change', `WebSocket ferme (code: ${data?.code || 'unknown'})`, {
+          severity: 'warn',
+          reason: `Close code: ${data?.code || 'unknown'}`,
+        });
         stopMeterValues();
         options.onStateChange?.('DISCONNECTED');
         break;
@@ -118,6 +157,10 @@ export function useSessionController(sessionId: string, options: UseSessionContr
         store.updateSessionState(sessionId, 'ERROR');
         store.updateSession(sessionId, { lastError: data?.message || 'Erreur WebSocket' });
         store.addLog(sessionId, 'error', `Erreur: ${data?.message || 'Inconnue'}`);
+        emitLifecycleEvent('error', `Erreur WebSocket: ${data?.message || 'Inconnue'}`, {
+          severity: 'error',
+          reason: data?.message || 'Erreur WebSocket inconnue',
+        });
         options.onStateChange?.('ERROR');
         break;
     }
@@ -135,6 +178,9 @@ export function useSessionController(sessionId: string, options: UseSessionContr
 
     store.updateSessionState(sessionId, 'CONNECTING');
     store.addLog(sessionId, 'info', `Connexion a ${currentSession.config.url}...`);
+    emitLifecycleEvent('status_change', `Connexion a ${currentSession.config.url}`, {
+      details: { url: currentSession.config.url, chargePointId: currentSession.config.chargePointId },
+    });
 
     wsPool.connect(
       sessionId,
@@ -143,15 +189,19 @@ export function useSessionController(sessionId: string, options: UseSessionContr
       handleMessage,
       handleStateChange
     );
-  }, [sessionId, handleMessage, handleStateChange]);
+  }, [sessionId, handleMessage, handleStateChange, emitLifecycleEvent]);
 
   const disconnect = useCallback(() => {
     const store = useMultiSessionStore.getState();
     store.addLog(sessionId, 'info', 'Deconnexion...');
+    emitLifecycleEvent('status_change', 'Deconnexion manuelle', {
+      severity: 'warn',
+      reason: 'Deconnexion utilisateur',
+    });
     stopMeterValues();
     wsPool.disconnectSession(sessionId, true);
     store.updateSessionState(sessionId, 'DISCONNECTED');
-  }, [sessionId]);
+  }, [sessionId, emitLifecycleEvent]);
 
   const remove = useCallback(() => {
     disconnect();
@@ -176,6 +226,17 @@ export function useSessionController(sessionId: string, options: UseSessionContr
       pendingRequests.set(msgId, { resolve, reject, action });
       store.addLog(sessionId, 'info', `--> ${action}`);
 
+      // Emettre un evenement lifecycle pour le message envoye
+      // (sauf MeterValues et Heartbeat pour eviter le bruit)
+      if (action !== 'MeterValues' && action !== 'Heartbeat') {
+        emitLifecycleEvent('ocpp_sent', `${action} envoye`, {
+          ocppAction: action,
+          ocppPayload: payload,
+          ocppMessageId: msgId,
+          severity: 'info',
+        });
+      }
+
       if (!wsPool.send(sessionId, message)) {
         pendingRequests.delete(msgId);
         reject(new Error('WebSocket non connecte'));
@@ -191,7 +252,7 @@ export function useSessionController(sessionId: string, options: UseSessionContr
         }
       }, 30000);
     });
-  }, [sessionId, getNextMessageId]);
+  }, [sessionId, getNextMessageId, emitLifecycleEvent]);
 
   const sendBootNotification = useCallback(async () => {
     const store = useMultiSessionStore.getState();
@@ -206,6 +267,11 @@ export function useSessionController(sessionId: string, options: UseSessionContr
       if (response.status === 'Accepted') {
         store.updateSession(sessionId, { bootAccepted: true });
         store.addLog(sessionId, 'info', 'BootNotification accepte');
+        emitLifecycleEvent('ocpp_received', `BootNotification ${response.status}`, {
+          ocppAction: 'BootNotification',
+          severity: 'success',
+          details: { interval: response.interval, currentTime: response.currentTime },
+        });
 
         // Envoyer StatusNotification
         await sendOCPP('StatusNotification', {
@@ -213,11 +279,21 @@ export function useSessionController(sessionId: string, options: UseSessionContr
           errorCode: 'NoError',
           status: 'Available',
         });
+      } else {
+        emitLifecycleEvent('ocpp_received', `BootNotification ${response.status}`, {
+          ocppAction: 'BootNotification',
+          severity: response.status === 'Rejected' ? 'error' : 'warn',
+        });
       }
     } catch (error) {
       store.addLog(sessionId, 'error', `BootNotification echoue: ${error}`);
+      emitLifecycleEvent('error', `BootNotification echoue: ${error}`, {
+        ocppAction: 'BootNotification',
+        severity: 'error',
+        reason: String(error),
+      });
     }
-  }, [sessionId, sendOCPP]);
+  }, [sessionId, sendOCPP, emitLifecycleEvent]);
 
   const authorize = useCallback(async () => {
     const store = useMultiSessionStore.getState();
@@ -234,16 +310,31 @@ export function useSessionController(sessionId: string, options: UseSessionContr
       if (response.idTagInfo?.status === 'Accepted') {
         store.updateSession(sessionId, { authorized: true });
         store.addLog(sessionId, 'info', 'Authorize accepte');
+        emitLifecycleEvent('ocpp_received', `Authorize Accepted (idTag: ${currentSession.config.idTag})`, {
+          ocppAction: 'Authorize',
+          severity: 'success',
+          details: { idTag: currentSession.config.idTag, idTagInfo: response.idTagInfo },
+        });
         return true;
       } else {
         store.addLog(sessionId, 'warn', `Authorize refuse: ${response.idTagInfo?.status}`);
+        emitLifecycleEvent('ocpp_received', `Authorize refuse: ${response.idTagInfo?.status}`, {
+          ocppAction: 'Authorize',
+          severity: 'error',
+          reason: response.idTagInfo?.status,
+        });
         return false;
       }
     } catch (error) {
       store.addLog(sessionId, 'error', `Authorize echoue: ${error}`);
+      emitLifecycleEvent('error', `Authorize echoue: ${error}`, {
+        ocppAction: 'Authorize',
+        severity: 'error',
+        reason: String(error),
+      });
       return false;
     }
-  }, [sessionId, sendOCPP]);
+  }, [sessionId, sendOCPP, emitLifecycleEvent]);
 
   const startTransaction = useCallback(async () => {
     const store = useMultiSessionStore.getState();
@@ -272,15 +363,32 @@ export function useSessionController(sessionId: string, options: UseSessionContr
         store.updateSession(sessionId, { transactionId: String(response.transactionId) });
         store.updateSessionState(sessionId, 'CHARGING');
         store.addLog(sessionId, 'info', `Transaction demarree (ID: ${response.transactionId})`);
+        emitLifecycleEvent('ocpp_received', `Transaction demarree (ID: ${response.transactionId})`, {
+          ocppAction: 'StartTransaction',
+          severity: 'success',
+          transactionId: String(response.transactionId),
+          connectorId: updatedSession.config.connectorId,
+          details: { idTag: updatedSession.config.idTag, meterStart: updatedSession.metrics.energyKwh },
+        });
         startMeterValues();
         return true;
       }
+      emitLifecycleEvent('ocpp_received', `StartTransaction refuse: ${response.idTagInfo?.status}`, {
+        ocppAction: 'StartTransaction',
+        severity: 'error',
+        reason: response.idTagInfo?.status,
+      });
       return false;
     } catch (error) {
       store.addLog(sessionId, 'error', `StartTransaction echoue: ${error}`);
+      emitLifecycleEvent('error', `StartTransaction echoue: ${error}`, {
+        ocppAction: 'StartTransaction',
+        severity: 'error',
+        reason: String(error),
+      });
       return false;
     }
-  }, [sessionId, sendOCPP, authorize]);
+  }, [sessionId, sendOCPP, authorize, emitLifecycleEvent]);
 
   const stopTransaction = useCallback(async () => {
     const store = useMultiSessionStore.getState();
@@ -301,12 +409,25 @@ export function useSessionController(sessionId: string, options: UseSessionContr
       store.updateSession(sessionId, { transactionId: null, authorized: false });
       store.updateSessionState(sessionId, 'CONNECTED');
       store.addLog(sessionId, 'info', 'Transaction arretee');
+      emitLifecycleEvent('ocpp_received', `Transaction arretee (ID: ${currentSession.transactionId})`, {
+        ocppAction: 'StopTransaction',
+        severity: 'info',
+        transactionId: currentSession.transactionId,
+        energy: currentSession.metrics.energyKwh,
+        soc: currentSession.metrics.soc,
+        reason: 'Local',
+      });
       return true;
     } catch (error) {
       store.addLog(sessionId, 'error', `StopTransaction echoue: ${error}`);
+      emitLifecycleEvent('error', `StopTransaction echoue: ${error}`, {
+        ocppAction: 'StopTransaction',
+        severity: 'error',
+        reason: String(error),
+      });
       return false;
     }
-  }, [sessionId, sendOCPP]);
+  }, [sessionId, sendOCPP, emitLifecycleEvent]);
 
   // === METER VALUES ===
 
@@ -377,6 +498,12 @@ export function useSessionController(sessionId: string, options: UseSessionContr
       case 'SetChargingProfile':
         const limit = payload.csChargingProfiles?.chargingSchedule?.chargingSchedulePeriod?.[0]?.limit || 0;
         store.addLog(sessionId, 'info', `SCP recu: ${limit} ${payload.csChargingProfiles?.chargingSchedule?.chargingRateUnit || 'W'}`);
+        emitLifecycleEvent('ocpp_received', `SetChargingProfile: ${limit} ${payload.csChargingProfiles?.chargingSchedule?.chargingRateUnit || 'W'}`, {
+          ocppAction: 'SetChargingProfile',
+          ocppPayload: payload,
+          severity: 'info',
+          power: limit / 1000,
+        });
         // Mettre a jour offeredPower
         const currentSession = store.getSession(sessionId);
         if (currentSession) {
@@ -388,6 +515,11 @@ export function useSessionController(sessionId: string, options: UseSessionContr
         break;
 
       case 'RemoteStartTransaction':
+        emitLifecycleEvent('ocpp_received', 'RemoteStartTransaction recu', {
+          ocppAction: 'RemoteStartTransaction',
+          ocppPayload: payload,
+          severity: 'info',
+        });
         // Demarrer une transaction a distance
         authorize().then((authOk) => {
           if (authOk) startTransaction();
@@ -395,6 +527,11 @@ export function useSessionController(sessionId: string, options: UseSessionContr
         break;
 
       case 'RemoteStopTransaction':
+        emitLifecycleEvent('ocpp_received', 'RemoteStopTransaction recu', {
+          ocppAction: 'RemoteStopTransaction',
+          ocppPayload: payload,
+          severity: 'warn',
+        });
         stopTransaction();
         break;
 
@@ -408,21 +545,35 @@ export function useSessionController(sessionId: string, options: UseSessionContr
         break;
 
       case 'ChangeConfiguration':
+        emitLifecycleEvent('config_change', `ChangeConfiguration: ${payload.key} = ${payload.value}`, {
+          ocppAction: 'ChangeConfiguration',
+          ocppPayload: payload,
+          severity: 'info',
+        });
         response = { status: 'Accepted' };
         break;
 
       case 'ClearChargingProfile':
+        emitLifecycleEvent('ocpp_received', 'ClearChargingProfile recu', {
+          ocppAction: 'ClearChargingProfile',
+          ocppPayload: payload,
+          severity: 'info',
+        });
         response = { status: 'Accepted' };
         break;
 
       default:
         response = { status: 'NotSupported' };
         store.addLog(sessionId, 'warn', `Action non supportee: ${action}`);
+        emitLifecycleEvent('ocpp_received', `Action non supportee: ${action}`, {
+          ocppAction: action,
+          severity: 'warn',
+        });
     }
 
     // Envoyer la reponse
     wsPool.send(sessionId, [3, messageId, response]);
-  }, [sessionId, authorize, startTransaction, stopTransaction]);
+  }, [sessionId, authorize, startTransaction, stopTransaction, emitLifecycleEvent]);
 
   const handleCallResult = useCallback((action: string, payload: any) => {
     // Traitement specifique par action si necessaire
@@ -434,39 +585,49 @@ export function useSessionController(sessionId: string, options: UseSessionContr
     const store = useMultiSessionStore.getState();
     store.updateSession(sessionId, { isParked: true });
     store.addLog(sessionId, 'info', 'Vehicule gare');
-  }, [sessionId]);
+    emitLifecycleEvent('physical_action', 'Vehicule gare', { severity: 'info' });
+  }, [sessionId, emitLifecycleEvent]);
 
   const unpark = useCallback(() => {
     const store = useMultiSessionStore.getState();
     store.updateSession(sessionId, { isParked: false, isPlugged: false });
     store.addLog(sessionId, 'info', 'Vehicule parti');
-  }, [sessionId]);
+    emitLifecycleEvent('physical_action', 'Vehicule parti', { severity: 'info' });
+  }, [sessionId, emitLifecycleEvent]);
 
   const plug = useCallback(() => {
     const store = useMultiSessionStore.getState();
     const currentSession = store.sessions.get(sessionId);
     store.updateSession(sessionId, { isPlugged: true });
     store.addLog(sessionId, 'info', 'Cable branche');
+    emitLifecycleEvent('physical_action', 'Cable branche', {
+      severity: 'info',
+      connectorId: currentSession?.config?.connectorId || 1,
+    });
     // Envoyer StatusNotification avec le connectorId de la session
     sendOCPP('StatusNotification', {
       connectorId: currentSession?.config?.connectorId || 1,
       errorCode: 'NoError',
       status: 'Preparing',
     }).catch(() => {});
-  }, [sessionId, sendOCPP]);
+  }, [sessionId, sendOCPP, emitLifecycleEvent]);
 
   const unplug = useCallback(() => {
     const store = useMultiSessionStore.getState();
     const currentSession = store.sessions.get(sessionId);
     store.updateSession(sessionId, { isPlugged: false });
     store.addLog(sessionId, 'info', 'Cable debranche');
+    emitLifecycleEvent('physical_action', 'Cable debranche', {
+      severity: 'info',
+      connectorId: currentSession?.config?.connectorId || 1,
+    });
     // Envoyer StatusNotification avec le connectorId de la session
     sendOCPP('StatusNotification', {
       connectorId: currentSession?.config?.connectorId || 1,
       errorCode: 'NoError',
       status: 'Available',
     }).catch(() => {});
-  }, [sessionId, sendOCPP]);
+  }, [sessionId, sendOCPP, emitLifecycleEvent]);
 
   // Cleanup au demontage du hook
   useEffect(() => {
