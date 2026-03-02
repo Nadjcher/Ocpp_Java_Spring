@@ -2,9 +2,10 @@
 // Dashboard principal multi-session avec grille et details
 // VERSION 2.0 - Correction isolation contexte + handlers memorises
 
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMultiSessionStore, useSession } from '@/store/multiSessionStore';
 import { SessionGrid } from './SessionGrid';
+import { SessionLifecycleView } from './SessionLifecycleView';
 import { useSessionController } from '@/hooks/useSessionController';
 import wsPool from '@/services/WebSocketPool';
 import {
@@ -81,11 +82,13 @@ function useMultiSessionController() {
   return { connectSession, disconnectSession };
 }
 
-// Composant de detail de session - utilise le selector reactif
+// Composant de detail de session - avec onglet Timeline/Controls
+type DetailTab = 'lifecycle' | 'controls';
+
 function SessionDetail({ sessionId }: { sessionId: string }) {
-  // IMPORTANT: Utiliser le selector reactif au lieu de getSession
   const session = useSession(sessionId);
   const controller = useSessionController(sessionId);
+  const [detailTab, setDetailTab] = useState<DetailTab>('lifecycle');
 
   if (!session) {
     return (
@@ -96,39 +99,68 @@ function SessionDetail({ sessionId }: { sessionId: string }) {
   }
 
   return (
-    <div className="p-4 space-y-4">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h3 className="text-xl font-bold text-white flex items-center">
-            <Car className="w-5 h-5 mr-2" />
-            {session.config.chargePointId}
-          </h3>
-          <p className="text-sm text-gray-400">
-            {session.config.vehicleId} | {session.config.evseType.replace('_', ' ')} | {session.config.maxPowerKw} kW max
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {session.state === 'DISCONNECTED' || session.state === 'CONFIGURED' ? (
+    <div className="flex flex-col h-full">
+      {/* Sub-tab bar: Lifecycle vs Controls */}
+      <div className="flex-shrink-0 flex items-center gap-1 px-4 pt-3 pb-0 bg-gray-900 border-b border-gray-700">
+        <button
+          onClick={() => setDetailTab('lifecycle')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            detailTab === 'lifecycle'
+              ? 'border-blue-500 text-blue-400'
+              : 'border-transparent text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          Session Lifecycle
+        </button>
+        <button
+          onClick={() => setDetailTab('controls')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            detailTab === 'controls'
+              ? 'border-blue-500 text-blue-400'
+              : 'border-transparent text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          Controles
+        </button>
+
+        {/* Quick actions in header */}
+        <div className="ml-auto flex gap-2 pb-1">
+          {session.state === 'DISCONNECTED' || session.state === 'CONFIGURED' || session.state === 'ERROR' ? (
             <button
               onClick={controller.connect}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center"
+              className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded text-sm flex items-center"
             >
-              <Power className="w-4 h-4 mr-2" />
+              <Power className="w-3.5 h-3.5 mr-1" />
               Connecter
             </button>
           ) : (
             <button
               onClick={controller.disconnect}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg flex items-center"
+              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded text-sm flex items-center"
             >
-              <Power className="w-4 h-4 mr-2" />
+              <Power className="w-3.5 h-3.5 mr-1" />
               Deconnecter
             </button>
           )}
         </div>
       </div>
 
+      {/* Content */}
+      <div className="flex-1 overflow-hidden">
+        {detailTab === 'lifecycle' ? (
+          <SessionLifecycleView sessionId={sessionId} />
+        ) : (
+          <SessionControlsPanel session={session} controller={controller} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Panneau de controles (ancien contenu du detail)
+function SessionControlsPanel({ session, controller }: { session: any; controller: any }) {
+  return (
+    <div className="p-4 space-y-4 overflow-y-auto h-full">
       {/* Metriques */}
       <div className="grid grid-cols-4 gap-4">
         <div className="bg-gray-800 rounded-lg p-4">
@@ -170,7 +202,7 @@ function SessionDetail({ sessionId }: { sessionId: string }) {
       {/* Actions physiques */}
       <div className="bg-gray-800 rounded-lg p-4">
         <h4 className="text-sm font-medium text-gray-400 mb-3">Actions physiques</h4>
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
           <button
             onClick={controller.park}
             disabled={session.isParked || session.state === 'DISCONNECTED'}
@@ -221,7 +253,7 @@ function SessionDetail({ sessionId }: { sessionId: string }) {
       {/* Actions OCPP */}
       <div className="bg-gray-800 rounded-lg p-4">
         <h4 className="text-sm font-medium text-gray-400 mb-3">Actions OCPP</h4>
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
           <button
             onClick={controller.authorize}
             disabled={session.state !== 'CONNECTED' || session.authorized}
@@ -257,7 +289,7 @@ function SessionDetail({ sessionId }: { sessionId: string }) {
         </div>
       </div>
 
-      {/* Logs */}
+      {/* Logs (conserves en complement) */}
       <div className="bg-gray-800 rounded-lg p-4">
         <h4 className="text-sm font-medium text-gray-400 mb-3">
           Logs ({session.logs.length})
@@ -266,7 +298,7 @@ function SessionDetail({ sessionId }: { sessionId: string }) {
           {session.logs.length === 0 ? (
             <p className="text-gray-500">Aucun log</p>
           ) : (
-            session.logs.slice(-50).reverse().map((log, i) => (
+            session.logs.slice(-50).reverse().map((log: any, i: number) => (
               <div key={i} className={`${
                 log.level === 'error' ? 'text-red-400' :
                 log.level === 'warn' ? 'text-yellow-400' :

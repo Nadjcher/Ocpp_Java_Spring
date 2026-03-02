@@ -4,3 +4,4 @@
 export { SessionCard } from './SessionCard';
 export { SessionGrid } from './SessionGrid';
 export { MultiSessionDashboard } from './MultiSessionDashboard';
+export { SessionLifecycleView } from './SessionLifecycleView';

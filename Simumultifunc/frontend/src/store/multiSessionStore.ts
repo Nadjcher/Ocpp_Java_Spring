@@ -5,6 +5,8 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { api } from '../services/api';
+import type { SessionLifecycleEvent } from '@/types/lifecycle.types';
+import { createLifecycleEvent } from '@/types/lifecycle.types';
 
 // === TYPES ===
 
@@ -86,6 +88,9 @@ export interface SessionData {
 
   // Erreur
   lastError: string | null;
+
+  // Lifecycle events (derniers 500)
+  lifecycleEvents: SessionLifecycleEvent[];
 }
 
 interface MultiSessionState {
@@ -112,6 +117,10 @@ interface MultiSessionState {
   // === ACTIONS - Logs ===
   addLog: (id: string, level: string, message: string) => void;
   addChartPoint: (id: string, point: { soc: number; power: number; energy: number }) => void;
+
+  // === ACTIONS - Lifecycle Events ===
+  addLifecycleEvent: (id: string, event: SessionLifecycleEvent) => void;
+  getLifecycleEvents: (id: string) => SessionLifecycleEvent[];
 
   // === ACTIONS - Bulk ===
   disconnectAll: () => void;
@@ -167,6 +176,7 @@ const createDefaultSession = (index: number): SessionData => ({
   logs: [],
   chartData: [],
   lastError: null,
+  lifecycleEvents: [],
 });
 
 // === STORE ===
@@ -392,6 +402,29 @@ export const useMultiSessionStore = create<MultiSessionState>()(
               updatedSession.authorized = false;
             }
 
+            // Ajouter un evenement lifecycle pour le changement de statut
+            if (oldState !== state) {
+              const event = createLifecycleEvent(
+                id,
+                session.config.chargePointId,
+                'status_change',
+                `${oldState} -> ${state}`,
+                {
+                  previousStatus: oldState,
+                  newStatus: state,
+                  severity: state === 'ERROR' ? 'error'
+                    : state === 'CHARGING' ? 'success'
+                    : state === 'DISCONNECTED' ? 'warn'
+                    : 'info',
+                }
+              );
+              const lifecycleEvents = [...updatedSession.lifecycleEvents, event];
+              if (lifecycleEvents.length > 500) {
+                lifecycleEvents.splice(0, lifecycleEvents.length - 500);
+              }
+              updatedSession.lifecycleEvents = lifecycleEvents;
+            }
+
             newSessions.set(id, updatedSession);
             console.log(`[MultiSession] ${id}: ${oldState} -> ${state}`);
           }
@@ -454,6 +487,28 @@ export const useMultiSessionStore = create<MultiSessionState>()(
           }
           return { sessions: newSessions };
         });
+      },
+
+      // === LIFECYCLE EVENTS ===
+      addLifecycleEvent: (id, event) => {
+        set((draft) => {
+          const newSessions = new Map(draft.sessions);
+          const session = newSessions.get(id);
+          if (session) {
+            const lifecycleEvents = [...session.lifecycleEvents, event];
+            // Garder les 500 derniers
+            if (lifecycleEvents.length > 500) {
+              lifecycleEvents.splice(0, lifecycleEvents.length - 500);
+            }
+            newSessions.set(id, { ...session, lifecycleEvents });
+          }
+          return { sessions: newSessions };
+        });
+      },
+
+      getLifecycleEvents: (id) => {
+        const session = get().sessions.get(id);
+        return session?.lifecycleEvents || [];
       },
 
       // === BULK ACTIONS ===
@@ -526,6 +581,7 @@ export const useMultiSessionStore = create<MultiSessionState>()(
                   logs: [],
                   chartData: [],
                   lastError: null,
+                  lifecycleEvents: [],
                 };
                 newSessions.set(bs.id, sessionData);
               }
