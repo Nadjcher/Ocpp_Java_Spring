@@ -54,7 +54,7 @@ import {
 import { useToasts, useTNRWithAPI } from '@/hooks/useEvseHooks';
 
 // Composants extraits dans un fichier dédié
-import { TNRBandeau, ChargeDisplay, ChargingCable, GPMSetpointCard } from '@/components/simu-evse';
+import { TNRBandeau, ChargeDisplay, ChargingCable, GPMSetpointCard, ConnectionPanel, EvseConfigSection, VehicleConfigSection, MeterValuesSection, ActionBar } from '@/components/simu-evse';
 
 // Multi-sessions components et hooks
 import { SessionTabBar } from '@/components/evse/SessionTabBar';
@@ -2541,752 +2541,433 @@ export default function SimuEvseTab() {
           </button>
         </div>
 
-        {/* Connexion + Contrôle */}
-        <div className="grid grid-cols-12 gap-4">
-          {/* Panneau gauche */}
-          <div className="col-span-4 rounded border bg-white p-4 shadow-sm">
-            <div className="font-semibold mb-2">Connexion OCPP</div>
+        {/* Connexion OCPP - Bandeau compact */}
+        <ConnectionPanel
+          environment={environment}
+          onEnvironmentChange={(env) => setEnvironment(env)}
+          wsUrl={cpUrl}
+          onWsUrlChange={(url) => setEnvUrls((prev: Record<string, string>) => ({ ...prev, [environment]: url }))}
+          cpId={cpId}
+          onCpIdChange={setCpId}
+          connectorId={connectorId}
+          onConnectorIdChange={setConnectorId}
+          status={selSession?.status || 'disconnected'}
+          bootAccepted={bootAccepted}
+          onConnect={onConnect}
+          onDisconnect={onDisconnect}
+          disabled={!selId && sessions.length === 0}
+          ackStats={ackStats}
+          txId={selSession?.txId}
+        />
 
-            {/* Dropdown environnement - AJOUT ICI */}
-            <div className="text-xs mb-1">Environnement</div>
-            <select
-                className="w-full border rounded px-2 py-1 mb-2 bg-white cursor-pointer"
-                value={environment}
-                onChange={(e) => setEnvironment(e.target.value as "test" | "pp")}
-            >
-              <option value="test">Test</option>
-              <option value="pp">PP</option>
-            </select>
-
-            {/* URL non-éditable - REMPLACE L'INPUT */}
-            <div className="text-xs mb-1 text-gray-500">OCPP WebSocket URL</div>
-            <div className="w-full border rounded px-2 py-1 mb-2 bg-gray-100 text-gray-700 text-sm">
-              {cpUrl}
-            </div>
-
-            {/* CP-ID et Connecteur */}
-            <div className="flex gap-2 mb-3">
-              <div className="flex-1">
-                <div className="text-xs mb-1">CP-ID</div>
-                <input
-                    className="w-full border rounded px-2 py-1"
-                    value={cpId}
-                    onChange={(e) => setCpId(e.target.value)}
+        {/* Configuration + Controle */}
+        <div className="grid grid-cols-12 gap-4 mt-4">
+          {/* Panneau gauche - Configuration */}
+          <div className="col-span-8 space-y-3">
+            <EvseConfigSection
+              evseType={evseType}
+              onEvseTypeChange={(t: string) => setEvseType(t as any)}
+              maxA={maxA}
+              onMaxAChange={setMaxA}
+              connectorId={connectorId}
+              onConnectorIdChange={setConnectorId}
+              isDC={isDCCharging}
+              dcMaxPowerKw={dcMaxPowerKw}
+              onDcMaxPowerKwChange={setDcMaxPowerKw}
+              bypassVehicleLimits={bypassVehicleLimits}
+              onBypassVehicleLimitsChange={setBypassVehicleLimits}
+              vehicleConnectors={vehicleConnectors as any}
+              selectedConnectorIdx={selectedConnectorIdx}
+              onSelectedConnectorIdxChange={(idx: number) => {
+                setSelectedConnectorIdx(idx);
+                const conn = vehicleConnectors[idx];
+                if (conn) setEvseType(conn.evseType as any);
+              }}
+              compatibleEvseTypes={compatibleEvseTypes}
+              phasingSection={
+                <PhasingSection
+                  sessionId={selId}
+                  disabled={!selSession || selSession.status === "error"}
+                  apiBase={API_BASE}
+                  evseConfig={{ phases: phases, maxA: maxA }}
+                  vehicleLimits={selectedVehicle ? {
+                    acPhases: selectedVehicle.acPhases ?? 3,
+                    acMaxA: selectedVehicle.acMaxA ?? 32
+                  } : undefined}
+                  externalTestMode={bypassVehicleLimits}
                 />
-              </div>
-              <div className="w-20">
-                <div className="text-xs mb-1">Connecteur</div>
-                <select
-                    className="w-full border rounded px-2 py-1"
-                    value={connectorId}
-                    onChange={(e) => setConnectorId(Number(e.target.value))}
-                >
-                  {[1, 2, 3, 4].map(n => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
+              }
+            />
 
-            {/* Boutons de connexion */}
-            <div className="flex gap-2">
-              <button
-                  onClick={onConnect}
-                  className="px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-500"
-              >
-                CONNECT
-              </button>
-              <button
-                  onClick={onDisconnect}
-                  className="px-3 py-2 rounded bg-slate-200 hover:bg-slate-100"
-                  disabled={!selId}
-              >
-                DISCONNECT
-              </button>
-            </div>
+            <VehicleConfigSection
+              vehicleId={vehicleId}
+              onVehicleIdChange={setVehicleId}
+              vehicles={vehicles as any}
+              selectedVehicle={selectedVehicle as any}
+              socStart={socStart}
+              onSocStartChange={setSocStart}
+              socTarget={socTarget}
+              onSocTargetChange={setSocTarget}
+              idTag={idTag}
+              onIdTagChange={setIdTag}
+            />
 
-            {/* Status et Transaction */}
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <div className="rounded border p-2 bg-slate-50">
-                <div className="text-xs">Status</div>
-                <div className="text-lg">{selSession?.status ?? "—"}</div>
-              </div>
-              <div className="rounded border p-2 bg-slate-50">
-                <div className="text-xs">Transaction</div>
-                <div className="text-lg">{selSession?.txId ?? "—"}</div>
-              </div>
-            </div>
+            <MeterValuesSection
+              mvEvery={mvEvery}
+              onMvEveryChange={setMvEvery}
+              mvMask={mvMask}
+              onMvMaskChange={setMvMask}
+              onApply={onApplyMv}
+            />
 
-            {/* Alerte BootNotification Rejected */}
-            {bootAccepted === false && (
-              <div className="mt-3 p-3 rounded bg-rose-100 border border-rose-300 text-rose-800 text-sm">
-                <div className="font-semibold flex items-center gap-2">
-                  <span>BootNotification REJECTED</span>
+            {/* GPM Setpoint */}
+            <div className="rounded border p-3 bg-violet-50 border-violet-200">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-violet-600">&#9889;</span>
+                  <span className="text-xs font-semibold text-violet-800">GPM Setpoint Monitoring</span>
                 </div>
-                <div className="mt-1 text-xs">
-                  L'OCPP ID "{cpId}" n'est pas reconnu par le CSMS.
-                  Les opérations OCPP sont désactivées.
-                  Vérifiez que l'OCPP ID est enregistré sur le CSMS, puis déconnectez et reconnectez.
-                </div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={gpmEnabled}
+                    onChange={(e) => setGpmEnabled(e.target.checked)}
+                    className="w-3 h-3 accent-violet-500"
+                  />
+                  <span className={`text-xs ${gpmEnabled ? 'text-violet-700 font-medium' : 'text-slate-400'}`}>
+                    Activer
+                  </span>
+                </label>
               </div>
-            )}
-
-            {/* État Charging Profiles avec ChargingProfileCard */}
-            <div className="mt-4">
-              <ChargingProfileCard
-                  profilesManager={profilesManager}
-                  connectorId={connectorId}
-              />
+              {gpmEnabled && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-violet-600 whitespace-nowrap">Root Node ID:</span>
+                  <input
+                    className="flex-1 border border-violet-200 rounded px-2 py-1 text-sm bg-white"
+                    value={gpmRootNodeId}
+                    onChange={(e) => setGpmRootNodeId(e.target.value)}
+                    placeholder="Ex: SITE-001 ou 5e7f..."
+                  />
+                </div>
+              )}
             </div>
+          </div>
 
-            {/* Prix de la session - Déplacé ici depuis la section bas */}
-            <div className="mt-4 rounded border-l-4 border-l-blue-500 bg-white p-3 shadow-sm">
+          {/* Panneau droit - Info */}
+          <div className="col-span-4 space-y-3">
+            <ChargingProfileCard
+              profilesManager={profilesManager}
+              connectorId={connectorId}
+            />
+
+            {/* Prix de la session */}
+            <div className="rounded border-l-4 border-l-blue-500 bg-white p-3 shadow-sm">
               <div className="flex items-center justify-between mb-2">
                 <div className="font-semibold text-sm text-blue-800">Prix de la session</div>
                 <button
-                    onClick={fetchPrice}
-                    disabled={!selId || fetchingPrice}
-                    className={`px-2 py-1 rounded text-xs font-medium ${
-                        selSession?.status === "finishing" || selSession?.status === "closed" || selSession?.status === "available"
-                            ? "bg-blue-600 text-white hover:bg-blue-700"
-                            : "bg-slate-300 text-slate-500"
-                    } disabled:opacity-50`}
+                  onClick={fetchPrice}
+                  disabled={!selId || fetchingPrice}
+                  className={`px-2 py-1 rounded text-xs font-medium ${
+                    selSession?.status === "finishing" || selSession?.status === "closed" || selSession?.status === "available"
+                      ? "bg-blue-600 text-white hover:bg-blue-700"
+                      : "bg-slate-300 text-slate-500"
+                  } disabled:opacity-50`}
                 >
-                  {fetchingPrice ? "..." : "Récupérer"}
+                  {fetchingPrice ? "..." : "Recuperer"}
                 </button>
               </div>
 
               {priceData && typeof priceData.totalPrice === 'number' ? (
-                  <div className="space-y-2">
-                    {/* Prix principal */}
-                    <div className="rounded-lg bg-gradient-to-r from-emerald-50 to-blue-50 p-2">
-                      <div className="flex items-baseline justify-between">
-                        <div>
-                          <div className="text-[10px] text-slate-600">Prix total</div>
-                          <div className="text-xl font-bold text-emerald-700">
-                            {priceData.totalPrice.toFixed(2)} {priceData.currency || 'EUR'}
-                          </div>
+                <div className="space-y-2">
+                  <div className="rounded-lg bg-gradient-to-r from-emerald-50 to-blue-50 p-2">
+                    <div className="flex items-baseline justify-between">
+                      <div>
+                        <div className="text-[10px] text-slate-600">Prix total</div>
+                        <div className="text-xl font-bold text-emerald-700">
+                          {priceData.totalPrice.toFixed(2)} {priceData.currency || 'EUR'}
                         </div>
-                        <div className="text-right">
-                          <div className="text-[10px] text-slate-600">Énergie</div>
-                          <div className="text-sm font-semibold text-slate-700">
-                            {(priceData.energyKWh ?? 0).toFixed(2)} kWh
-                          </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[10px] text-slate-600">Energie</div>
+                        <div className="text-sm font-semibold text-slate-700">
+                          {(priceData.energyKWh ?? 0).toFixed(2)} kWh
                         </div>
                       </div>
                     </div>
-
-                    {/* Détails compacts */}
-                    <div className="grid grid-cols-2 gap-1 text-xs">
-                      <div className="rounded border p-1.5 bg-slate-50">
-                        <div className="text-[10px] text-slate-500">Prix/kWh</div>
-                        <div className="font-semibold">
-                          {(priceData.pricePerKWh ?? 0) > 0 ? priceData.pricePerKWh.toFixed(3) : "0.000"} {priceData.currency || 'EUR'}
-                        </div>
-                      </div>
-                      <div className="rounded border p-1.5 bg-slate-50">
-                        <div className="text-[10px] text-slate-500">Source</div>
-                        <div className="font-semibold">
-                          {priceData.source === "api" || priceData.source === "tte" ? "API TTE" :
-                              priceData.source === "not_configured" ? "Non config." :
-                                  priceData.source === "not_found" ? "Non trouvé" :
-                                      priceData.source === "fallback" ? "Local" : "Erreur"}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Transaction ID */}
-                    {priceData.transactionId && (
-                        <div className="text-[10px] text-slate-500 border-t pt-1">
-                          TX: {priceData.transactionId}
-                        </div>
-                    )}
-
-                    {/* Message */}
-                    {priceData.message && (
-                        <div className={`text-[10px] p-1.5 rounded ${
-                            priceData.source === "api" || priceData.source === "tte" ? "bg-green-100 text-green-700" :
-                                priceData.source === "not_configured" ? "bg-gray-100 text-gray-700" :
-                                    priceData.source === "not_found" ? "bg-yellow-100 text-yellow-700" :
-                                        "bg-orange-100 text-orange-700"
-                        }`}>
-                          {priceData.message}
-                        </div>
-                    )}
                   </div>
+
+                  <div className="grid grid-cols-2 gap-1 text-xs">
+                    <div className="rounded border p-1.5 bg-slate-50">
+                      <div className="text-[10px] text-slate-500">Prix/kWh</div>
+                      <div className="font-semibold">
+                        {(priceData.pricePerKWh ?? 0) > 0 ? priceData.pricePerKWh.toFixed(3) : "0.000"} {priceData.currency || 'EUR'}
+                      </div>
+                    </div>
+                    <div className="rounded border p-1.5 bg-slate-50">
+                      <div className="text-[10px] text-slate-500">Source</div>
+                      <div className="font-semibold">
+                        {priceData.source === "api" || priceData.source === "tte" ? "API TTE" :
+                          priceData.source === "not_configured" ? "Non config." :
+                            priceData.source === "not_found" ? "Non trouve" :
+                              priceData.source === "fallback" ? "Local" : "Erreur"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {priceData.transactionId && (
+                    <div className="text-[10px] text-slate-500 border-t pt-1">
+                      TX: {priceData.transactionId}
+                    </div>
+                  )}
+
+                  {priceData.message && (
+                    <div className={`text-[10px] p-1.5 rounded ${
+                      priceData.source === "api" || priceData.source === "tte" ? "bg-green-100 text-green-700" :
+                        priceData.source === "not_configured" ? "bg-gray-100 text-gray-700" :
+                          priceData.source === "not_found" ? "bg-yellow-100 text-yellow-700" :
+                            "bg-orange-100 text-orange-700"
+                    }`}>
+                      {priceData.message}
+                    </div>
+                  )}
+                </div>
               ) : (
-                  <div className="text-center py-3 text-slate-500 text-xs">
-                    {selSession?.status === "finishing" || selSession?.status === "closed" || selSession?.status === "available"
-                        ? "Cliquez pour récupérer le prix"
-                        : "Terminez la session"}
-                  </div>
+                <div className="text-center py-3 text-slate-500 text-xs">
+                  {selSession?.status === "finishing" || selSession?.status === "closed" || selSession?.status === "available"
+                    ? "Cliquez pour recuperer le prix"
+                    : "Terminez la session"}
+                </div>
               )}
             </div>
           </div>
+        </div>
 
-          {/* Panneau droit */}
-          <div className="col-span-8 rounded border bg-white p-4 shadow-sm">
-            <div className="font-semibold mb-2">Contrôle de charge</div>
+        {/* Actions + Controles */}
+        <div className="mt-4 space-y-3">
+          <ActionBar
+            status={selSession?.status || 'disconnected'}
+            isParked={isParked}
+            isPlugged={isPlugged}
+            onPark={onPark}
+            onLeave={onLeave}
+            onPlug={onPlug}
+            onUnplug={onUnplug}
+            onAuth={onAuth}
+            onStart={onStart}
+            onStop={onStop}
+            disabled={!selId}
+          />
 
-            <div className="grid grid-cols-12 gap-2">
-              <div className="col-span-2">
-                <div className="text-xs mb-1">Connecteur</div>
-                <select
-                    className="w-full border rounded px-2 py-1"
-                    value={selectedConnectorIdx}
-                    onChange={(e) => {
-                      const idx = Number(e.target.value);
-                      setSelectedConnectorIdx(idx);
-                      const conn = vehicleConnectors[idx];
-                      if (conn) setEvseType(conn.evseType);
-                    }}
-                >
-                  {vehicleConnectors.map((c) => (
-                    <option key={c.index} value={c.index}>{c.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-span-2">
-                <div className="text-xs mb-1">Type EVSE</div>
-                <select
-                    className="w-full border rounded px-2 py-1"
-                    value={evseType}
-                    onChange={(e) => setEvseType(e.target.value as any)}
-                >
-                  {compatibleEvseTypes.map((t) => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-span-2">
-                <div className="text-xs mb-1">{isDCCharging ? 'Max (kW)' : 'Max (A)'}</div>
-                <NumericInput
-                    className={`w-full border rounded px-2 py-1 ${bypassVehicleLimits ? 'border-orange-400 bg-orange-50' : ''}`}
-                    value={isDCCharging ? dcMaxPowerKw : maxA}
-                    onChange={(val) => {
-                      if (isDCCharging) {
-                        setDcMaxPowerKw(val);
-                      } else {
-                        setMaxA(val);
-                      }
-                    }}
-                    min={1}
-                    max={isDCCharging ? 500 : 500}
+          {/* Controles supplementaires */}
+          <div className="flex items-center gap-4">
+            <button
+              className={`px-3 py-1.5 rounded text-xs font-medium ${
+                (selSession?.status === "charging" || selSession?.status === "started")
+                  ? isIdleMode
+                    ? "bg-amber-600 text-white hover:bg-amber-700"
+                    : "bg-amber-500 text-white hover:bg-amber-600"
+                  : "bg-amber-200 text-amber-700 opacity-50 cursor-not-allowed"
+              }`}
+              disabled={!selId || !(selSession?.status === "charging" || selSession?.status === "started")}
+              onClick={onIdle}
+              title="Active/desactive le mode idle (puissance=0, session reste en vie)"
+            >
+              {isIdleMode ? "Idle ON" : "Idle"}
+            </button>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showCable}
+                onChange={(e) => setShowCable(e.target.checked)}
+              />
+              <span className="text-slate-500">Afficher cable</span>
+            </label>
+          </div>
+        </div>
+
+
+        {/* Scène visuelle - Disposition horizontale comme la référence */}
+        <div
+            ref={containerRef}
+            className="mt-4 rounded-xl bg-gradient-to-br from-slate-100 via-white to-slate-50 p-6 relative overflow-hidden"
+            style={{ minHeight: 400 }}
+        >
+          {/* Container flex pour aligner horizontalement */}
+          <div className="flex items-center justify-between w-full h-full relative">
+
+            {/* BORNE à gauche */}
+            <div
+                ref={stationRef}
+                className="relative select-none flex-shrink-0"
+                style={{ width: 200, height: 280 }}
+            >
+              <img
+                  src={evseType === "dc" ? ASSETS.stationDC : ASSETS.stationAC}
+                  alt="Borne de charge"
+                  className="w-full h-full object-contain"
+                  style={{
+                    filter: "drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1))",
+                  }}
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = 'none';
+                    const parent = target.parentElement;
+                    if (parent) {
+                      parent.style.background = 'linear-gradient(135deg, #374151 0%, #1f2937 100%)';
+                      parent.style.borderRadius = '8px';
+                      parent.style.display = 'flex';
+                      parent.style.alignItems = 'center';
+                      parent.style.justifyContent = 'center';
+                      parent.innerHTML = '<div style="color: white; text-align: center; font-weight: bold;">EVSE</div>';
+                    }
+                  }}
+              />
+              {/* Port de la borne - ref déplacé vers le connecteur quand plugged */}
+              {!isPlugged && (
+                <div
+                    ref={stationPortRef}
+                    className="absolute w-3 h-3"
+                    style={{ right: 20, top: "50%", transform: "translateY(-50%)" }}
                 />
-                {!isDCCharging && (
-                  <label className="flex items-center gap-1 mt-1 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={bypassVehicleLimits}
-                      onChange={(e) => setBypassVehicleLimits(e.target.checked)}
-                      className="w-3 h-3 accent-orange-500"
-                    />
-                    <span className={`text-[10px] ${bypassVehicleLimits ? 'text-orange-600 font-medium' : 'text-slate-400'}`}>
-                      Mode test (ignorer VE)
-                    </span>
-                  </label>
-                )}
-              </div>
-
-              <div className="col-span-3">
-                <div className="text-xs mb-1">Véhicule</div>
-                <select
-                    className="w-full border rounded px-2 py-1"
-                    value={vehicleId}
-                    onChange={(e) => setVehicleId(e.target.value)}
-                >
-                  {vehicles.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name ||
-                            `${v.manufacturer ?? ""} ${v.model ?? ""} ${v.variant ?? ""}`.trim()}
-                      </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="col-span-3">
-                <div className="text-xs mb-1">idTag</div>
-                <input
-                    className="w-full border rounded px-2 py-1"
-                    value={idTag}
-                    onChange={(e) => setIdTag(e.target.value)}
-                    placeholder="Entrez l'idTag..."
-                />
-              </div>
-
-              <div className="col-span-12 grid grid-cols-12 gap-2 mt-2">
-                <div className="col-span-2">
-                  <div className="text-xs mb-1">Période MV (s)</div>
-                  <NumericInput
-                      className="w-full border rounded px-2 py-1"
-                      value={mvEvery}
-                      onChange={setMvEvery}
-                      min={1}
-                      max={3600}
-                  />
-                </div>
-                <div className="col-span-4">
-                  <div className="text-xs mb-1">Mesures envoyées</div>
-                  <div className="flex items-center gap-4 text-xs">
-                    <label className="inline-flex items-center gap-1">
-                      <input
-                          type="checkbox"
-                          checked={mvMask.powerActive}
-                          onChange={(e) =>
-                              setMvMask((m) => ({
-                                ...m,
-                                powerActive: e.target.checked,
-                              }))
-                          }
-                      />
-                      Power.Active.Import
-                    </label>
-                    <label className="inline-flex items-center gap-1">
-                      <input
-                          type="checkbox"
-                          checked={mvMask.energy}
-                          onChange={(e) =>
-                              setMvMask((m) => ({
-                                ...m,
-                                energy: e.target.checked,
-                              }))
-                          }
-                      />
-                      Energy.Active.Import.Register
-                    </label>
-                  </div>
-                  <div className="flex items-center gap-4 text-xs mt-1">
-                    <label className="inline-flex items-center gap-1">
-                      <input
-                          type="checkbox"
-                          checked={mvMask.soc}
-                          onChange={(e) =>
-                              setMvMask((m) => ({
-                                ...m,
-                                soc: e.target.checked,
-                              }))
-                          }
-                      />
-                      SoC
-                    </label>
-                    <label className="inline-flex items-center gap-1">
-                      <input
-                          type="checkbox"
-                          checked={mvMask.powerOffered}
-                          onChange={(e) =>
-                              setMvMask((m) => ({
-                                ...m,
-                                powerOffered: e.target.checked,
-                              }))
-                          }
-                      />
-                      Power.Offered
-                    </label>
-                  </div>
-                </div>
-
-                <div className="col-span-3">
-                  <div className="text-xs mb-1">SoC (%)</div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500">Départ</span>
-                    <NumericInput
-                        className="w-16 border rounded px-2 py-1"
-                        value={socStart}
-                        onChange={setSocStart}
-                        min={0}
-                        max={100}
-                    />
-                    <span className="text-xs text-slate-500">Cible</span>
-                    <NumericInput
-                        className="w-16 border rounded px-2 py-1"
-                        value={socTarget}
-                        onChange={setSocTarget}
-                        min={0}
-                        max={100}
-                    />
-                  </div>
-                </div>
-
-                <div className="col-span-3 flex items-end justify-end gap-2">
-                  <button
-                      className="px-3 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 w-full"
-                      onClick={onApplyMv}
-                  >
-                    Appliquer MV
-                  </button>
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="text-slate-500">Câble</span>
-                    <label className="inline-flex items-center gap-2">
-                      <input
-                          type="checkbox"
-                          checked={showCable}
-                          onChange={(e) => setShowCable(e.target.checked)}
-                      />
-                      Afficher
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              {/* NOUVEAU: Section Phasage */}
-              <div className="col-span-12">
-                <PhasingSection
-                    sessionId={selId}
-                    disabled={!selSession || selSession.status === "error"}
-                    apiBase={API_BASE}
-                    evseConfig={{
-                      phases: phases,
-                      maxA: maxA
-                    }}
-                    vehicleLimits={selectedVehicle ? {
-                      acPhases: selectedVehicle.acPhases ?? 3,
-                      acMaxA: selectedVehicle.acMaxA ?? 32
-                    } : undefined}
-                    externalTestMode={bypassVehicleLimits}
-                />
-              </div>
-
-              {/* Section GPM Setpoint */}
-              <div className="col-span-12 mt-2">
-                <div className="rounded border p-3 bg-violet-50 border-violet-200">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-violet-600">⚡</span>
-                      <span className="text-xs font-semibold text-violet-800">GPM Setpoint Monitoring</span>
-                    </div>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                          type="checkbox"
-                          checked={gpmEnabled}
-                          onChange={(e) => setGpmEnabled(e.target.checked)}
-                          className="w-3 h-3 accent-violet-500"
-                      />
-                      <span className={`text-xs ${gpmEnabled ? 'text-violet-700 font-medium' : 'text-slate-400'}`}>
-                        Activer
-                      </span>
-                    </label>
-                  </div>
-                  {gpmEnabled && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-violet-600 whitespace-nowrap">Root Node ID:</span>
-                      <input
-                          className="flex-1 border border-violet-200 rounded px-2 py-1 text-sm bg-white"
-                          value={gpmRootNodeId}
-                          onChange={(e) => setGpmRootNodeId(e.target.value)}
-                          placeholder="Ex: SITE-001 ou 5e7f..."
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Boutons organisés */}
-              <div className="col-span-12 grid grid-cols-2 gap-4 mt-3">
-                {/* Colonne gauche – Contrôles BORNE */}
-                <div className="rounded border p-3 bg-slate-50">
-                  <div className="text-xs text-slate-500 font-semibold mb-2">
-                    Borne
-                  </div>
-                  <div className="grid grid-cols-5 gap-2">
-                    <button
-                        className={`px-3 py-2 rounded text-sm ${
-                            isParked && !isPlugged
-                                ? "bg-blue-600 text-white hover:bg-blue-700"
-                                : "bg-slate-200 text-slate-500"
-                        }`}
-                        onClick={onPlug}
-                        disabled={!selId || !isParked || isPlugged}
-                    >
-                      Plug
-                    </button>
-                    <button
-                        className={`px-3 py-2 rounded text-sm ${
-                            isPlugged && !isCharging
-                                ? "bg-slate-700 text-white hover:bg-slate-600"
-                                : "bg-slate-200 text-slate-500"
-                        }`}
-                        onClick={onUnplug}
-                        disabled={!selId || !isPlugged || isCharging}
-                    >
-                      Unplug
-                    </button>
-                    <button
-                        className={`px-3 py-2 rounded text-sm ${
-                            !!selSession &&
-                            isPlugged &&
-                            selSession?.status !== "authorized" &&
-                            selSession?.status !== "charging" &&
-                            selSession?.status !== "started"
-                                ? "bg-sky-600 text-white hover:bg-sky-700"
-                                : "bg-sky-200 text-sky-600"
-                        }`}
-                        disabled={
-                            !selId ||
-                            !isPlugged ||
-                            selSession?.status === "authorized" ||
-                            selSession?.status === "charging" ||
-                            selSession?.status === "started"
-                        }
-                        onClick={onAuth}
-                    >
-                      Auth
-                    </button>
-                    <button
-                        className={`px-3 py-2 rounded text-sm ${
-                            selSession?.status === "authorized" && isPlugged
-                                ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                                : "bg-emerald-200 text-emerald-700"
-                        }`}
-                        disabled={!selId || !(selSession?.status === "authorized" && isPlugged)}
-                        onClick={onStart}
-                    >
-                      Start
-                    </button>
-                    <button
-                        className={`px-3 py-2 rounded text-sm ${
-                            selSession?.status === "charging" || selSession?.status === "started"
-                                ? "bg-rose-600 text-white hover:bg-rose-700"
-                                : "bg-rose-200 text-rose-700"
-                        }`}
-                        disabled={!selId || !(selSession?.status === "charging" || selSession?.status === "started")}
-                        onClick={onStop}
-                    >
-                      Stop
-                    </button>
-                    <button
-                        className={`px-3 py-2 rounded text-sm ${
-                            (selSession?.status === "charging" || selSession?.status === "started")
-                                ? isIdleMode
-                                    ? "bg-amber-600 text-white hover:bg-amber-700"
-                                    : "bg-amber-500 text-white hover:bg-amber-600"
-                                : "bg-amber-200 text-amber-700"
-                        }`}
-                        disabled={!selId || !(selSession?.status === "charging" || selSession?.status === "started")}
-                        onClick={onIdle}
-                        title="Active/désactive le mode idle (puissance=0, session reste en vie)"
-                    >
-                      {isIdleMode ? "⏸️ Idle ON" : "⏸️ Idle"}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Colonne droite – Contrôles VÉHICULE */}
-                <div className="rounded border p-3 bg-slate-50">
-                  <div className="text-xs text-slate-500 font-semibold mb-2">
-                    Véhicule
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                        className={`px-3 py-2 rounded text-sm ${
-                            !isParked && !isPlugged
-                                ? "bg-blue-600 text-white hover:bg-blue-700"
-                                : "bg-slate-200 text-slate-500"
-                        }`}
-                        onClick={onPark}
-                        disabled={!selId || isParked || isPlugged}
-                    >
-                      Park
-                    </button>
-                    <button
-                        className={`px-3 py-2 rounded text-sm ${
-                            isParked && !isPlugged && !isCharging
-                                ? "bg-orange-600 text-white hover:bg-orange-700"
-                                : "bg-slate-200 text-slate-500"
-                        }`}
-                        onClick={onLeave}
-                        disabled={!selId || !isParked || isPlugged || isCharging}
-                    >
-                      Leave
-                    </button>
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
 
-            {/* Scène visuelle - Disposition horizontale comme la référence */}
-            <div
-                ref={containerRef}
-                className="mt-4 rounded-xl bg-gradient-to-br from-slate-100 via-white to-slate-50 p-6 relative overflow-hidden"
-                style={{ minHeight: 400 }}
-            >
-              {/* Container flex pour aligner horizontalement */}
-              <div className="flex items-center justify-between w-full h-full relative">
+            {/* Zone centrale pour le câble et connecteurs */}
+            <div className="flex-1 relative" style={{ minHeight: 300 }}>
 
-                {/* BORNE à gauche */}
-                <div
-                    ref={stationRef}
-                    className="relative select-none flex-shrink-0"
-                    style={{ width: 200, height: 280 }}
-                >
-                  <img
-                      src={evseType === "dc" ? ASSETS.stationDC : ASSETS.stationAC}
-                      alt="Borne de charge"
-                      className="w-full h-full object-contain"
-                      style={{
-                        filter: "drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1))",
-                      }}
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.style.display = 'none';
-                        const parent = target.parentElement;
-                        if (parent) {
-                          parent.style.background = 'linear-gradient(135deg, #374151 0%, #1f2937 100%)';
-                          parent.style.borderRadius = '8px';
-                          parent.style.display = 'flex';
-                          parent.style.alignItems = 'center';
-                          parent.style.justifyContent = 'center';
-                          parent.innerHTML = '<div style="color: white; text-align: center; font-weight: bold;">EVSE</div>';
-                        }
-                      }}
-                  />
-                  {/* Port de la borne - ref déplacé vers le connecteur quand plugged */}
-                  {!isPlugged && (
+              {/* CONNECTEURS - avec rotation selon l'angle du câble */}
+              {isPlugged && (
+                  <>
+                    {/* Connecteur côté borne - positionné près du bord gauche (côté station) */}
                     <div
                         ref={stationPortRef}
-                        className="absolute w-3 h-3"
-                        style={{ right: 20, top: "50%", transform: "translateY(-50%)" }}
-                    />
-                  )}
-                </div>
+                        style={{
+                          position: "absolute",
+                          left: "5%",
+                          top: "40%",
+                          transform: "translate(-50%, -50%)",
+                          zIndex: 80,
+                        }}
+                    >
+                      <Connector
+                          side="right"
+                          rotation={connAngles.left - 50}
+                          glowing={selSession?.status === "charging" || selSession?.status === "started"}
+                          size={180}
+                      />
+                    </div>
 
-                {/* Zone centrale pour le câble et connecteurs */}
-                <div className="flex-1 relative" style={{ minHeight: 300 }}>
-
-                  {/* CONNECTEURS - avec rotation selon l'angle du câble */}
-                  {isPlugged && (
-                      <>
-                        {/* Connecteur côté borne - positionné près du bord gauche (côté station) */}
+                    {/* Connecteur côté voiture - positionné près du bord droit (côté véhicule) */}
+                    {isParked && (
                         <div
-                            ref={stationPortRef}
+                            ref={carPortRef}
                             style={{
                               position: "absolute",
-                              left: "5%",
+                              right: "5%",
                               top: "40%",
-                              transform: "translate(-50%, -50%)",
+                              transform: "translate(50%, -50%)",
                               zIndex: 80,
                             }}
                         >
                           <Connector
-                              side="right"
-                              rotation={connAngles.left - 50}
+                              side="left"
+                              rotation={connAngles.right + 50}
                               glowing={selSession?.status === "charging" || selSession?.status === "started"}
                               size={180}
                           />
                         </div>
-
-                        {/* Connecteur côté voiture - positionné près du bord droit (côté véhicule) */}
-                        {isParked && (
-                            <div
-                                ref={carPortRef}
-                                style={{
-                                  position: "absolute",
-                                  right: "5%",
-                                  top: "40%",
-                                  transform: "translate(50%, -50%)",
-                                  zIndex: 80,
-                                }}
-                            >
-                              <Connector
-                                  side="left"
-                                  rotation={connAngles.right + 50}
-                                  glowing={selSession?.status === "charging" || selSession?.status === "started"}
-                                  size={180}
-                              />
-                            </div>
-                        )}
-                      </>
-                  )}
-
-                </div>
-
-                {/* VOITURE à droite avec ChargeDisplay en dessous */}
-                {isParked && (
-                    <div className="flex flex-col items-center flex-shrink-0">
-                      {/* Image de la voiture */}
-                      <div
-                          ref={carRef}
-                          className="relative select-none"
-                          style={{
-                            width: 380 * VEHICLE_SCALE,
-                            height: 200 * VEHICLE_SCALE,
-                          }}
-                      >
-                        <img
-                            src={vehicleImage}
-                            alt="Véhicule électrique"
-                            className="w-full h-full object-contain"
-                            style={{
-                              filter: "drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1))",
-                            }}
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              target.style.display = 'none';
-                              const parent = target.parentElement;
-                              if (parent) {
-                                parent.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
-                                parent.style.borderRadius = '8px';
-                                parent.style.display = 'flex';
-                                parent.style.alignItems = 'center';
-                                parent.style.justifyContent = 'center';
-                                parent.innerHTML = '<div style="color: white; text-align: center; font-weight: bold;">EV</div>';
-                              }
-                            }}
-                        />
-                        {/* Port de la voiture - ref déplacé vers le connecteur quand plugged */}
-                        {!isPlugged && (
-                          <div
-                              ref={carPortRef}
-                              className="absolute w-3 h-3"
-                              style={{
-                                left: 20 * VEHICLE_SCALE,
-                                top: "50%",
-                                transform: "translateY(-50%)"
-                              }}
-                          />
-                        )}
-                      </div>
-
-                      {/* ChargeDisplay en dessous de la voiture */}
-                      {(selSession?.status === "charging" || selSession?.status === "started") && (
-                          <div className="mt-3">
-                            <ChargeDisplay
-                                soc={currentSoc}
-                                powerKw={currentPowerKw}
-                                energyKWh={totalEnergyKWh}
-                                elapsedTime={elapsedTime}
-                                isCharging={true}
-                            />
-                          </div>
-                      )}
-                    </div>
-                )}
-              </div>
-
-              {/* CÂBLE - placé au niveau du containerRef pour couvrir borne et voiture */}
-              {showCable && isParked && isPlugged && (
-                  <Cable
-                      containerRef={containerRef}
-                      startRef={stationPortRef}
-                      endRef={carPortRef}
-                      show={isParked && isPlugged}
-                      charging={selSession?.status === "charging" || selSession?.status === "started"}
-                      state={
-                        selSession?.status === "charging" || selSession?.status === "started"
-                          ? 'charging'
-                          : isPlugged
-                            ? 'plugged'
-                            : isParked
-                              ? 'vehicle_parked'
-                              : 'idle'
-                      }
-                      powerKW={currentPowerKw}
-                      sagFactor={0.35}
-                      extraDropPx={60}
-                      onAnglesChange={setConnAngles}
-                  />
+                    )}
+                  </>
               )}
+
             </div>
+
+            {/* VOITURE à droite avec ChargeDisplay en dessous */}
+            {isParked && (
+                <div className="flex flex-col items-center flex-shrink-0">
+                  {/* Image de la voiture */}
+                  <div
+                      ref={carRef}
+                      className="relative select-none"
+                      style={{
+                        width: 380 * VEHICLE_SCALE,
+                        height: 200 * VEHICLE_SCALE,
+                      }}
+                  >
+                    <img
+                        src={vehicleImage}
+                        alt="Véhicule électrique"
+                        className="w-full h-full object-contain"
+                        style={{
+                          filter: "drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1))",
+                        }}
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                          const parent = target.parentElement;
+                          if (parent) {
+                            parent.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+                            parent.style.borderRadius = '8px';
+                            parent.style.display = 'flex';
+                            parent.style.alignItems = 'center';
+                            parent.style.justifyContent = 'center';
+                            parent.innerHTML = '<div style="color: white; text-align: center; font-weight: bold;">EV</div>';
+                          }
+                        }}
+                    />
+                    {/* Port de la voiture - ref déplacé vers le connecteur quand plugged */}
+                    {!isPlugged && (
+                      <div
+                          ref={carPortRef}
+                          className="absolute w-3 h-3"
+                          style={{
+                            left: 20 * VEHICLE_SCALE,
+                            top: "50%",
+                            transform: "translateY(-50%)"
+                          }}
+                      />
+                    )}
+                  </div>
+
+                  {/* ChargeDisplay en dessous de la voiture */}
+                  {(selSession?.status === "charging" || selSession?.status === "started") && (
+                      <div className="mt-3">
+                        <ChargeDisplay
+                            soc={currentSoc}
+                            powerKw={currentPowerKw}
+                            energyKWh={totalEnergyKWh}
+                            elapsedTime={elapsedTime}
+                            isCharging={true}
+                        />
+                      </div>
+                  )}
+                </div>
+            )}
           </div>
+
+          {/* CÂBLE - placé au niveau du containerRef pour couvrir borne et voiture */}
+          {showCable && isParked && isPlugged && (
+              <Cable
+                  containerRef={containerRef}
+                  startRef={stationPortRef}
+                  endRef={carPortRef}
+                  show={isParked && isPlugged}
+                  charging={selSession?.status === "charging" || selSession?.status === "started"}
+                  state={
+                    selSession?.status === "charging" || selSession?.status === "started"
+                      ? 'charging'
+                      : isPlugged
+                        ? 'plugged'
+                        : isParked
+                          ? 'vehicle_parked'
+                          : 'idle'
+                  }
+                  powerKW={currentPowerKw}
+                  sagFactor={0.35}
+                  extraDropPx={60}
+                  onAnglesChange={setConnAngles}
+              />
+          )}
         </div>
 
         {/* Métriques + Graph + Logs - Layout amélioré */}

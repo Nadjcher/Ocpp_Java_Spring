@@ -15,3 +15,11 @@ export { GPMSetpointCard } from './GPMSetpointCard';
 export { VehicleCard } from './VehicleCard';
 export { EVSEStation } from './EVSEStation';
 export { ChargingCable } from './ChargingCable';
+
+// UX refactored components
+export { AccordionSection } from './AccordionSection';
+export { ConnectionPanel } from './ConnectionPanel';
+export { EvseConfigSection } from './EvseConfigSection';
+export { VehicleConfigSection } from './VehicleConfigSection';
+export { MeterValuesSection } from './MeterValuesSection';
+export { ActionBar } from './ActionBar';
