@@ -261,6 +261,54 @@ public class MeterValuesSteps {
     }
 
     /**
+     * Vérifie que les MeterValues sont envoyées conformément à l'intervalle configuré.
+     * Contrôle que l'écart entre chaque envoi ne dépasse pas la tolérance (par défaut 10%).
+     */
+    @Then("les MeterValues respectent l'intervalle de {int} secondes")
+    public void thenMeterValuesRespectInterval(int expectedIntervalSec, TnrContext context) {
+        List<OcppMessageCapture> meterValues = context.getMessagesByAction("MeterValues");
+
+        if (meterValues.size() < 2) {
+            log.info("[METER-VALUES] Not enough messages to validate interval (got {})", meterValues.size());
+            return;
+        }
+
+        long expectedIntervalMs = expectedIntervalSec * 1000L;
+        double tolerancePercent = 10.0;
+        double toleranceMs = expectedIntervalMs * tolerancePercent / 100.0;
+        int violations = 0;
+        long maxDeviationMs = 0;
+
+        for (int i = 1; i < meterValues.size(); i++) {
+            long prevMs = meterValues.get(i - 1).getTimestamp().toEpochMilli();
+            long currMs = meterValues.get(i).getTimestamp().toEpochMilli();
+            long actualIntervalMs = currMs - prevMs;
+            long deviationMs = Math.abs(actualIntervalMs - expectedIntervalMs);
+
+            if (deviationMs > maxDeviationMs) {
+                maxDeviationMs = deviationMs;
+            }
+
+            if (deviationMs > toleranceMs) {
+                violations++;
+                log.warn("[METER-VALUES] Interval violation at index {}: expected={}ms, actual={}ms, deviation={}ms",
+                        i, expectedIntervalMs, actualIntervalMs, deviationMs);
+            }
+        }
+
+        if (violations > 0) {
+            throw new AssertionError(
+                    String.format("MeterValues interval non conforme: %d violations sur %d intervalles, " +
+                                    "déviation max=%dms (tolérance=%.0fms pour intervalle=%ds)",
+                            violations, meterValues.size() - 1, maxDeviationMs,
+                            toleranceMs, expectedIntervalSec));
+        }
+
+        log.info("[METER-VALUES] Interval {}s verified OK: {} intervals, max deviation={}ms",
+                expectedIntervalSec, meterValues.size() - 1, maxDeviationMs);
+    }
+
+    /**
      * Vérifie que le nombre de MeterValues est correct.
      */
     @Then("{int} MeterValues ont été envoyées")

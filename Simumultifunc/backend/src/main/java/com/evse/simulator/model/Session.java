@@ -431,6 +431,35 @@ public class Session {
     private LocalDateTime lastHeartbeat;
 
     // =========================================================================
+    // MeterValues Interval Tracking
+    // =========================================================================
+
+    /**
+     * Timestamp (epoch ms) du dernier envoi de MeterValues.
+     * Utilisé pour vérifier la conformité de l'intervalle d'envoi.
+     */
+    @Builder.Default
+    private long lastMeterValuesSentAtMs = 0;
+
+    /**
+     * Nombre total de MeterValues envoyées dans la session courante.
+     */
+    @Builder.Default
+    private int meterValuesSendCount = 0;
+
+    /**
+     * Déviation maximale observée (en ms) par rapport à l'intervalle configuré.
+     */
+    @Builder.Default
+    private long meterValuesMaxDeviationMs = 0;
+
+    /**
+     * Nombre de violations de l'intervalle MeterValues (déviation > tolérance).
+     */
+    @Builder.Default
+    private int meterValuesIntervalViolations = 0;
+
+    // =========================================================================
     // Données temps réel (limité à 500 entrées)
     // =========================================================================
 
