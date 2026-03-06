@@ -1416,7 +1416,36 @@ export default function SimuEvseTab() {
     try {
       const allSessions: SessionItem[] = await fetchJSON(`/api/simu`);
       // Filtrer les sessions de performance (ID commençant par "perf-")
-      const list = allSessions.filter(s => !s.id?.startsWith('perf-'));
+      const filtered = allSessions.filter(s => !s.id?.startsWith('perf-'));
+
+      // Dédupliquer par cpId : garder uniquement la session la plus récente/active par cpId
+      // Priorité : charging/started > authorized > plugged > booted/parked > connected > autres
+      const STATUS_PRIORITY: Record<string, number> = {
+        started: 10, charging: 10,
+        stopping: 9, suspended_evse: 9, suspended_ev: 9,
+        authorized: 8, authorizing: 7,
+        plugged: 6, starting: 6,
+        parked: 5, preparing: 5,
+        booted: 4, available: 4,
+        connected: 3, connecting: 2,
+        stopped: 1, finished: 1, finishing: 1,
+        disconnected: 0, closed: 0, error: 0,
+      };
+      const byCpId = new Map<string, SessionItem>();
+      for (const s of filtered) {
+        const existing = byCpId.get(s.cpId);
+        if (!existing) {
+          byCpId.set(s.cpId, s);
+        } else {
+          // Garder la session avec le statut le plus actif
+          const existingPrio = STATUS_PRIORITY[existing.status] ?? 0;
+          const currentPrio = STATUS_PRIORITY[s.status] ?? 0;
+          if (currentPrio > existingPrio) {
+            byCpId.set(s.cpId, s);
+          }
+        }
+      }
+      const list = Array.from(byCpId.values());
       setSessions(list);
 
       // Ne changer la sélection que si:
@@ -1499,6 +1528,18 @@ export default function SimuEvseTab() {
 
     // Reset boot status
     setBootAccepted(null);
+
+    // Nettoyer les anciennes sessions avec le même cpId (évite les doublons d'onglets)
+    const staleSessions = sessions.filter(s => s.cpId === cpId);
+    for (const stale of staleSessions) {
+      try {
+        await fetchJSON(`/api/simu/${stale.id}`, { method: 'DELETE' });
+        cleanupSessionCache(stale.id);
+        addLog('INFO', 'SESSION', `>> Cleaned up old session ${stale.id} for cpId=${cpId}`);
+      } catch {
+        // Ignore errors on cleanup - the session may already be gone
+      }
+    }
 
     addLog('INFO', 'SESSION', `>> Creating session`, { cpId, url: fullUrl, evseType, maxA });
     try {
