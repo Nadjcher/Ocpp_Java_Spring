@@ -646,6 +646,11 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
      * @param sessionId ID de la session
      * @param intervalSec Intervalle en secondes (-1 pour utiliser la valeur par défaut)
      */
+    /**
+     * Tolérance par défaut pour la vérification de l'intervalle MeterValues (10%).
+     */
+    private static final double METER_VALUES_INTERVAL_TOLERANCE_PERCENT = 10.0;
+
     public void startMeterValuesWithInterval(String sessionId, int intervalSec) {
         // D'abord arrêter toute tâche existante
         stopMeterValuesPublic(sessionId);
@@ -654,8 +659,18 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
         int interval = intervalSec > 0 ? intervalSec :
                 (session.getMeterValuesInterval() > 0 ? session.getMeterValuesInterval() : meterValuesInterval / 1000);
 
+        // Réinitialiser les compteurs de suivi d'intervalle
+        session.setLastMeterValuesSentAtMs(0);
+        session.setMeterValuesSendCount(0);
+        session.setMeterValuesMaxDeviationMs(0);
+        session.setMeterValuesIntervalViolations(0);
+
+        long intervalMs = interval * 1000L;
+
         ScheduledFuture<?> task = scheduler.scheduleAtFixedRate(
                 () -> {
+                    // Vérifier la conformité de l'intervalle avant l'envoi
+                    verifyMeterValuesInterval(sessionId, intervalMs);
                     // D'abord simuler la charge pour mettre à jour l'énergie
                     simulateCharging(sessionId);
                     // Ensuite envoyer les MeterValues avec les données à jour
@@ -667,6 +682,53 @@ public class OCPPService implements com.evse.simulator.domain.service.OCPPServic
         session.setMeterValuesActive(true);
         session.setMeterValuesInterval(interval);
         log.info("Started meter values for session {} every {}s", sessionId, interval);
+    }
+
+    /**
+     * Vérifie que l'intervalle réel entre deux envois de MeterValues
+     * est conforme à l'intervalle configuré.
+     *
+     * @param sessionId ID de la session
+     * @param expectedIntervalMs Intervalle attendu en millisecondes
+     */
+    void verifyMeterValuesInterval(String sessionId, long expectedIntervalMs) {
+        Session session = sessionService.getSession(sessionId);
+        long now = System.currentTimeMillis();
+        long lastSent = session.getLastMeterValuesSentAtMs();
+
+        session.setMeterValuesSendCount(session.getMeterValuesSendCount() + 1);
+        session.setLastMeterValuesSentAtMs(now);
+
+        // Premier envoi : pas de comparaison possible
+        if (lastSent == 0) {
+            log.debug("MeterValues interval tracking started for session {}", sessionId);
+            return;
+        }
+
+        long actualIntervalMs = now - lastSent;
+        long deviationMs = Math.abs(actualIntervalMs - expectedIntervalMs);
+        double deviationPercent = (deviationMs * 100.0) / expectedIntervalMs;
+
+        // Mettre à jour la déviation maximale
+        if (deviationMs > session.getMeterValuesMaxDeviationMs()) {
+            session.setMeterValuesMaxDeviationMs(deviationMs);
+        }
+
+        double toleranceMs = expectedIntervalMs * METER_VALUES_INTERVAL_TOLERANCE_PERCENT / 100.0;
+
+        if (deviationMs > toleranceMs) {
+            session.setMeterValuesIntervalViolations(session.getMeterValuesIntervalViolations() + 1);
+            log.warn("MeterValues interval VIOLATION for session {}: expected={}ms, actual={}ms, deviation={}ms ({}%), violations={}",
+                    sessionId, expectedIntervalMs, actualIntervalMs, deviationMs,
+                    String.format("%.1f", deviationPercent), session.getMeterValuesIntervalViolations());
+            sessionService.addLog(sessionId, LogEntry.warn("MeterValues",
+                    String.format("Intervalle non conforme: attendu=%dms, réel=%dms, déviation=%dms (%.1f%%)",
+                            expectedIntervalMs, actualIntervalMs, deviationMs, deviationPercent)));
+        } else {
+            log.debug("MeterValues interval OK for session {}: expected={}ms, actual={}ms, deviation={}ms ({}%)",
+                    sessionId, expectedIntervalMs, actualIntervalMs, deviationMs,
+                    String.format("%.1f", deviationPercent));
+        }
     }
 
     /**
